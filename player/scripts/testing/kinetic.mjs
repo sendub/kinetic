@@ -749,6 +749,40 @@ async function checkStartedAt(page, id) {
   );
 }
 
+/**
+ * trace()'s read of the page `win` (its window), in one round trip so no
+ * record the player appends can fall between the read and the emptying:
+ * `{ records, dropped }`, every record in `__kineticTrace`, which it empties
+ * in place (`length = 0`: the player keeps appending to the same array),
+ * and `__kineticTraceDropped`, the records the player dropped past its cap
+ * since the last read, which it resets to 0 (the player adds to the
+ * counter as it finds it). Null when the page has no trace array: a player
+ * that keeps no trace (src/render/trace.ts). Runs in the page, so it uses
+ * nothing from outside its own body.
+ */
+export const drainTrace = (win) => {
+  const trace = win.__kineticTrace;
+  if (!Array.isArray(trace)) return null;
+  const records = trace.slice();
+  trace.length = 0;
+  const dropped = win.__kineticTraceDropped ?? 0;
+  win.__kineticTraceDropped = 0;
+  return { records, dropped };
+};
+
+/**
+ * trace()'s refusal on a folder whose player keeps no trace (an older
+ * one), naming its `version` (folderKineticVersion; null for a player
+ * built before the version stamp).
+ */
+export const traceRefusal = (version) =>
+  `trace: the folder's player (${version === null ? "built before Kinetic versions were stamped" : `Kinetic ${version}`}) keeps no item trace; rebuilding the folder with a current player fixes this (CREATE.md, "Upgrading to a newer Kinetic")`;
+
+// Sets the player's trace flag (src/render/trace.ts) before it starts.
+const TRACE_FLAG = () => {
+  window.KINETIC_TEST_TRACE = true;
+};
+
 const SHIM_PREFIX = "window.KINETIC_MANIFEST = ";
 
 /**
@@ -949,6 +983,9 @@ export function countChecked(previous, open) {
  *   whose player cannot start at an item (an older one) throws once it
  *   has opened, saying so and that rebuilding with a current player
  *   fixes it.
+ * - `trace`: true sets `window.KINETIC_TEST_TRACE` before the player
+ *   starts (on every load, reloads included), so it keeps the item trace
+ *   the handle's trace() reads (src/render/trace.ts). Default false.
  * - `mediaChecks`: false loads no media file off the page to check it, so
  *   errors() lists only the failed loads the page's own elements report
  *   and checkMedia() throws (check-game's `--no-media-check`). Default
@@ -981,6 +1018,7 @@ export async function openGame(folder, options = {}) {
     playAll = null,
     startAt = null,
     mediaChecks = true,
+    trace = false,
     log = (line) => console.error(line),
   } = options;
   const dir = resolve(folder);
@@ -993,6 +1031,9 @@ export async function openGame(folder, options = {}) {
   }
   if (playAll !== null && typeof playAll !== "boolean") {
     throw new Error(`openGame: playAll must be true, false or null`);
+  }
+  if (typeof trace !== "boolean") {
+    throw new Error("openGame: trace must be true or false");
   }
   if (startAt !== null) checkStartAt(dir, startAt);
   const chosen = chooseEngine(engine, log);
@@ -1029,6 +1070,7 @@ export async function openGame(folder, options = {}) {
     await page.evaluateOnNewDocument(TRACK_MEDIA, {
       offPage: mediaChecks !== false,
     });
+    if (trace) await page.evaluateOnNewDocument(TRACE_FLAG);
     const cdp = await page.createCDPSession();
     const url = pathToFileURL(join(dir, "index.html")).href;
     await page.goto(
@@ -1057,6 +1099,7 @@ export async function openGame(folder, options = {}) {
         browser,
         indexUrl: url,
         mediaChecks: mediaChecks !== false,
+        traced: trace,
       },
       {
         engine: chosen,
@@ -1093,7 +1136,17 @@ async function openChecker(browser, indexUrl) {
 }
 
 function gameHandle(
-  { page, cdp, errors, manifest, closeHelp, browser, indexUrl, mediaChecks },
+  {
+    page,
+    cdp,
+    errors,
+    manifest,
+    closeHelp,
+    browser,
+    indexUrl,
+    mediaChecks,
+    traced,
+  },
   fields,
 ) {
   const items = Array.isArray(manifest?.items) ? manifest.items : [];
@@ -1523,6 +1576,31 @@ function gameHandle(
             .catch(() => {});
         }
       }
+    },
+    /**
+     * The item trace's records since the last call (src/render/trace.ts;
+     * CREATE.md, "Testing your game"), for a game opened with `trace:
+     * true`: resolves `{ records, dropped }`, `records` in the order the
+     * player made them (`n` from 0 per page load, so a gap shows) and
+     * `dropped` how many the player dropped past its cap of 200,000 since
+     * the last call (0 unless the array went that long undrained). Each
+     * call empties the page's array and resets that counter in the same
+     * round trip (drainTrace), so call it often on a long walk. A reload()
+     * starts the trace again from `n` 0: read it before reloading. Rejects
+     * on a game opened without `trace: true`, and on a folder whose player
+     * keeps no trace (an older one), naming its version and the fix
+     * (traceRefusal).
+     */
+    async trace() {
+      if (!traced) {
+        throw new Error(
+          "trace: this game was opened without trace: true, so the player keeps no item trace",
+        );
+      }
+      const drained = await page.evaluate(`(${drainTrace})(window)`);
+      if (drained === null)
+        throw new Error(traceRefusal(fields.kineticVersion));
+      return drained;
     },
     /** The console errors and warnings and the page errors so far. */
     errors: () => [...errors],

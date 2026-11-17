@@ -16,7 +16,7 @@ export const STUCK_MS = 2000;
 const NEVER_SHOWN_NAMED = 10;
 
 export const USAGE =
-  "usage: node check-game.mjs <game-folder> [--engine webkit|chrome|auto] [--steps N|all] [--start-at ID] [--until ID] [--no-media-check]\n       node check-game.mjs --version";
+  "usage: node check-game.mjs <game-folder> [--engine webkit|chrome|auto] [--steps N|all] [--start-at ID] [--until ID] [--no-media-check] [--trace FILE]\n       node check-game.mjs --version";
 
 /**
  * check-game's first line: the engine, the folder and the folder's player
@@ -63,8 +63,9 @@ const screenKey = (now) =>
 
 /**
  * check-game.mjs's command line: `{ folder, engine, steps, startAt, until,
- * mediaCheck }` (`steps` a whole number or "all", default 10; `mediaCheck`
- * false for `--no-media-check`), `{ version: true }` when `--version` is
+ * mediaCheck, trace }` (`steps` a whole number or "all", default 10;
+ * `mediaCheck` false for `--no-media-check`; `trace` the file `--trace`
+ * names, else null), `{ version: true }` when `--version` is
  * anywhere on it (print Kinetic's version, nothing else), or `{ error }`
  * for anything else (exit 2 with USAGE).
  */
@@ -75,6 +76,7 @@ export function readArgs(argv) {
     steps: "10",
     "start-at": null,
     until: null,
+    trace: null,
   };
   let mediaCheck = true;
   let stepsGiven = false;
@@ -111,6 +113,9 @@ export function readArgs(argv) {
       error: `--engine takes webkit, chrome or auto, not ${options.engine}`,
     };
   }
+  if (options.trace === "") {
+    return { error: "--trace takes a file to write, not an empty name" };
+  }
   const steps = options.steps === "all" ? "all" : Number(options.steps);
   if (
     steps !== "all" &&
@@ -127,8 +132,16 @@ export function readArgs(argv) {
     startAt: options["start-at"],
     until: options.until,
     mediaCheck,
+    trace: options.trace,
   };
 }
+
+/**
+ * The summary's trace line (`--trace`): how many records were written to
+ * `file` and how many the player dropped (past its cap, between drains).
+ */
+export const traceSummaryLine = ({ written, dropped, file }) =>
+  `trace: ${grouped(written)} ${written === 1 ? "record" : "records"} written to ${file}, ${grouped(dropped)} dropped`;
 
 /**
  * The summary's media line, from checkMedia()'s counts: how many files

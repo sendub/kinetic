@@ -34,6 +34,7 @@ import {
 import {
   chooseEngine,
   countChecked,
+  drainTrace,
   findItem,
   narrowItems,
   nearestAfter,
@@ -45,6 +46,7 @@ import {
   readSegment,
   referencedFiles,
   summary,
+  traceRefusal,
 } from "./kinetic.mjs";
 
 /** A CDP stand-in that records every call. */
@@ -598,6 +600,19 @@ describe("openGame before it starts a browser", () => {
       await expect(openGame(dir, { engine: "chrome" })).rejects.toThrow(
         /has no app\.js; open a built game folder/,
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a trace that is not true or false", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kinetic-open-"));
+    try {
+      writeFileSync(join(dir, "index.html"), "<!doctype html>");
+      writeFileSync(join(dir, "app.js"), "");
+      await expect(
+        openGame(dir, { engine: "chrome", trace: "yes" }),
+      ).rejects.toThrow("openGame: trace must be true or false");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1165,5 +1180,51 @@ describe("failed load reasons", () => {
         `[error] Failed to load resource: ${beside}`,
       ]);
     });
+  });
+});
+
+describe("drainTrace (trace()'s one page round trip)", () => {
+  const record = (n) => Object.freeze({ n, kind: "item", itemId: `i${n}` });
+
+  it("takes every record and empties the page's own array, which the player keeps appending to", () => {
+    const array = [record(0), record(1), record(2)];
+    const win = { __kineticTrace: array, __kineticTraceDropped: 0 };
+    const drained = drainTrace(win);
+    expect(drained).toEqual({
+      records: [record(0), record(1), record(2)],
+      dropped: 0,
+    });
+    expect(win.__kineticTrace).toBe(array);
+    expect(array).toEqual([]);
+    array.push(record(3));
+    expect(drainTrace(win)).toEqual({ records: [record(3)], dropped: 0 });
+    expect(drainTrace(win)).toEqual({ records: [], dropped: 0 });
+  });
+
+  it("reports the records dropped since the last call and resets the counter", () => {
+    const win = { __kineticTrace: [record(7)], __kineticTraceDropped: 5 };
+    expect(drainTrace(win)).toEqual({ records: [record(7)], dropped: 5 });
+    expect(win.__kineticTraceDropped).toBe(0);
+    win.__kineticTraceDropped += 2;
+    expect(drainTrace(win).dropped).toBe(2);
+  });
+
+  it("returns null from a page whose player keeps no trace", () => {
+    expect(drainTrace({})).toBeNull();
+    expect(drainTrace({ __kineticTrace: "x" })).toBeNull();
+  });
+});
+
+describe("traceRefusal (trace() on an older player)", () => {
+  it("names the folder's player version and says a rebuild with a current player fixes it", () => {
+    expect(traceRefusal("1.9.1")).toBe(
+      'trace: the folder\'s player (Kinetic 1.9.1) keeps no item trace; rebuilding the folder with a current player fixes this (CREATE.md, "Upgrading to a newer Kinetic")',
+    );
+  });
+
+  it("says when the player predates Kinetic's version stamp", () => {
+    expect(traceRefusal(null)).toBe(
+      'trace: the folder\'s player (built before Kinetic versions were stamped) keeps no item trace; rebuilding the folder with a current player fixes this (CREATE.md, "Upgrading to a newer Kinetic")',
+    );
   });
 });

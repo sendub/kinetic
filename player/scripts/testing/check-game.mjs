@@ -9,6 +9,7 @@
 //
 //   node player/scripts/testing/check-game.mjs <folder> [--engine webkit|chrome|auto]
 //       [--steps N|all] [--start-at ID] [--until ID] [--no-media-check]
+//       [--trace FILE]
 //   node player/scripts/testing/check-game.mjs --version
 //
 // The first line names the engine, the folder and the folder's player
@@ -49,6 +50,20 @@
 // --no-media-check  skips the media check: the summary says `media files
 //              not checked (--no-media-check)`, and only failed loads the
 //              page's own elements report (the console) can fail the run.
+// --trace FILE opens the game with the player's item trace on (openGame's
+//              `trace`; src/render/trace.ts) and writes every record of
+//              the walk to FILE (created or emptied, before any browser
+//              starts; one it cannot write is a bad argument), one JSON
+//              object per line in the order the player made them: `n`
+//              from 0 with no gap unless the player dropped some. The
+//              trace is drained every TRACE_DRAIN_STEPS steps and after
+//              the walk, so the page's array stays far below its cap
+//              (KINETIC_CHECK_GAME_TRACE_DRAIN_STEPS sets that interval,
+//              for tests). The
+//              summary says `trace: N records written to FILE, D
+//              dropped`. A folder whose player keeps no trace (an older
+//              one) fails the run before the walk, exit 1, naming its
+//              version and that rebuilding with a current player fixes it.
 //
 // After the walk: the items visited out of the manifest's count; for an
 // older player (no item id on the page), how many steps were named from
@@ -68,12 +83,15 @@
 // milliseconds for both (for tests).
 //
 // Exit codes: 0 passed; 1 console or page errors, a game that would not
-// open, a stuck player, the --steps all cap, an --until not reached or a
-// media check that stalled; 2 bad arguments (a bad --engine or --steps,
-// an id the manifest lacks), all checked before any browser starts; 3 a
+// open, a stuck player, the --steps all cap, an --until not reached, a
+// media check that stalled, or a --trace the folder's player cannot keep
+// or that could not be read or written; 2 bad arguments (a bad --engine
+// or --steps, an id the manifest lacks, a --trace FILE missing or not
+// writable), all checked before any browser starts; 3 a
 // walk from the opening reached the story's end with items never shown, or
 // a walk reached its --until with items of its span not shown. 1 wins
 // over 3.
+import { closeSync, openSync, writeSync } from "node:fs";
 import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { KINETIC_VERSION } from "../version.mjs";
@@ -86,6 +104,7 @@ import {
   readArgs,
   segmentCount,
   startWalk,
+  traceSummaryLine,
   USAGE,
   untilSpan,
 } from "./walk.mjs";
@@ -98,11 +117,18 @@ const SETTLE_MS = 500;
 const STILL_GAP_MS = 100;
 // checkMedia() says on stderr how many files it has to check from this many.
 const MANY_MEDIA = 100;
-const HEARTBEAT_MS = (() => {
-  const raw = process.env.KINETIC_CHECK_GAME_HEARTBEAT_MS;
-  const ms = Number(raw);
-  return raw !== undefined && Number.isInteger(ms) && ms > 0 ? ms : 30000;
-})();
+// A whole number above 0 from the environment variable `name`, else `fallback`.
+const envCount = (name, fallback) => {
+  const raw = process.env[name];
+  const n = Number(raw);
+  return raw !== undefined && Number.isInteger(n) && n > 0 ? n : fallback;
+};
+const HEARTBEAT_MS = envCount("KINETIC_CHECK_GAME_HEARTBEAT_MS", 30000);
+// --trace drains the page's trace every this many steps: a press makes a
+// few records at most (an item, a choice), so the player's array, capped
+// at 200,000, never nears its cap. KINETIC_CHECK_GAME_TRACE_DRAIN_STEPS
+// sets it (for tests).
+const TRACE_DRAIN_STEPS = envCount("KINETIC_CHECK_GAME_TRACE_DRAIN_STEPS", 100);
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const say = (line) => console.error(`check-game: ${line}`);
@@ -143,17 +169,57 @@ if (asked.length > 0) {
   }
 }
 
+// The --trace file, created or emptied before any browser starts.
+const traceFile = args.trace === null ? null : resolve(args.trace);
+let traceFd = null;
+if (traceFile !== null) {
+  try {
+    traceFd = openSync(traceFile, "w");
+  } catch (error) {
+    say(`cannot write --trace ${traceFile}: ${error.message}`);
+    process.exit(2);
+  }
+}
+
 let game;
 try {
   game = await openGame(args.folder, {
     engine: args.engine,
     startAt: args.startAt,
     mediaChecks: args.mediaCheck,
+    trace: traceFd !== null,
   });
 } catch (error) {
   console.error(error.message);
   process.exit(1);
 }
+
+// The records written to the --trace file and those the player dropped.
+const traced = { written: 0, dropped: 0, file: traceFile };
+/** Appends the trace's records since the last drain to the --trace file. */
+async function writeTrace() {
+  const { records, dropped } = await game.trace();
+  if (records.length > 0) {
+    writeSync(
+      traceFd,
+      `${records.map((record) => JSON.stringify(record)).join("\n")}\n`,
+    );
+  }
+  traced.written += records.length;
+  traced.dropped += dropped;
+}
+if (traceFd !== null) {
+  // An older player fails here, before the walk.
+  try {
+    await writeTrace();
+  } catch (error) {
+    console.error(error.message);
+    await game.close();
+    closeSync(traceFd);
+    process.exit(1);
+  }
+}
+let traceFailed = false;
 
 let mediaFailed = false;
 let errors = [];
@@ -180,6 +246,9 @@ try {
         await game.press("Space");
       }
       const now = await game.current();
+      if (traceFd !== null && walk.step % TRACE_DRAIN_STEPS === 0) {
+        await writeTrace();
+      }
       const stop = walk.see(now, performance.now());
       const line = summary(now);
       if (line !== last) console.log(`  ${walk.step}: ${line}`);
@@ -191,6 +260,15 @@ try {
   }
   clearInterval(heartbeat);
   for (const line of walk.lines()) console.log(line);
+  if (traceFd !== null) {
+    try {
+      await writeTrace();
+      console.log(traceSummaryLine(traced));
+    } catch (error) {
+      console.error(`check-game: --trace: ${error.message}`);
+      traceFailed = true;
+    }
+  }
   if (args.mediaCheck) {
     let progress = null;
     const progressBeat = setInterval(() => {
@@ -225,6 +303,7 @@ try {
 } finally {
   clearInterval(heartbeat);
   await game.close();
+  if (traceFd !== null) closeSync(traceFd);
 }
 for (const error of errors) console.log(`  ${error}`);
 console.log(
@@ -232,4 +311,5 @@ console.log(
     ? "no console or page errors"
     : `${errors.length} console or page error(s)`,
 );
-process.exitCode = mediaFailed ? 1 : exitCode(walk, errors.length);
+process.exitCode =
+  mediaFailed || traceFailed ? 1 : exitCode(walk, errors.length);

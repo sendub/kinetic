@@ -58,6 +58,15 @@
 //   the steps come on its last line; on one with a segment item appended
 //   as the manifest's last item, the walk steps all three and ends with
 //   `story ended at step N`, N the step of the last view.
+// - The item trace (docs/plan.md Phase 54, item 2): `--trace FILE` on the
+//   whole demo with `--steps all`, drained every 3 steps
+//   (KINETIC_CHECK_GAME_TRACE_DRAIN_STEPS), writes one JSON record per
+//   line, `n` from 0 with no gap, the item records' ids the walk's own
+//   steps in order, an end record last; the summary says `trace: N records
+//   written to FILE, 0 dropped`, N the file's lines, exit 0. A copy whose player keeps no
+//   trace (stamped 1.9.1) exits 1 before the walk, naming its player and
+//   the fix; `--trace` with no file, or a folder for FILE, exits 2 before
+//   any browser starts.
 // - The folder's player version (docs/plan.md Phase 51, item 2): the first
 //   line is `<engine>: <folder> (Kinetic <VERSION>)` on the demo and
 //   `(Kinetic unknown)` on a copy whose app.js has no version stamp (an
@@ -67,18 +76,20 @@
 import { execFile } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   audioDemoDir,
   demoDir,
   engine,
   item,
+  keepNoTrace,
   kineticVersion,
   manifest,
   playerDir,
@@ -108,6 +119,7 @@ export const parts = [
   segmentsAfterLines,
   segmentsAtEnd,
   playerVersion,
+  traceFile,
 ];
 
 const CHECK_GAME = join(playerDir, "scripts", "testing", "check-game.mjs");
@@ -459,6 +471,69 @@ async function playerVersion({ check }) {
       asked.stdout === `Kinetic ${kineticVersion}\n` &&
       asked.stderr === "",
     evidence(asked),
+  );
+}
+
+async function traceFile({ check }) {
+  const file = join(scenarioRoot, "checkgame-trace", "walk.jsonl");
+  rmSync(dirname(file), { recursive: true, force: true });
+  mkdirSync(dirname(file), { recursive: true });
+  // Drained every 3 steps, so the walk drains it mid-way many times.
+  const run = await checkGame(demoDir, ["--steps", "all", "--trace", file], {
+    KINETIC_CHECK_GAME_TRACE_DRAIN_STEPS: "3",
+  });
+  const written = existsSync(file)
+    ? lines(readFileSync(file, "utf8")).map((line) => JSON.parse(line))
+    : [];
+  // The walk's steps, each item once in a row (a choice opening on the
+  // same item is a step of its own).
+  const walked = itemLines(run.stdout)
+    .map((s) => s.id)
+    .filter((id, n, all) => n === 0 || id !== all[n - 1]);
+  const traced = written
+    .filter((record) => record.kind === "item")
+    .map((record) => record.itemId);
+  check(
+    "--trace FILE on the whole demo writes one JSON record per line, `n` from 0 with no gap, the item records the walk's own steps in order, an end record last, exit 0",
+    run.code === 0 &&
+      written.length > 0 &&
+      written.every((record, n) => record.n === n) &&
+      JSON.stringify(traced) === JSON.stringify(walked) &&
+      written.at(-1).kind === "end" &&
+      written.at(-1).itemId === LAST.id,
+    { records: written.length, traced, walked, ...evidence(run) },
+  );
+  check(
+    "the summary says how many records were written to the file and how many dropped",
+    run.stdout.includes(
+      `\ntrace: ${written.length} records written to ${resolve(file)}, 0 dropped\n`,
+    ),
+    evidence(run),
+  );
+  const folder = demoCopy("checkgame-trace-older");
+  keepNoTrace(folder, "1.9.1");
+  const older = await checkGame(folder, ["--steps", "all", "--trace", file]);
+  check(
+    "a copy whose player keeps no trace exits 1 before the walk, naming its player and that rebuilding with a current player fixes it",
+    older.code === 1 &&
+      itemLines(older.stdout).length === 0 &&
+      older.stderr.includes(
+        "trace: the folder's player (Kinetic 1.9.1) keeps no item trace; rebuilding the folder with a current player fixes this",
+      ),
+    evidence(older),
+  );
+  const noFile = await checkGame(demoDir, ["--trace"]);
+  const aFolder = await checkGame(demoDir, ["--trace", dirname(file)]);
+  check(
+    "--trace with no file, or a folder for FILE, exits 2 before any browser starts",
+    noFile.code === 2 &&
+      noFile.stdout === "" &&
+      noFile.stderr.includes("--trace needs a value") &&
+      noFile.stderr.includes("[--trace FILE]") &&
+      aFolder.code === 2 &&
+      aFolder.stdout === "" &&
+      aFolder.stderr.includes(`cannot write --trace ${resolve(dirname(file))}`),
+    { noFile: evidence(noFile), aFolder: evidence(aFolder) },
   );
 }
 

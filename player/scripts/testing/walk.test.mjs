@@ -19,6 +19,7 @@ import {
   STUCK_PRESSES,
   segmentCount,
   startWalk,
+  traceSummaryLine,
   USAGE,
   untilSpan,
 } from "./walk.mjs";
@@ -460,6 +461,7 @@ describe("readArgs", () => {
       startAt: null,
       until: null,
       mediaCheck: true,
+      trace: null,
     });
     expect(
       readArgs([
@@ -472,6 +474,8 @@ describe("readArgs", () => {
         "x",
         "--until",
         "y",
+        "--trace",
+        "out/trace.jsonl",
       ]),
     ).toEqual({
       folder: "game",
@@ -480,6 +484,7 @@ describe("readArgs", () => {
       startAt: "x",
       until: "y",
       mediaCheck: true,
+      trace: "out/trace.jsonl",
     });
     expect(readArgs(["game", "--steps", "0"]).steps).toBe(0);
   });
@@ -513,9 +518,37 @@ describe("readArgs", () => {
       ["game", "--fast"],
       ["game", "--media-check"],
       ["game", "other"],
+      ["game", "--trace"],
+      ["game", "--trace", "--steps", "3"],
+      ["game", "--trace", ""],
     ]) {
       expect(readArgs(argv), JSON.stringify(argv)).toHaveProperty("error");
     }
+  });
+});
+
+describe("readArgs --trace", () => {
+  it("takes the file to write the trace to, in the usage too", () => {
+    expect(readArgs(["--trace", "t.jsonl", "game"]).trace).toBe("t.jsonl");
+    expect(USAGE).toContain("[--trace FILE]");
+  });
+
+  it("refuses --trace without a file, naming it", () => {
+    expect(readArgs(["game", "--trace"]).error).toBe("--trace needs a value");
+    expect(readArgs(["game", "--trace", ""]).error).toBe(
+      "--trace takes a file to write, not an empty name",
+    );
+  });
+});
+
+describe("traceSummaryLine", () => {
+  it("says how many records were written to the file and how many dropped, grouped by thousands", () => {
+    expect(
+      traceSummaryLine({ written: 12345, dropped: 0, file: "/t/a.jsonl" }),
+    ).toBe("trace: 12,345 records written to /t/a.jsonl, 0 dropped");
+    expect(
+      traceSummaryLine({ written: 1, dropped: 2001, file: "/t/a.jsonl" }),
+    ).toBe("trace: 1 record written to /t/a.jsonl, 2,001 dropped");
   });
 });
 
@@ -552,6 +585,32 @@ describe("check-game.mjs --version", () => {
         stdout: `Kinetic ${version.trim()}\n`,
         stderr: "",
       });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("check-game.mjs --trace FILE it cannot write", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+
+  it("exits 2 naming the file, before any browser starts", async () => {
+    const scratch = resolve(here, "../../../.tmp");
+    mkdirSync(scratch, { recursive: true });
+    const cwd = mkdtempSync(join(scratch, "check-game-trace-"));
+    try {
+      const run = await new Promise((done) => {
+        execFile(
+          process.execPath,
+          [join(here, "check-game.mjs"), "game", "--trace", cwd],
+          { cwd },
+          (error, stdout, stderr) =>
+            done({ code: error?.code ?? 0, stdout, stderr }),
+        );
+      });
+      expect(run.code).toBe(2);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toContain(`check-game: cannot write --trace ${cwd}`);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

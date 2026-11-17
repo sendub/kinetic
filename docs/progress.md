@@ -4822,9 +4822,29 @@ truthful: an unchecked box means nothing was accepted.
       docs/verify-player.md row. Orchestrator: npm test 1529 passed,
       check clean, verify --smoke 6/6, `trace` 7/7 Chrome and 7/7
       WebKit, load average about 7.)
-- [ ] The trace in the testing tools (docs/plan.md Phase 54, item 2).
+- [x] The trace in the testing tools (docs/plan.md Phase 54, item 2).
       `openGame(folder, { trace: true })` and the handle's `trace()`;
       `check-game --trace FILE`.
+      (2026-11-17: `trace()` empties the page's array and resets
+      `__kineticTraceDropped` in one round trip, so `dropped` counts
+      since the last call; a reload restarts `n` at 0. It rejects a game
+      opened without `trace: true`, and an older player naming its
+      version (or "built before Kinetic versions were stamped") and the
+      rebuild fix. check-game opens FILE before any browser (exit 2 when
+      missing or unwritable), drains once at the open (an older player
+      exits 1 before the walk), every 100 steps and after the walk, and
+      prints `trace: N records written to FILE, D dropped`. Deviation:
+      the handle's browser tests (a pick, a Play all run, the refusals on
+      older-player copies) are `trace` scenario parts, not
+      kinetic.test.mjs, which runs under vitest with no browser; it covers
+      the drain and refusal wording on a fake window. The checkgame
+      scenario checks the file numbered from 0 with no gap, its item ids
+      matching the walk, an end record last, and the exit 1 and 2 cases.
+      Orchestrator: npm test 1539 passed, check clean, verify --smoke
+      6/6, `checkgame trace` 56/56 Chrome and 56/56 WebKit at load
+      average 10-13; a real `--steps all --trace` walk of the assembled
+      demo wrote 37 records, n 0-36 with no gap, 4 choice records, an
+      end record last.)
 - [ ] Docs (docs/plan.md Phase 54, item 3). CREATE.md, AGENTS.md,
       docs/verify-player.md and the CHANGELOG describe the trace.
 - [ ] Phase-closer (Phase 54): full suites; VERSION 1.10.0, the

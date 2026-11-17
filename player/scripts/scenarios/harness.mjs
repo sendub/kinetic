@@ -990,6 +990,42 @@ export function removeVersionStamp(dir) {
   writeFileSync(file, code.slice(code.indexOf("\n") + 1));
 }
 
+// A page script, run before the player's own, that hides the trace flag
+// from the player (src/render/trace.ts): it then keeps no trace, as a
+// player from before the trace (docs/plan.md Phase 54) does.
+const HIDE_TRACE_FLAG = `Object.defineProperty(window, "KINETIC_TEST_TRACE", {
+  get: () => undefined,
+  set: () => {},
+});
+`;
+
+/**
+ * Makes the folder `dir` (a copy of the demo) stand in for a player from
+ * before the item trace, stamped `version` (scripts/version.mjs; null for
+ * no stamp at all): a script in its index.html, run before the player's,
+ * hides `window.KINETIC_TEST_TRACE` from it, so the player keeps no trace
+ * however the page set the flag.
+ */
+export function keepNoTrace(dir, version) {
+  writeFileSync(join(dir, "hide-trace-flag.js"), HIDE_TRACE_FLAG);
+  const index = join(dir, "index.html");
+  const html = readFileSync(index, "utf8");
+  const at = html.indexOf('<script src="manifest.js">');
+  if (at < 0) throw new Error(`no manifest.js script in ${index}`);
+  writeFileSync(
+    index,
+    `${html.slice(0, at)}<script src="hide-trace-flag.js"></script>\n    ${html.slice(at)}`,
+  );
+  removeVersionStamp(dir);
+  if (version !== null) {
+    const file = join(dir, "app.js");
+    writeFileSync(
+      file,
+      `/*! Kinetic ${version} */\n${readFileSync(file, "utf8")}`,
+    );
+  }
+}
+
 /** The demo manifest, read from fixtures/demo: ids, texts and order. */
 export const manifest = JSON.parse(
   readFileSync(join(repoRoot, "fixtures", "demo", "manifest.json"), "utf8"),
