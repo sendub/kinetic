@@ -5708,6 +5708,8 @@ truthful: an unchecked box means nothing was accepted.
       release_version and validate 471 passed; check clean; added
       non-ASCII lines are moved existing text only; package-proof
       28/28.)
+- [ ] The validator for gates (item 11b). Silent when clean, coverage
+      in `kinetic report`, `--strict` exits 3 on warnings, `--json`.
 - [ ] Phase-closer (Phase 57): full suites; VERSION 1.12.0, the
       CHANGELOG dated, tag v1.12.0, `main` fast-forwarded, the wheel
       attached to the GitHub release.

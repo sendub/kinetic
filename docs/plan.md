@@ -4326,6 +4326,25 @@ The orchestrator's choices, within those decisions:
     `sendub` account. `package-proof` gains a wheel stage: install the
     wheel in a fresh venv, run setup, convert the extract demo, report,
     check and build both apps. Tests: package-proof.
+11b. The validator for gates (a converting agent's request, 2026-11-17;
+    the user chose silent-when-clean). The agent runs the validator as
+    a gate, "exit 0 and empty output", which a game with languages can
+    never pass: every run prints a coverage line per language, even at
+    100%, and warnings cannot fail the exit status. A plain run prints
+    only problems and warnings, so a clean folder prints nothing; the
+    per-language coverage lines move to `kinetic report` (a section with
+    strings, missing, stale, unchecked and long per language, in text
+    and `--json`). `--strict` makes warnings alone exit 3 (0 clean, 1
+    problems, 2 bad arguments unchanged). `--json` prints problems,
+    warnings by kind and per-language coverage as one JSON object on
+    stdout, the exit status as without it. Applies to `kinetic validate`
+    and the tools/validate_content.py wrapper alike. Tests: a clean
+    language folder prints nothing and exits 0; `--strict` on a folder
+    with only warnings exits 3, with problems 1; `--json` shape;
+    report's coverage section; the demo builders and every test that
+    reads the coverage text updated. CREATE.md, AGENTS.md and the
+    CHANGELOG (an Upgrading bullet: coverage is in `kinetic report` or
+    `validate --json`; gates can use `--strict`).
 12. Phase-closer: full suites; VERSION 1.12.0, the CHANGELOG dated,
     tag, `main` fast-forwarded, and the wheel attached to the GitHub
     release v1.12.0.
