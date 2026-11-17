@@ -5023,8 +5023,25 @@ truthful: an unchecked box means nothing was accepted.
       the orchestrator: npm test 1654/1654, check clean; `verify --
       uilanguages languages` 5379/5379 in Chrome and in WebKit;
       catalogue 150/150 Chrome; smoke 6/6 both engines.)
-- [ ] Right to left (item 5): logical CSS, mirrored screens, the
-      branch map's layout unchanged.
+- [x] Right to left (item 5): logical CSS, mirrored screens, the
+      branch map's layout unchanged. (Evidence: `applyDocumentLanguage`
+      sets `<html dir>` from the UI language through item 3's
+      `textDirection`, live on a switch. index.html moved to logical
+      properties; the row hairline, the map row's chevron and the title
+      marks flip under `:dir(rtl)`; native range inputs run minimum at
+      the right in both engines with no pointer maths; switch knobs sit
+      at the inline end when on; the branch map is always `dir="ltr"`;
+      the arrow caps keep ← left of →. Urdu: taller controls and lifted
+      capsule words under `:lang(ur)`, ink inside every capsule. Centred
+      pills and the end card stay centred, read right to left. New `rtl`
+      scenario (ar, he, and a live switch); `uilanguages` checks `dir`.
+      Orchestrator looked at the Arabic Esc screen and Hebrew end card
+      screenshots. Verified: npm test 1656/1656, check clean; `verify --
+      rtl screens` 245/245 Chrome, `--webkit rtl` 122/122; the
+      subagent's full suites: Chrome 6463/6463, WebKit 6523 + the 5
+      baseline headless-fullscreen and Keyboard Lock partials.)
+- [ ] The route pill clear of the end card, and Arabic-script asides
+      upright (item 5b, leads from item 5).
 - [ ] Spoken lines per language (item 6): `lang` to the helper,
       per-language recordings, `keepOriginalVoice`,
       `record_lines.py --lang`.

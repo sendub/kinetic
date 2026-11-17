@@ -220,6 +220,10 @@ export function mountHelpOverlay({
       // label itself.
       const key = doc.createElement("span");
       key.className = "help-key";
+      // The arrow keys keep their physical meaning in every UI language
+      // (docs/plan.md Phase 54 item 5), so their caps keep their physical
+      // order, ← left of →, when the screen is mirrored.
+      if (/[←→]/.test(row.keys.join(" "))) key.dir = "ltr";
       row.keys
         .join(" / ")
         .split(" ")

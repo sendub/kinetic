@@ -779,6 +779,11 @@ export function mountBranchMap({
   panel.id = "branchmap";
   panel.className = "branchmap";
   panel.hidden = true;
+  // The map's layout stays left to right in every UI language (docs/plan.md
+  // Phase 54 item 5): its tree, axis and tools read as a chart, not as
+  // text. Its words still come from the catalogue, and its labels keep
+  // their own `dir` per string (gamewords.ts).
+  panel.dir = "ltr";
 
   const head = doc.createElement("div");
   head.className = "map-head";

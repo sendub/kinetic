@@ -356,6 +356,11 @@
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
+      /* Urdu's Nastaliq words stand about 2.25em tall: its capsules
+         (and switches) get the room (Phase 54 item 5). */
+      :is(#help, #branchmap, #choice, #confirm, #volumes):lang(ur) {
+        --k-ctl-h: clamp(30px, 3.6vh, 37px);
+      }
 
       /* ==== The panels: shared components ================================= */
 
@@ -403,6 +408,15 @@
         width: 1.5em;
         height: 0.66em;
         background: var(--k-mark) left center / contain no-repeat;
+      }
+      /* Right to left (Phase 54 item 5) the mark sits after the title's
+         words, mirrored, so its symbol still meets them and its rule
+         leads in from the outer side. (The map's title stays left to
+         right with its chart.) */
+      .help-game:dir(rtl)::before,
+      .confirm-title:dir(rtl)::before,
+      .volumes-title:dir(rtl)::before {
+        transform: scaleX(-1);
       }
 
       /* ---- Section headings inside a sheet ("Keys", "Settings"). */
@@ -521,13 +535,16 @@
          map. A track at the control height with a white knob; the state
          text rides on the side the knob leaves free, so the switch reads
          its own state, never by position alone. Off: grey track, knob
-         left. On: gold track, knob right, dark text. The Esc switches say
+         at the start. On: gold track, knob at the end, dark text (left
+         and right in left to right; mirrored in right to left, Phase 54
+         item 5). The Esc switches say
          "Off" / "On" at a fixed width, which a longer word in another
          language widens (docs/plan.md Phase 54); the map's says "Spoilers:
          Off" / "Spoilers: On", so its track is longer. */
       .config-toggle[role="switch"],
       .map-tool[data-act="spoil"] {
-        padding: 0 calc(var(--k-ctl-padx) * 0.75) 0 calc(var(--k-sw-knob) + 2px + var(--k-ctl-padx) * 0.5);
+        padding-block: 0;
+        padding-inline: calc(var(--k-sw-knob) + 2px + var(--k-ctl-padx) * 0.5) calc(var(--k-ctl-padx) * 0.75);
         background: var(--k-sw-off);
         letter-spacing: 0.01em;
       }
@@ -540,7 +557,7 @@
         content: "";
         position: absolute;
         top: 2px;
-        left: 2px;
+        inset-inline-start: 2px;
         width: var(--k-sw-knob);
         height: var(--k-sw-knob);
         border-radius: 50%;
@@ -551,14 +568,22 @@
       }
       .config-toggle[role="switch"][aria-pressed="true"],
       .map-tool[data-act="spoil"][aria-pressed="true"] {
-        padding: 0 calc(var(--k-sw-knob) + 2px + var(--k-ctl-padx) * 0.5) 0 calc(var(--k-ctl-padx) * 0.75);
+        padding-inline: calc(var(--k-ctl-padx) * 0.75) calc(var(--k-sw-knob) + 2px + var(--k-ctl-padx) * 0.5);
         background: var(--k-gold);
         color: var(--k-stamp);
       }
       .config-toggle[role="switch"][aria-pressed="true"]::before,
       .map-tool[data-act="spoil"][aria-pressed="true"]::before {
-        right: 2px;
-        left: auto;
+        inset-inline-end: 2px;
+        inset-inline-start: auto;
+      }
+      /* Urdu's Nastaliq face (Phase 54 item 5) is tall above its
+         baseline and its words hang low on a capsule's line, so there
+         its words ride higher: padding under them lifts the line box by
+         half its amount, centring a word's ink about as other scripts'
+         is (the capsules are a little taller there too: the tokens). */
+      :is(.config-toggle, .confirm-button, .map-tool, .map-undo, .help-lang):lang(ur) {
+        padding-bottom: 0.4em;
       }
       .config-toggle[role="switch"]:hover,
       .map-tool[data-act="spoil"]:hover {
@@ -844,7 +869,7 @@
         background-color: transparent;
         color: inherit;
         font: inherit;
-        text-align: left;
+        text-align: start;
         cursor: pointer;
       }
       button.help-row::after {
@@ -856,6 +881,11 @@
         border-top: 1.6px solid var(--k-t2);
         border-right: 1.6px solid var(--k-t2);
         transform: translateX(-0.1em) rotate(45deg);
+      }
+      /* Right to left, the chevron points the other way: the same mark
+         mirrored. */
+      button.help-row:dir(rtl)::after {
+        transform: scaleX(-1) translateX(-0.1em) rotate(45deg);
       }
       button.help-row:hover,
       button.help-row:focus-visible {
@@ -941,13 +971,18 @@
          all routes is its own group after them). */
       .config-row:first-child,
       :not(.config-row) + .config-row {
-        border-top-left-radius: var(--k-r-md);
-        border-top-right-radius: var(--k-r-md);
+        border-start-start-radius: var(--k-r-md);
+        border-start-end-radius: var(--k-r-md);
       }
       .config-row:last-child,
       .config-row:has(+ :not(.config-row)) {
-        border-bottom-left-radius: var(--k-r-md);
-        border-bottom-right-radius: var(--k-r-md);
+        border-end-start-radius: var(--k-r-md);
+        border-end-end-radius: var(--k-r-md);
+      }
+      /* Right to left, the hairline between rows is inset from the right
+         (background-position has no logical form). */
+      .config-row:dir(rtl) + .config-row {
+        background-position: 0 0;
       }
       .config-label {
         flex: 1 1 auto;
@@ -960,7 +995,9 @@
       /* The current speed is a readout, not a control (docs/plan.md
          Phase 16): secondary text at the cell's top right, on one line at
          any width ("1.00x (~60 ms/char)"; Phase 24, Phase 43 item 12).
-         The Volumes sheet's percentages are the same readout. */
+         The Volumes sheet's percentages are the same readout. (Right and
+         left here and below are the cell's end and start: right to left
+         mirrors them, Phase 54 item 5.) */
       .config-value {
         flex: none;
         min-width: 0;
@@ -1000,7 +1037,8 @@
       .config-group > .config-inline {
         flex: 0 0 auto;
         min-height: 0;
-        margin: 0 8px 0 0;
+        margin: 0;
+        margin-inline-end: 8px;
         padding: 0;
         border-radius: 0;
         background: none;
@@ -1019,18 +1057,23 @@
       /* Exit ends the line, its right edge on the column's outer edge
          where the cards end, mirroring Fullscreen on the left edge. */
       .config-group > .config-inline:has(> .config-exit) {
-        margin: 0 0 0 auto;
+        margin: 0;
+        margin-inline-start: auto;
       }
       .config-display {
         position: relative;
       }
       .config-display-fullscreen {
-        padding-right: calc(var(--k-ctl-padx) * 0.85);
-        border-radius: var(--k-r-pill) 0 0 var(--k-r-pill);
+        padding-inline-end: calc(var(--k-ctl-padx) * 0.85);
+        border-radius: 0;
+        border-start-start-radius: var(--k-r-pill);
+        border-end-start-radius: var(--k-r-pill);
       }
       .config-display-window {
-        padding-left: calc(var(--k-ctl-padx) * 0.85);
-        border-radius: 0 var(--k-r-pill) var(--k-r-pill) 0;
+        padding-inline-start: calc(var(--k-ctl-padx) * 0.85);
+        border-radius: 0;
+        border-start-end-radius: var(--k-r-pill);
+        border-end-end-radius: var(--k-r-pill);
       }
       .config-display[aria-pressed="true"] {
         --k-ctl-fill: var(--k-gold);
@@ -1142,7 +1185,7 @@
       }
       .config-slide > .config-value {
         order: 1;
-        margin-left: auto;
+        margin-inline-start: auto;
       }
       .config-slide > .config-step,
       .config-slide > .config-slider {
@@ -1181,7 +1224,7 @@
          edge and no wider than the cell, so it stays inside the sheet. */
       .config-tipwrap {
         display: inline-flex;
-        margin-left: 0.4em;
+        margin-inline-start: 0.4em;
         vertical-align: middle;
       }
       .config-tip {
@@ -1233,7 +1276,7 @@
       .config-tip-text {
         position: absolute;
         top: var(--tip-top, 100%);
-        left: var(--g-cellpad);
+        inset-inline-start: var(--g-cellpad);
         z-index: 3;
         width: max-content;
         max-width: calc(100% - 2 * var(--g-cellpad));
@@ -1246,7 +1289,7 @@
         font-weight: 400;
         line-height: 1.35;
         letter-spacing: -0.006em;
-        text-align: left;
+        text-align: start;
         white-space: normal;
         pointer-events: none;
         visibility: hidden;
@@ -1260,8 +1303,8 @@
       }
 
       /* ---- Placement on the sheet's grid (narrow; wide below). The
-         header row: the game's name on the left, the hint on the right
-         of the same line, as plain secondary text (it names keys; nothing
+         header row: the game's name at the start, the hint at the end
+         of the same line (left and right in left to right), as plain secondary text (it names keys; nothing
          to click). */
       #help > .help-game,
       #help > .help-version {
@@ -1285,7 +1328,8 @@
         grid-row: title;
         justify-self: end;
         align-self: center;
-        margin: 0 0 0 16px;
+        margin: 0;
+        margin-inline-start: 16px;
       }
       /* Very narrow: the hint goes under the name. */
       @media (max-width: 620px) {
@@ -1398,7 +1442,8 @@
         align-items: center;
         gap: clamp(10px, 1.1vw, 14px);
         min-width: 0;
-        margin: 0 0 0 16px;
+        margin: 0;
+        margin-inline-start: 16px;
       }
       #help > .help-bar > .help-hint {
         min-width: 0;
@@ -1440,7 +1485,8 @@
         gap: 0.42em;
         height: var(--k-ctl-h);
         margin-block: calc(var(--k-ctl-h) / -2);
-        padding: 0 calc(var(--k-ctl-padx) * 0.7) 0 calc(var(--k-ctl-padx) * 0.6);
+        padding-block: 0;
+        padding-inline: calc(var(--k-ctl-padx) * 0.6) calc(var(--k-ctl-padx) * 0.7);
         border: 0;
         border-radius: var(--k-r-pill);
         background: var(--k-ctl-fill);
@@ -1518,7 +1564,8 @@
         align-items: center;
         gap: 0.55em;
         min-height: var(--k-ctl-h);
-        padding: 0.3em 1em 0.3em 0.6em;
+        padding-block: 0.3em;
+        padding-inline: 0.6em 1em;
         border-radius: var(--k-r-sm);
         cursor: pointer;
         overflow-wrap: anywhere;
@@ -1704,7 +1751,7 @@
       }
       .volumes-list {
         margin: clamp(14px, 2vh, 20px) 0 clamp(16px, 2.4vh, 24px);
-        text-align: left;
+        text-align: start;
       }
       .volumes-hint {
         margin: clamp(12px, 1.8vh, 16px) 0 0;
@@ -1764,7 +1811,7 @@
         display: none;
       }
       .volume-model .config-tipwrap {
-        margin-left: 0;
+        margin-inline-start: 0;
       }
       /* The download button's words wrap in a narrow sheet or a longer
          language (docs/plan.md Phase 54) rather than push the line wider;
@@ -1778,7 +1825,7 @@
         text-align: center;
       }
       .volume-row .volume-model .config-tipwrap[data-tip] > .config-tip-text {
-        left: 0;
+        inset-inline-start: 0;
         max-width: 100%;
         width: max-content;
       }
@@ -1809,7 +1856,7 @@
         position: absolute;
         top: 0;
         bottom: 0;
-        left: 0;
+        inset-inline-start: 0;
         width: 0;
         border-radius: inherit;
         background: var(--k-gold);
@@ -1821,7 +1868,7 @@
         font-size: var(--k-t-small);
         font-weight: var(--k-w-2);
         font-variant-numeric: tabular-nums;
-        text-align: right;
+        text-align: end;
       }
 
       /* ==== The choice screen (docs/plan.md Phase 13) =====================
@@ -1979,8 +2026,8 @@
         display: flex;
         align-items: center;
         gap: clamp(10px, 1.2vw, 14px);
-        padding: clamp(8px, 1.3vh, 12px) clamp(14px, 1.5vw, 20px)
-          clamp(8px, 1.3vh, 12px) clamp(8px, 0.9vw, 12px);
+        padding-block: clamp(8px, 1.3vh, 12px);
+        padding-inline: clamp(8px, 0.9vw, 12px) clamp(14px, 1.5vw, 20px);
         border: 1px solid rgba(255, 255, 255, 0.07);
         border-radius: var(--k-r-md);
         background: var(--k-cell);
@@ -1989,7 +2036,7 @@
         font: inherit;
         font-size: var(--k-t-head);
         letter-spacing: -0.012em;
-        text-align: left;
+        text-align: start;
         cursor: pointer;
       }
       .choice-row:hover,
@@ -2029,7 +2076,8 @@
         display: inline-flex;
         align-items: center;
         gap: 0.45em;
-        padding: 0.3em 0.7em 0.3em 0.6em;
+        padding-block: 0.3em;
+        padding-inline: 0.6em 0.7em;
         border-radius: var(--k-r-pill);
         background: rgba(255, 255, 255, 0.08);
         color: var(--k-t2);

@@ -125,7 +125,8 @@ never ask for fullscreen.
 | `progress` | export / import progress: one browser reads, bookmarks, sets 2.00x and exports (a real download of `<storyId>-progress.json`, checked field by field; "Progress exported" in the `#flash` pill, solid above the open Esc screen, every settings row where it was); a fresh profile on the same folder refuses another story's file in the pill, still fully shown 600 ms past a mode pill's hold, nothing on the screen moving (no box, nothing stored), then imports the real file through the confirm box and reloads onto the same item with the bookmark, 2.00x and help closed; one more item survives a reload (saving automatic again) |
 | `catalogue` | the player's words (docs/plan.md Phase 54 item 2) in the pseudo-locale on every screen and sheet: the Esc screen at 1280x800 and 600 wide with each "?" tip open, the reset box at both sizes, three import refusals and the close-tab note (pills), skip, auto-forward, bookmark, route, segment and sound pills, hidden text, the branch map with a card (also 600 wide), a route's, a decision's and a card's tooltip, a deleted card and its undo note, a decision counting down under Play all routes (both sizes), decisions picked by hand, an end card (both sizes), a decision offered again with its return row (both sizes), the empty folder's notice, the audio demo's Esc screen and Volumes sheet at both sizes, under a stand-in voice engine (a game app's words) the voice model's offer, its tip, progress, error, installed row (both sizes) and removal box, and on the language demo the Esc screen with its Language control and the open language list (both sizes; each language named in itself is exempt, as game text is); each fails on a visible word, accessible name, hint or page title with a letter outside the markers (game text and key caps aside) or a text box that overflows or clips |
 | `languages` | a game's languages (docs/plan.md Phase 54 item 3) on `fixtures/lang-demo` (built with `.venv/bin/python fixtures/build_lang_demo.py`; FAILs naming it when missing) and `fixtures/demo`: no Language control with one language; with several, the Esc panel as tall as a copy without `languages` at 1280x800, 700x600 and 600x900, the control on the title's line; the starting language from the browser's (`de-AT` takes German, `ja-JP` Japanese, French the base); the list by click and by Enter, Up, Down, Home and End, Escape, Tab and a click outside closing the list alone, Space picking in it and closing the screen with it shut; German picked mid-story and at a decision (prompt, labels, route pill, and the player's own words turning German); the missing German line in English marked `en`; a Japanese thought upright, Arabic `dir="rtl"`; a bookmark landing on its item in German, Japanese and English; a reload keeping the language (the player's words too); the choice kept per `storyId`; a listed language whose file is missing (the base, a pill in the browser's language, French); a Turkish speaker drawn `MELİS` |
-| `uilanguages` | the player's words in each of the 38 catalogue languages besides English (docs/plan.md Phase 54 item 4), one part per four languages: a browser started with the language as the reader's (`languages`), the page's `lang` that language; every character of its catalogue drawn by a system font in the Esc screen's and the end card's fonts; the Esc screen at 1280x800, 700x600 and 600x800 with each "?" tip open, the reset box (1280x800 and 600 wide), a decision and the end card (each at the three sizes), route, auto-forward and bookmark pills, the branch map with a card at the three sizes and its three tooltips; the audio demo's Esc screen and Volumes sheet at the three sizes and its sound pills; the language demo's Esc screen and language list at the three sizes; the Esc screen in a game app at the three sizes and the voice model's row under the stand-in host (offer, tip, progress, error, ready, removal box). Each screen fails on a text overflowing, clipped or pushing its row wider, and on a word its language's catalogue does not give (an English message the language translates); right-to-left languages are read in the left-to-right layout |
+| `uilanguages` | the player's words in each of the 38 catalogue languages besides English (docs/plan.md Phase 54 item 4), one part per four languages: a browser started with the language as the reader's (`languages`), the page's `lang` that language; every character of its catalogue drawn by a system font in the Esc screen's and the end card's fonts; the Esc screen at 1280x800, 700x600 and 600x800 with each "?" tip open, the reset box (1280x800 and 600 wide), a decision and the end card (each at the three sizes), route, auto-forward and bookmark pills, the branch map with a card at the three sizes and its three tooltips; the audio demo's Esc screen and Volumes sheet at the three sizes and its sound pills; the language demo's Esc screen and language list at the three sizes; the Esc screen in a game app at the three sizes and the voice model's row under the stand-in host (offer, tip, progress, error, ready, removal box). Each screen fails on a text overflowing, clipped or pushing its row wider, and on a word its language's catalogue does not give (an English message the language translates); the page's `dir` (`rtl` for ar, fa, he and ur, which are read in the mirrored layout) |
+| `rtl` | right to left (docs/plan.md Phase 54 item 5) with Arabic and with Hebrew as the browser's language (`languages`), one part each, plus `live`: the document `dir="rtl"`; on the demo at 1280x800 the game's name right of the hint, the Keys column right of Settings (above it at 600 wide, as left to right), each key row's words right of its caps, the arrow caps keeping ← left of →, the `m` row's chevron mirrored, each switch's knob at the left when on and at the right when off, the speed cell's label right of its readout and - right of + (a click near the track's left end raises the speed to its top, - lowers it), the Game window line with Fullscreen \| Window at its right edge and Exit at its left, the Progress buttons from the right; a decision's numbers right of their labels, its hint, the end card and the auto-forward pill reading from the right; the branch map not mirrored (`dir="ltr"`, its first decision left of every route, Full size left of Fit, its title at the left); the audio demo's Volumes sheet at 1280x800 and 600 wide mirrored (labels right of readouts, - right of each slider, a click near a slider's right end turning it down and near its left end up); the language demo's title bar (the name, then the hint, the Language control at the left, its list hanging from the control's left edge; at 600 wide the control on the name's line at its left), and in Arabic a route's title in the map's tooltip `lang="ar"` `dir="rtl"`; every screen through the `catalogue` audit; `live`: English, then Arabic picked in the Language control (the document `rtl` and the Esc screen mirrored with no reload), then English laid out as before. `KINETIC_RTL_SHOTS=DIR` saves Arabic and Hebrew screenshots |
 
 ## The player's words
 
@@ -150,7 +151,8 @@ print it.
   `Intl.NumberFormat` (`formatNumber`). `setUiLanguage(tag)` switches the
   language live: each component draws its words inside `localized(draw)`,
   which runs again on every change, and `src/i18n/document.ts` keeps the
-  page's `lang` on the UI language (right to left joins it there). The
+  page's `lang` on the UI language and its `dir` on that language's
+  direction ([Right to left](#right-to-left)). The
   UI language is the game language the reader picked on the Esc screen's
   Language control when the catalogue has it; otherwise (no pick, or a
   pick the catalogue lacks) the browser's language when the catalogue
@@ -241,8 +243,7 @@ of the `catalogue` file is read with the same reader (`INSTALL_AUDIT`) at
 its words, and on a word the language's catalogue does not give: an
 English message the language translates is caught, and one the PO keeps
 identical ("Kinetic") is the language's own. Arabic, Persian, Hebrew and
-Urdu are read in the left-to-right layout until Phase 54 item 5 mirrors
-them.
+Urdu are read in the mirrored layout.
 
 Glyphs: the same scenario draws every character of each language's
 catalogue on a canvas in the computed fonts of the Esc screen and the end
@@ -269,6 +270,34 @@ Garay, Todhri, Ol Onal). Windows cannot be checked here; index.html's
 Chinese, Japanese and Korean faces have no italic: under one of those UI
 languages the end card's hint and the resume notice (class `ui-aside`)
 are upright, as a thought in those languages is.
+
+
+## Right to left
+
+The document's `dir` follows the UI language (`applyDocumentLanguage` in
+`player/src/i18n/document.ts`, by `textDirection` in
+`player/src/i18n/languages.ts`): `rtl` for Arabic, Persian, Hebrew and
+Urdu, `ltr` otherwise, changed live with the language. `index.html` is
+written in logical properties (margins, padding, insets, radii and
+`text-align` by start and end), and grids and flex rows follow the
+direction, so every screen mirrors: the Esc screen, help, the Volumes
+sheet, the confirmation boxes, the end card, the pills and the choice
+list. What CSS cannot say logically is flipped under `:dir(rtl)`: the
+hairline between settings rows (its background position), the `m` row's
+chevron and the marks before the Esc screen's, the reset box's and the
+Volumes sheet's titles (mirrored with `scaleX(-1)`). Switches put the
+knob at the inline end when on. Native range inputs run from the right
+under `direction: rtl` in Chrome and WebKit, clicks and drags included;
+the player draws no fill of its own, so nothing else follows. The
+Language control's list hangs from the control's inline end
+(`placeList`). Not mirrored: the branch map (its panel is `dir="ltr"`;
+its words come from the catalogue and a label keeps its own `dir`),
+pictures and video, key caps, and the arrow keys, whose caps keep ← left
+of → (`dir="ltr"` on that row's caps). Game text keeps its own `lang` and
+`dir` per string whatever the UI language. Urdu's Nastaliq face stands
+tall: under `:lang(ur)` the controls are about 4px taller (`--k-ctl-h`) and a
+capsule's words ride 0.2em higher. The `rtl` scenario checks the
+mirrored geometry; `uilanguages` reads ar, fa, he and ur mirrored.
 
 ## WebKit
 

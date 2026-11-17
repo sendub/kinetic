@@ -28,9 +28,9 @@
 // lacks, Kawi, Garay, Todhri and Ol Onal, which the check also draws to
 // prove it can see a missing glyph).
 //
-// Right-to-left languages (ar, fa, he, ur) are read here in the left-to-
-// right layout, for overflow and words only; item 5 mirrors them and its
-// `rtl` file checks the mirrored geometry.
+// Right-to-left languages (ar, fa, he, ur) are read here in the mirrored
+// layout the page takes from them (`dir="rtl"` on the document, item 5),
+// for overflow and words; the `rtl` file checks the mirrored geometry.
 //
 // One part per few languages, so the runner runs them side by side.
 
@@ -100,7 +100,7 @@ const PER_PART = 4;
 export const TAGS = Object.keys(LOCALES).sort();
 
 /** Every text of `tag`'s catalogue, English where it has no message. */
-function messagesOf(tag) {
+export function messagesOf(tag) {
   const own = LOCALES[tag] ?? {};
   const out = [];
   for (const key of Object.keys(EN)) {
@@ -220,6 +220,13 @@ async function demoScreens({ check, open }, tag, langDir) {
     L("the player's words follow the browser's language"),
     uiLang === tag,
     uiLang,
+  );
+  const dir = await page.evaluate(() => document.documentElement.dir);
+  const rtl = ["ar", "fa", "he", "ur"].includes(tag);
+  check(
+    L(`the page is laid out ${rtl ? "right to left" : "left to right"}`),
+    dir === (rtl ? "rtl" : "ltr"),
+    dir,
   );
 
   const glyphs = await page.evaluate(GLYPHS, charactersOf(tag), [

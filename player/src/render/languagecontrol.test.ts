@@ -44,13 +44,13 @@ describe("listKeyAction: keys in the open language list", () => {
 });
 
 describe("placeList: the open list under the button, end-aligned", () => {
-  const button = { top: 40, bottom: 70, right: 1180 };
+  const button = { top: 40, bottom: 70, left: 1100, right: 1180 };
 
   it("opens below the button, its right edge on the button's", () => {
     expect(placeList(button, 1280, 800)).toEqual({
       top: 76,
       bottom: null,
-      right: 100,
+      end: 100,
       maxHeight: 800 - 70 - 6 - 8,
     });
   });
@@ -62,18 +62,28 @@ describe("placeList: the open list under the button, end-aligned", () => {
   });
 
   it("opens above when the room below is short and above is larger", () => {
-    const low = { top: 500, bottom: 530, right: 590 };
+    const low = { top: 500, bottom: 530, left: 520, right: 590 };
     expect(placeList(low, 600, 600)).toEqual({
       top: null,
       bottom: 600 - 500 + 6,
-      right: 10,
+      end: 10,
       maxHeight: 500 - 6 - 8,
     });
   });
 
   it("keeps a margin from the window's edge", () => {
-    expect(placeList({ top: 10, bottom: 40, right: 640 }, 600, 800).right).toBe(
-      8,
-    );
+    const off = { top: 10, bottom: 40, left: -20, right: 640 };
+    expect(placeList(off, 600, 800).end).toBe(8);
+    expect(placeList(off, 600, 800, "rtl").end).toBe(8);
+  });
+
+  it("right to left: its left edge on the button's left edge", () => {
+    const start = { top: 40, bottom: 70, left: 100, right: 180 };
+    expect(placeList(start, 1280, 800, "rtl")).toEqual({
+      top: 76,
+      bottom: null,
+      end: 100,
+      maxHeight: 800 - 70 - 6 - 8,
+    });
   });
 });

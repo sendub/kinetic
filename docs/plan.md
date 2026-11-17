@@ -3876,6 +3876,17 @@ The orchestrator's choices, within those decisions:
    control at the left of the title bar, the slider's minimum at the
    right; no overflow) in Arabic and Hebrew, Chrome and WebKit, and the
    existing scenarios unchanged left to right.
+5b. The route pill and the end card, and Arabic-script asides (leads
+   from item 5). On an ending the route pill ("Route 2: an ending")
+   draws over the end card's box at the top of the screen, in every
+   direction; they must not overlap at any window size (stack them, or
+   move one). The end card's hint and the resume notice (`.ui-aside`)
+   are italic in Arabic, Persian and Urdu, whose faces have no italic,
+   so the browser slants them: draw them upright there, as for Chinese,
+   Japanese and Korean. Tests: a scenario check that the pill and the
+   end card's boxes do not intersect at 1280x800, 700x600 and 600x900,
+   Chrome and WebKit; the `uilanguages` style check extended to ar, fa
+   and ur.
 6. Spoken lines per language. The player passes the shown language to
    the voice helper for live lines, and speaks nothing live in a
    language the engine lacks; a language file's own recorded lines play

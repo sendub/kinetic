@@ -73,6 +73,7 @@ export function listKeyAction(
 export interface ListAnchor {
   readonly top: number;
   readonly bottom: number;
+  readonly left: number;
   readonly right: number;
 }
 
@@ -82,8 +83,12 @@ export interface ListPlacement {
   readonly top: number | null;
   /** Its bottom edge from the window's bottom, when it opens upward. */
   readonly bottom: number | null;
-  /** Its right edge from the window's right: aligned to the button's end. */
-  readonly right: number;
+  /**
+   * Its inline-end edge from the window's (`inset-inline-end`): aligned to
+   * the button's end, the right in left to right, the left in right to
+   * left (docs/plan.md Phase 54 item 5).
+   */
+  readonly end: number;
   /** The tallest it may be; it scrolls inside itself past this. */
   readonly maxHeight: number;
 }
@@ -96,31 +101,35 @@ const MIN_BELOW = 140;
 
 /**
  * The list's place for a button at `anchor` in a window `width` by
- * `height`: under the button, its right edge on the button's, as tall as
- * the room below allows (it scrolls inside itself past that); above the
- * button instead when the room below is short and the room above is
- * larger. Pure.
+ * `height` laid out in `dir`: under the button, its end edge on the
+ * button's, as tall as the room below allows (it scrolls inside itself
+ * past that); above the button instead when the room below is short and
+ * the room above is larger. Pure.
  */
 export function placeList(
   anchor: ListAnchor,
   width: number,
   height: number,
+  dir: "ltr" | "rtl" = "ltr",
 ): ListPlacement {
-  const right = Math.max(MARGIN, width - anchor.right);
+  const end = Math.max(
+    MARGIN,
+    dir === "rtl" ? anchor.left : width - anchor.right,
+  );
   const below = height - anchor.bottom - GAP - MARGIN;
   const above = anchor.top - GAP - MARGIN;
   if (below < MIN_BELOW && above > below) {
     return {
       top: null,
       bottom: height - anchor.top + GAP,
-      right,
+      end,
       maxHeight: Math.max(0, above),
     };
   }
   return {
     top: anchor.bottom + GAP,
     bottom: null,
-    right,
+    end,
     maxHeight: Math.max(0, below),
   };
 }
@@ -285,14 +294,16 @@ export function mountLanguageControl({
 
   function place(): void {
     const rect = button.getBoundingClientRect();
+    const rtl = win?.getComputedStyle(button).direction === "rtl";
     const at = placeList(
       rect,
       win?.innerWidth ?? rect.right,
       win?.innerHeight ?? rect.bottom,
+      rtl ? "rtl" : "ltr",
     );
     list.style.top = at.top === null ? "auto" : `${at.top}px`;
     list.style.bottom = at.bottom === null ? "auto" : `${at.bottom}px`;
-    list.style.right = `${at.right}px`;
+    list.style.insetInlineEnd = `${at.end}px`;
     list.style.maxHeight = `${at.maxHeight}px`;
   }
 

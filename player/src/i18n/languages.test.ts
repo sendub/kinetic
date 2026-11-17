@@ -142,13 +142,33 @@ describe("uiLanguageFor: the language of the player's own words", () => {
 
 describe("textDirection", () => {
   it("is rtl for Arabic, Persian, Hebrew and Urdu", () => {
-    for (const tag of ["ar", "ar-EG", "fa", "he", "ur", "ps", "yi"]) {
+    for (const tag of [
+      "ar",
+      "ar-EG",
+      "fa",
+      "fa-IR",
+      "he",
+      "iw",
+      "ur",
+      "ps",
+      "yi",
+    ]) {
       expect(textDirection(tag)).toBe("rtl");
     }
   });
 
   it("is ltr for everything else", () => {
-    for (const tag of ["en", "de", "ja", "zh-Hant", "ko", "hi", "th", "tr"]) {
+    for (const tag of [
+      "en",
+      "en-XA",
+      "de",
+      "ja",
+      "zh-Hant",
+      "ko",
+      "hi",
+      "th",
+      "tr",
+    ]) {
       expect(textDirection(tag)).toBe("ltr");
     }
   });

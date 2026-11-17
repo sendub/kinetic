@@ -146,11 +146,34 @@ describe("switching the UI language live", () => {
   });
 
   it("marks the document root with the UI language", () => {
-    const doc = { documentElement: { lang: "" } };
+    const doc = { documentElement: { lang: "", dir: "" } };
     const stop = applyDocumentLanguage(doc);
     expect(doc.documentElement.lang).toBe("en");
     setUiLanguage("pl");
     expect(doc.documentElement.lang).toBe("pl");
     stop();
+  });
+
+  it("sets the document's direction from the UI language, live", () => {
+    const doc = { documentElement: { lang: "", dir: "" } };
+    const stop = applyDocumentLanguage(doc);
+    expect(doc.documentElement.dir).toBe("ltr");
+    for (const tag of ["ar", "fa", "he", "ur"]) {
+      setUiLanguage(tag);
+      expect([doc.documentElement.lang, doc.documentElement.dir]).toEqual([
+        tag,
+        "rtl",
+      ]);
+    }
+    setUiLanguage("en");
+    expect(doc.documentElement.dir).toBe("ltr");
+    setUiLanguage("he");
+    expect(doc.documentElement.dir).toBe("rtl");
+    setUiLanguage("de");
+    expect(doc.documentElement.dir).toBe("ltr");
+    // Unsubscribed: a later change leaves the root alone.
+    stop();
+    setUiLanguage("ar");
+    expect(doc.documentElement.dir).toBe("ltr");
   });
 });
