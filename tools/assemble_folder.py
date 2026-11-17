@@ -19,9 +19,10 @@ double-clicks open over `file://` with nothing else on disk:
 - the content folder's other files as-is: `manifest.json`, a present
   `manifest.js`, media, and unreferenced extras such as the converter's
   build ledger; not kinetic-extract's schema copy, `manifest.schema.json`
-  at the top (docs/plan.md Phase 51 item 5), which is for an author's
-  editor: the manifest's `$schema` key that names it is left as written,
-  and a reader's folder without the file is still valid;
+  at the top (docs/plan.md Phase 51 item 5), nor the language files'
+  copy, `lang.schema.json`, which are for an author's editor: the
+  `$schema` keys that name them are left as written, and a reader's
+  folder without the files is still valid;
 - a generated `manifest.js` when the content has `manifest.json` but no
   shim: `window.KINETIC_MANIFEST = <manifest JSON>;`, the rule documented
   in CREATE.md and checked by tools/validate_content.py;
@@ -57,7 +58,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT / "converter") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "converter"))
 from kinetic_extract import audio_format  # noqa: E402
-from kinetic_extract.schema_copy import COPY_NAME  # noqa: E402
+from kinetic_extract.schema_copy import COPY_NAMES  # noqa: E402
 from kinetic_extract.version import add_version_option  # noqa: E402
 BUNDLE_NAMES = ("index.html", "app.js")
 MANIFEST_NAME = "manifest.json"
@@ -203,7 +204,7 @@ def main(argv: list[str]) -> None:
     # The content minus any stale bundle copies (the output's bundle is
     # always the one from player/dist) and the schema copy.
     content_root = content.resolve()
-    left_at_top = {*BUNDLE_NAMES, COPY_NAME}
+    left_at_top = {*BUNDLE_NAMES, *COPY_NAMES}
 
     def ignore_at_top(top: str, names: list[str]) -> set[str]:
         if Path(top).resolve() == content_root:

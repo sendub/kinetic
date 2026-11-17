@@ -22,6 +22,12 @@ something more of an author.
 - Translations (in progress): a game can be read in several languages
   from one folder, chosen on the Esc screen, and the player's own words
   come in many languages.
+- `tools/translations.py` hands a game's text to translators as PO
+  files, the format Poedit, Weblate and Crowdin read: `export` writes a
+  language's strings with context for each line (merging what the game
+  already has, and marking for review a translation whose original has
+  changed), `import` writes the language file from the translated file,
+  and `status` shows each language's coverage (docs/translating.md).
 
 ## 1.10.1 (2026-11-17)
 

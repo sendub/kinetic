@@ -24,6 +24,8 @@ my-novel/
                   # assembled folder ships the script alone (Audio)
   lang/de.json    # a language file per translation (Translations)
   lang/de.js      # generated: window.KINETIC_LANGUAGES["de"] = {...};
+  lang.schema.json  # the language files' schema copy, for editors, in a
+                  # folder with manifest.schema.json; assembled: left out
 ```
 
 - Every file the novel needs lives inside the folder. There are no absolute
@@ -1196,6 +1198,14 @@ A language file:
   base recordings of voice lines (`audio.voice`, Item audio) under this
   language's text, like subtitles.
 - `$schema` (optional): any string, for editors, as in the manifest.
+  In a folder whose manifest names its schema copy, a language file
+  opens with `"$schema": "../lang.schema.json"` (relative to the
+  language file), and `lang.schema.json`, a byte copy of
+  `docs/lang.schema.json`, sits beside the manifest:
+  `tools/translations.py import` writes both, kinetic-extract's schema
+  copy (`converter/kinetic_extract/schema_copy.py`) adds the copy to a
+  folder with language files, `tools/upgrade_folder.py` refreshes it and
+  `tools/assemble_folder.py` leaves it out, as for the manifest's.
 
 A translation is an object with:
 
@@ -1278,6 +1288,12 @@ The converter's Python helper for these files is
 (`base_hash`), tag casing (`canonical_tag`), a writer of a language
 file and its script together (`write_language_file`), and the
 recorded lines' folder (`voice_lines_dir`).
+
+`tools/translations.py` exports a language to a PO file for
+translators (`export`), writes the language file from a translated one
+(`import`), and prints each language's coverage (`status`); a
+translation marked fuzzy in the PO file imports as stale. Its reference
+is docs/translating.md.
 
 ## Naming conventions
 

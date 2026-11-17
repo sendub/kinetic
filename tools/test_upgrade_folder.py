@@ -27,7 +27,8 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 import upgrade_folder  # noqa: E402
-from kinetic_extract.schema_copy import COPY_NAME, SCHEMA_FILE  # noqa: E402
+from kinetic_extract.schema_copy import (  # noqa: E402
+    COPY_NAME, LANG_COPY_NAME, LANG_SCHEMA_FILE, SCHEMA_FILE)
 from kinetic_extract.version import kinetic_version  # noqa: E402
 
 VERSION = kinetic_version()
@@ -198,6 +199,29 @@ def test_a_present_schema_copy_is_refreshed(
     (folder / COPY_NAME).write_text('{"old": "schema"}\n')
     assert run(str(folder)) == 0
     assert (folder / COPY_NAME).read_bytes() == SCHEMA_FILE.read_bytes()
+
+
+def test_the_language_schema_copy_comes_with_the_manifest_s(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """A folder with language files and the manifest's copy gets
+    lang.schema.json refreshed beside it (docs/plan.md Phase 54 item 8);
+    a folder with only the language copy has that one refreshed."""
+    folder = game(tmp_path)
+    (folder / COPY_NAME).write_text('{"old": "schema"}\n')
+    (folder / "lang").mkdir()
+    (folder / "lang" / "de.json").write_text('{"language": "de"}\n')
+    assert run(str(folder)) == 0
+    assert (folder / LANG_COPY_NAME).read_bytes() == \
+        LANG_SCHEMA_FILE.read_bytes()
+    assert capsys.readouterr().out.splitlines()[1].endswith(
+        f"and {COPY_NAME} and {LANG_COPY_NAME}")
+    (folder / COPY_NAME).unlink()
+    (folder / LANG_COPY_NAME).write_text('{"old": "schema"}\n')
+    assert run(str(folder)) == 0
+    assert (folder / LANG_COPY_NAME).read_bytes() == \
+        LANG_SCHEMA_FILE.read_bytes()
+    assert not (folder / COPY_NAME).exists()
 
 
 def test_no_schema_copy_is_added(tmp_path: Path, dist: Path) -> None:

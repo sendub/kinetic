@@ -32,7 +32,8 @@ are implementing and docs/stack.md for settled decisions.
   worker per core, about 45 s; a single file runs fine without `-n`).
 - `--version` on `kinetic-extract`, `kinetic-media`, `tools/`
   `validate_content.py`, `assemble_folder.py`, `build_apps.py`,
-  `setup_media_tools.py` and `upgrade_folder.py`, and `check-game.mjs`
+  `setup_media_tools.py`, `upgrade_folder.py` and `translations.py`, and
+  `check-game.mjs`
   prints `Kinetic <VERSION>` and exits, needing no media tools. A built
   `app.js` opens with `/*! Kinetic <version> */`; read a folder's with
   `kinetic_extract.version.folder_player_version` (Python) or
@@ -48,6 +49,11 @@ are implementing and docs/stack.md for settled decisions.
   go test ./...` (and `GOOS=windows go vet ./...` with the same
   variables); the host script test runs the script in Node and skips
   without it. Never launch a built app on the user's screen unasked.
+- Translations as PO files: `.venv/bin/python tools/translations.py
+  export <folder> TAG [--out FILE]`, `import <folder> FILE.po`, `status
+  <folder>` (docs/translating.md); tests
+  `.venv/bin/pytest tools/test_translations.py
+  converter/tests/test_po.py -q -n auto`.
 - Upgrade a game folder's player: `.venv/bin/python
   tools/upgrade_folder.py <folder>` after `npm run build` (refuses a
   stale `player/dist/`; CREATE.md, "Upgrading to a newer Kinetic").

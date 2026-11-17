@@ -38,7 +38,9 @@ other file in it is the author's content. The upgrade:
   so it is never read;
 - replaces `manifest.schema.json`, the schema copy kinetic-extract
   writes for an author's editor, with this clone's schema when the
-  folder has one; a folder without one gets none;
+  folder has one, and with it `lang.schema.json`, the language files'
+  schema copy, when the folder has a language file (or that copy alone
+  when only it is there); a folder without either gets none;
 - leaves everything else as it is: `manifest.json`, `manifest.js`
   (generated from `manifest.json`, not from the player), media, extras,
   and the apps (`<title>.app`, `<title>.exe`), which play whichever
@@ -72,7 +74,8 @@ import validate_content
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT / "converter") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "converter"))
-from kinetic_extract.schema_copy import COPY_NAME, write_schema_copy  # noqa: E402
+from kinetic_extract.schema_copy import (  # noqa: E402
+    COPY_NAME, LANG_COPY_NAME, write_lang_schema_copy, write_schema_copy)
 from kinetic_extract.version import (  # noqa: E402
     add_version_option, folder_player_version, kinetic_version)
 
@@ -157,16 +160,19 @@ def main(argv: list[str]) -> int:
     new = kinetic_version()
     try:
         replace_player(folder)
-        refreshed = (folder / COPY_NAME).is_file()
-        if refreshed:
+        if (folder / COPY_NAME).is_file():
             write_schema_copy(folder)
+        elif (folder / LANG_COPY_NAME).is_file():
+            write_lang_schema_copy(folder)
+        refreshed = [name for name in (COPY_NAME, LANG_COPY_NAME)
+                     if (folder / name).is_file()]
     except OSError as exc:
         return refuse(1, f"cannot write into {folder}: {exc}")
 
     print(f"Kinetic {old} -> {new}"
           + (" (already current)" if old == new else ""))
     print(f"{folder}: replaced {', '.join(BUNDLE_NAMES)}"
-          + (f" and {COPY_NAME}" if refreshed else ""), flush=True)
+          + "".join(f" and {name}" for name in refreshed), flush=True)
 
     if validate_content.main([str(folder)]) != 0:
         return refuse(1, f"{folder} is upgraded, but the validator reports "

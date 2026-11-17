@@ -5112,8 +5112,25 @@ truthful: an unchecked box means nothing was accepted.
       launched) and ran `catalogue uilanguages spoken` on both engines,
       all passing; WebKit `window` has the same 2 tab-fullscreen
       partials as the commit before it, checked by the orchestrator.)
-- [ ] The translator tools (item 8): `tools/translations.py export`,
-      `import`, `status`, PO with merge and fuzzy marking.
+- [x] The translator tools (item 8): `tools/translations.py export`,
+      `import`, `status`, PO with merge and fuzzy marking. (Evidence:
+      `tools/translations.py` with our own standard-library PO module
+      `kinetic_extract/po.py` (GNU gettext wrapping, matched byte for
+      byte by `msgcat`). msgctxt `title`, `version`, `speaker:<name>`,
+      `item:<id>`, `prompt:<decision>`, `label:<decision>/<route>` in
+      story order with context comments; stale entries export fuzzy,
+      removed ids as obsolete; import records the hash of the PO's own
+      msgid (a fuzzy entry stays stale), keeps `name`,
+      `keepOriginalVoice` and `voice`, refuses another game's PO or the
+      base language, adds the tag to `languages` keeping every other
+      manifest byte. `status` and the validator share
+      `language_reports()`. schema_copy writes `lang.schema.json` when
+      language files exist; upgrade refreshes it. docs/translating.md.
+      Verified by the orchestrator: translations, po, validate_content,
+      language_file, schema_copy, upgrade, assemble and release_version
+      tests 557 passed; a Japanese export and unchanged import of the
+      language demo left the folder byte-identical; `status` as
+      expected.)
 - [ ] kinetic-extract reads Ren'Py translations (item 9).
 - [ ] Tools and docs around it (item 10): `check-game --lang`,
       assemble and upgrade carry `lang/`, CREATE.md "Translating a

@@ -1851,31 +1851,44 @@ def _percent(done: int, total: int) -> str:
     return f"{done * 1000 // total / 10:.1f}%"
 
 
-def language_warnings(manifest: Any, content_dir: Path
-                      ) -> tuple[list[str], list[str]]:
-    """(warning lines, coverage lines) for the folder's language files.
+class LanguageReport:
+    """One listed language's translation warnings and coverage counts
+    (language_reports): `total` base strings, `done` of them translated,
+    `stale` and `unchecked` among those, `missing` the rest."""
 
-    Warnings, per listed language whose file loads: each base string it
-    lacks (title, version, speaker, item text, prompt, route label); each
-    translation whose `from` is not the hash of the base text now
-    (stale); each item text longer than 1.5 times its base text or than
-    the game's longest base text, in code points. Each kind lists at most
-    LIST_MAX lines per language and then counts the rest. Before them,
-    one line per lang/*.json the manifest does not list. One coverage
-    line per listed language: strings translated of the base's, stale,
-    and unchecked (a translation with no `from`). A manifest without
-    `languages` and without language files gets nothing."""
+    def __init__(self, tag: str) -> None:
+        self.tag = tag
+        self.warnings: list[str] = []
+        self.total = self.done = self.stale = self.unchecked = 0
+
+    @property
+    def missing(self) -> int:
+        return self.total - self.done
+
+    def coverage(self) -> str:
+        """The validator's coverage line, without the folder."""
+        return (f"{self.tag}: {self.done} of {self.total} strings "
+                f"({_percent(self.done, self.total)}), {self.stale} stale, "
+                f"{self.unchecked} unchecked")
+
+
+def language_reports(manifest: Any, content_dir: Path
+                     ) -> tuple[list[str], list[LanguageReport]]:
+    """(warnings for lang/*.json files the manifest does not list, a
+    LanguageReport per listed language whose file loads), in the order
+    `languages` lists them. language_warnings prints them; the
+    translator tools (tools/translations.py) count with them."""
     base_tag, listed = _languages(manifest)
     names = _lang_names(content_dir)
     listed_tags = {tag for _i, tag in listed}
-    warnings: list[str] = []
+    unlisted: list[str] = []
     for name in sorted(names):
         if name.endswith(".json") and name[:-len(".json")] not in listed_tags:
-            warnings.append(WARNING_PREFIX + _line(
+            unlisted.append(WARNING_PREFIX + _line(
                 "<root>", f"not listed in {MANIFEST_NAME} languages, so the "
                           "player never loads it",
                 f"{language_file.LANG_DIR}/{name}"))
-    coverage: list[str] = []
+    reports: list[LanguageReport] = []
     base = _Base(manifest)
     for _i, tag in listed:
         file = language_file.json_path(tag)
@@ -1887,16 +1900,16 @@ def language_warnings(manifest: Any, content_dir: Path
             continue  # language_problems reports it
         if not isinstance(data, dict):
             continue
+        report = LanguageReport(tag)
         missing: list[str] = []
         stale: list[str] = []
         long: list[str] = []
-        total = done = stale_count = unchecked = 0
         for loc, kind, text in base.strings():
-            total += 1
+            report.total += 1
             entry = _lookup(data, loc)
             if kind == "speaker":
                 if isinstance(entry, str) and entry.strip():
-                    done += 1
+                    report.done += 1
                 else:
                     missing.append(WARNING_PREFIX + _line(
                         loc, f"no translation of speaker {text!r}", file))
@@ -1906,12 +1919,12 @@ def language_warnings(manifest: Any, content_dir: Path
                 missing.append(WARNING_PREFIX + _line(
                     loc, f"no translation (base: {_shorten(text)!r})", file))
                 continue
-            done += 1
+            report.done += 1
             made_from = entry.get("from")
             if not isinstance(made_from, str):
-                unchecked += 1
+                report.unchecked += 1
             elif made_from != language_file.base_hash(text):
-                stale_count += 1
+                report.stale += 1
                 stale.append(WARNING_PREFIX + _line(
                     f"{loc}.from",
                     f"stale: translated from a text hashing to {made_from!r}, "
@@ -1930,14 +1943,35 @@ def language_warnings(manifest: Any, content_dir: Path
                         f"{loc}.text",
                         f"{len(translated)} characters, "
                         + " and ".join(reasons), file))
-        warnings += _language_voice_warnings(content_dir, data, base, file)
-        warnings += _capped(missing, file, "strings without a translation")
-        warnings += _capped(stale, file, "stale translations")
-        warnings += _capped(long, file, "long translations")
-        coverage.append(f"{tag}: {done} of {total} strings "
-                        f"({_percent(done, total)}), {stale_count} stale, "
-                        f"{unchecked} unchecked")
-    return warnings, coverage
+        report.warnings += _language_voice_warnings(content_dir, data, base,
+                                                    file)
+        report.warnings += _capped(missing, file,
+                                   "strings without a translation")
+        report.warnings += _capped(stale, file, "stale translations")
+        report.warnings += _capped(long, file, "long translations")
+        reports.append(report)
+    return unlisted, reports
+
+
+def language_warnings(manifest: Any, content_dir: Path
+                      ) -> tuple[list[str], list[str]]:
+    """(warning lines, coverage lines) for the folder's language files.
+
+    Warnings, per listed language whose file loads: each base string it
+    lacks (title, version, speaker, item text, prompt, route label); each
+    translation whose `from` is not the hash of the base text now
+    (stale); each item text longer than 1.5 times its base text or than
+    the game's longest base text, in code points. Each kind lists at most
+    LIST_MAX lines per language and then counts the rest. Before them,
+    one line per lang/*.json the manifest does not list. One coverage
+    line per listed language: strings translated of the base's, stale,
+    and unchecked (a translation with no `from`). A manifest without
+    `languages` and without language files gets nothing."""
+    unlisted, reports = language_reports(manifest, content_dir)
+    warnings = list(unlisted)
+    for report in reports:
+        warnings += report.warnings
+    return warnings, [report.coverage() for report in reports]
 
 
 # ---------------------------------------------------------------------------
