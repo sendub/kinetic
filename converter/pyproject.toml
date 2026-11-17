@@ -3,12 +3,13 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kinetic-extract"
+name = "kinetic"
 version = "1.12.0.dev0"
-description = "Ren'Py extractor for the Kinetic content format (docs/content-format.md)."
+description = "Kinetic's tools: the Ren'Py converter, the validator, game folder assembly and checks (docs/packaging.md)."
 requires-python = ">=3.12"
 license = "MIT"
-dependencies = ["Pillow==13.0.0", "imagecodecs==2026.10.10", "numpy==2.5.4"]
+dependencies = ["Pillow==13.0.0", "imagecodecs==2026.10.10",
+                "jsonschema==4.26.0", "numpy==2.5.4"]
 
 [project.scripts]
 kinetic = "kinetic_extract.kinetic_cli:main"
@@ -17,3 +18,8 @@ kinetic-media = "kinetic_extract.media_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["kinetic_extract*"]
+
+# What an installed wheel reads in place of the repo (tools/build_wheel.py
+# fills kinetic_extract/data/ in its staging copy; a checkout has none).
+[tool.setuptools.package-data]
+kinetic_extract = ["data/**/*"]

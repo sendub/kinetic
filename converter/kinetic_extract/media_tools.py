@@ -6,8 +6,10 @@ game gives the same bytes on any machine:
 - Pillow, imagecodecs (bundling libjxl) and numpy at the versions pinned in
   ``converter/media-tools.json`` (and requirements.txt);
 - ffmpeg and ffprobe from the pinned static build that
-  ``tools/setup_media_tools.py`` installs into ``.media-tools/<platform>/``
-  at the repo root. PATH is never searched.
+  ``tools/setup_media_tools.py`` (``kinetic setup``) installs into
+  ``.media-tools/<platform>/`` at the repo root, or from an installed
+  wheel into the per-user ``media-tools/<platform>/`` (``paths``). PATH
+  is never searched.
 
 Every encoder runs single-threaded with bitexact settings (the argument
 lists below). ``KINETIC_MEDIA_TOOLS_DIR`` is a TEST-ONLY override that
@@ -26,17 +28,22 @@ import sys
 from pathlib import Path
 from typing import Any
 
-CONVERTER_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = CONVERTER_DIR.parent
-PIN_FILE = CONVERTER_DIR / "media-tools.json"
-TOOLS_ROOT = REPO_ROOT / ".media-tools"
+from . import paths
+
+PIN_FILE = paths.PIN_FILE
+TOOLS_ROOT = paths.media_tools_root()
 INSTALLED_FILE = "installed.json"
 TEST_DIR_ENV = "KINETIC_MEDIA_TOOLS_DIR"
 # The setup command as typed on this OS (a Windows venv keeps its
-# interpreter in Scripts\).
-SETUP_CMD = (r".venv\Scripts\python tools\setup_media_tools.py"
-             if os.name == "nt"
-             else ".venv/bin/python tools/setup_media_tools.py")
+# interpreter in Scripts\); an installed wheel has `kinetic setup`.
+if paths.CHECKOUT is None:
+    SETUP_CMD = "kinetic setup"
+    PIP_CMD = "pip install --force-reinstall <the Kinetic wheel>"
+else:
+    SETUP_CMD = (r".venv\Scripts\python tools\setup_media_tools.py"
+                 if os.name == "nt"
+                 else ".venv/bin/python tools/setup_media_tools.py")
+    PIP_CMD = ".venv/bin/pip install -r requirements.txt --cache .tmp/pip-cache"
 TOOL_NAMES = ("ffmpeg", "ffprobe")
 # Intel Macs are not supported (the Mac app is arm64 only too).
 PLATFORMS = ("macos-arm64", "linux-x86_64", "linux-arm64", "windows-x86_64")
@@ -165,8 +172,7 @@ def check_python_pins(pins: dict[str, Any],
         raise MediaToolsError(
             "installed codec versions differ from converter/media-tools.json: "
             + "; ".join(bad)
-            + ": run .venv/bin/pip install -r requirements.txt "
-              "--cache .tmp/pip-cache")
+            + f": run {PIP_CMD}")
 
 
 def binary_version(name: str) -> str | None:

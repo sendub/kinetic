@@ -51,6 +51,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from . import paths
+
 CACHE_ENV = "KINETIC_MEDIA_CACHE"
 OFF = "off"
 # 2: the one video rule (docs/plan.md Phase 26) chooses copy or transcode.
@@ -60,14 +62,15 @@ _CHUNK = 1 << 20
 
 
 def cache_root() -> Path | None:
-    """Repo ``.tmp/kinetic-media-cache``, ``$KINETIC_MEDIA_CACHE``, or
-    None when that variable is ``off``."""
+    """``$KINETIC_MEDIA_CACHE``, None when that variable is ``off``, else
+    the repo's ``.tmp/kinetic-media-cache`` (an installed wheel: the
+    per-user cache's ``kinetic-media-cache``, ``paths.cache_dir``)."""
     env = os.environ.get(CACHE_ENV)
     if env == OFF:
         return None
     if env:
         return Path(env)
-    return Path(__file__).resolve().parents[2] / ".tmp" / "kinetic-media-cache"
+    return paths.cache_dir("kinetic-media-cache")
 
 
 def open_cache(tools: dict[str, Any]) -> MediaCache | None:

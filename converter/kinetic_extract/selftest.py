@@ -24,10 +24,10 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable
 
-from . import assets, media, media_tools
+from . import assets, media, media_tools, paths
 from .media_tools import MediaToolsError
 
-SAMPLES_DIR = media_tools.CONVERTER_DIR / "tests" / "data" / "selftest"
+SAMPLES_DIR = paths.SELFTEST_SAMPLES_DIR
 SAMPLES = ("sample.png", "sample.jpg", "sample.webp", "sample.gif",
            "sample.mp4", "sample-odd.mp4", "sample.ogg", "sample.aiff")
 CACHE_FILE = "selftest-cache.json"

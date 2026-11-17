@@ -18,9 +18,9 @@ language file), as tools/translations.py writes it when the manifest
 names its own copy. The assemble and upgrade tools treat it as they
 treat the manifest's.
 
-The schemas are read from this clone, as `media_tools` reads
-converter/media-tools.json: the converter is installed editable from the
-repo (AGENTS.md), and an install made away from it has no docs/.
+The schemas are read from this clone's docs/, or from an installed
+wheel's package data (`paths`), as `media_tools` reads
+converter/media-tools.json.
 """
 
 from __future__ import annotations
@@ -28,13 +28,12 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from . import language_file
+from . import language_file, paths
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_FILE = REPO_ROOT / "docs" / "content-schema.json"
+SCHEMA_FILE = paths.SCHEMA_FILE
 COPY_NAME = "manifest.schema.json"
 SCHEMA_REF = f"./{COPY_NAME}"
-LANG_SCHEMA_FILE = REPO_ROOT / "docs" / "lang.schema.json"
+LANG_SCHEMA_FILE = paths.LANG_SCHEMA_FILE
 LANG_COPY_NAME = "lang.schema.json"
 LANG_SCHEMA_REF = f"../{LANG_COPY_NAME}"
 COPY_NAMES = (COPY_NAME, LANG_COPY_NAME)

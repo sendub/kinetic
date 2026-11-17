@@ -20,10 +20,11 @@ import io
 import sys
 from pathlib import Path
 
-# converter/vendor/unrpyc, relative to this installed module
-# (kinetic_extract/rpyc.py -> kinetic_extract -> converter -> repo root,
-# but the vendor dir is under converter/, one level above this package).
-_VENDOR_DIR = Path(__file__).resolve().parent.parent / "vendor" / "unrpyc"
+from . import paths
+
+# converter/vendor/unrpyc in a checkout; package data in an installed
+# wheel (paths.UNRPYC_DIR).
+_VENDOR_DIR = paths.UNRPYC_DIR
 
 _unrpyc = None
 _decompiler = None
@@ -34,13 +35,13 @@ class RpycError(RuntimeError):
 
 
 def _default_cache_dir() -> Path:
-    """Repo ``.tmp/kinetic-decompile`` (overridable for tests)."""
+    """Repo ``.tmp/kinetic-decompile``, or the per-user cache's from an
+    installed wheel (``paths.cache_dir``); overridable for tests."""
     import os
     env = os.environ.get("KINETIC_DECOMPILE_CACHE")
     if env:
         return Path(env)
-    repo_root = Path(__file__).resolve().parents[2]
-    return repo_root / ".tmp" / "kinetic-decompile"
+    return paths.cache_dir("kinetic-decompile")
 
 
 def ensure_loaded():

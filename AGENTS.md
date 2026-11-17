@@ -33,10 +33,30 @@ are implementing and docs/stack.md for settled decisions.
   passed. Tests
   `.venv/bin/pytest converter/ tools/ -q -n auto` (pytest-xdist, one
   worker per core, about 45 s; a single file runs fine without `-n`).
-- `--version` on `kinetic-extract`, `kinetic-media`, `tools/`
+- `kinetic` (installed by the editable install, distribution name
+  `kinetic`; a venv that still has the old `kinetic-extract` needs
+  `.venv/bin/pip uninstall kinetic-extract` before reinstalling):
+  subcommands `setup`, `extract`, `media`, `validate`, `assemble`,
+  `upgrade`, `check`, `report`, `routes`, `export`, each taking the
+  arguments of the tool it wraps (`kinetic_extract/tool_commands.py`).
+  The tools those wrap live in `converter/kinetic_extract/`
+  (`validate_content.py`, `assemble_folder.py`, `upgrade_folder.py`,
+  `setup_media_tools.py`, `windows_resources.py`); the same names in
+  `tools/` are wrappers, so every command here still works. File
+  locations go through `kinetic_extract/paths.py`: a checkout reads and
+  writes the repo as always, an installed wheel uses package data and
+  `KINETIC_HOME` or the per-user folders (docs/packaging.md,
+  "Installing the tools"). The wheel: `.venv/bin/python
+  tools/build_wheel.py [--out DIR]` (fresh player build into a staging
+  folder, check-game bundled by `player/scripts/bundle-check.mjs`;
+  writes `dist/kinetic-<version>-py3-none-any.whl`); its test,
+  `.venv/bin/pytest tools/test_build_wheel.py -q`, installs it into a
+  venv under `.tmp/` and runs the commands outside the repo (about a
+  minute).
+- `--version` on `kinetic`, `kinetic-extract`, `kinetic-media`, `tools/`
   `validate_content.py`, `assemble_folder.py`, `build_apps.py`,
-  `setup_media_tools.py`, `upgrade_folder.py` and `translations.py`, and
-  `check-game.mjs`
+  `setup_media_tools.py`, `upgrade_folder.py`, `translations.py` and
+  `build_wheel.py`, and `check-game.mjs`
   prints `Kinetic <VERSION>` and exits, needing no media tools. A built
   `app.js` opens with `/*! Kinetic <version> */`; read a folder's with
   `kinetic_extract.version.folder_player_version` (Python) or

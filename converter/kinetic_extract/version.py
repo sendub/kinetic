@@ -5,9 +5,9 @@ is stamped with.
 Kinetic's version is the repo's VERSION file, one line: `X.Y.Z` for a
 release, `X.Y.Z-dev` between releases. The converter is installed
 editable from this clone, so reading the file directly stays right after
-VERSION changes, with no reinstall; the package metadata
-(converter/pyproject.toml, PEP 440 `X.Y.Z.dev0`) answers only for an
-install made away from the repo. The media ledger's `kinetic-extract`
+VERSION changes, with no reinstall; an installed wheel carries a copy as
+package data (`paths`), and the package metadata (converter/pyproject.toml,
+PEP 440 `X.Y.Z.dev0`) answers when neither is there. The media ledger's `kinetic-extract`
 entry is the package's own `__version__`, not this, so a new Kinetic
 release neither empties the media cache nor stops `kinetic-media rebuild`
 matching an existing ledger.
@@ -26,8 +26,10 @@ import re
 from importlib import metadata
 from pathlib import Path
 
-VERSION_FILE = Path(__file__).resolve().parents[2] / "VERSION"
-DISTRIBUTION = "kinetic-extract"
+from . import paths
+
+VERSION_FILE = paths.resource("VERSION", "VERSION")
+DISTRIBUTION = "kinetic"
 STAMP = re.compile(r"/\*! Kinetic ([0-9A-Za-z.+-]+) \*/\n")
 # The stamp is the first line; this much of app.js always holds it.
 STAMP_BYTES = 256

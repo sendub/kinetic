@@ -65,9 +65,20 @@ def test_package_json_and_pyproject_agree_with_version() -> None:
     assert pyproject["project"]["version"] == pep440(version)
 
 
+def test_the_distribution_is_kinetic() -> None:
+    """The wheel is kinetic-<version>-py3-none-any.whl (tools/build_wheel.py),
+    and the version module's metadata fallback asks for that name."""
+    sys.path.insert(0, str(REPO_ROOT / "converter"))
+    from kinetic_extract import version
+    pyproject = tomllib.loads((REPO_ROOT / "converter" / "pyproject.toml")
+                              .read_text(encoding="utf-8"))
+    assert pyproject["project"]["name"] == version.DISTRIBUTION == "kinetic"
+
+
 @pytest.mark.parametrize("tool", [
     "validate_content.py", "assemble_folder.py", "build_apps.py",
-    "setup_media_tools.py", "upgrade_folder.py", "translations.py"])
+    "setup_media_tools.py", "upgrade_folder.py", "translations.py",
+    "build_wheel.py"])
 def test_tool_version_prints_kinetic_version_and_does_nothing_else(
         tool, tmp_path) -> None:
     env = {k: v for k, v in os.environ.items()

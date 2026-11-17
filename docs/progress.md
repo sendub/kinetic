@@ -5560,9 +5560,38 @@ truthful: an unchecked box means nothing was accepted.
       test_setup_media_tools 23 passed, 2 skipped; PC and WSL cleaned.
       Orchestrator: setup, media_tools, media_ship and poster tests 84
       passed; Mac setup self-test 22 cases passed.)
-- [ ] The `kinetic` command and the wheel (item 9). One command with
+- [x] The `kinetic` command and the wheel (item 9). One command with
       the old names as wrappers, the player bundle and a bundled
       check-game inside; installs and runs from a fresh venv.
+      (2026-11-17: subcommands setup, extract, media, validate,
+      assemble, upgrade, check, report, routes, export (`apps` comes
+      with item 10), each passing its arguments to the tool's `main`.
+      validate_content, assemble_folder, upgrade_folder,
+      setup_media_tools and windows_resources moved into
+      `kinetic_extract/`; the tools/*.py files are wrappers that also
+      stand in for the module on import. `paths.py`: a checkout behaves
+      as before; an installed wheel reads `kinetic_extract/data/` (pins,
+      schemas, self-test samples, unrpyc, player bundle, check bundle)
+      and writes media tools and caches to per-user folders (macOS
+      Application Support and Caches, `%LOCALAPPDATA%\Kinetic`, XDG),
+      `KINETIC_HOME` overriding. The distribution is renamed `kinetic`
+      (other venvs: `pip uninstall kinetic-extract` first; AGENTS.md
+      says so) with jsonschema declared. `kinetic check` runs an esbuild
+      bundle of check-game with puppeteer-core (2.4 MB) on the system
+      Node, needing 22.12.0, with a hook for item 10's prebuilt WebKit
+      driver and a Chrome fallback; `kinetic.mjs` honours
+      `KINETIC_SCRATCH_DIR`. tools/build_wheel.py builds the player
+      fresh into staging: kinetic-1.12.0.dev0-py3-none-any.whl, 80
+      files, 1.05 MiB, into `dist/`. AGENTS.md, CREATE.md "Without a
+      checkout", docs/packaging.md "Installing the tools". Hand run
+      from a fresh wheel venv outside the repo: `kinetic setup`
+      downloaded and self-tested (22 cases), extract, validate,
+      rebuild 15/15, assemble and check passed. Subagent: converter and
+      tools 1918 + 1 failing in item 4f's in-progress test_flow; npm
+      test 1853. Orchestrator: kinetic_cli, paths, check, build_wheel
+      (the wheel installed and run) and release_version 68 passed;
+      converter and tools without test_flow 1922; npm test 1853, check
+      clean; smoke 6/6; checkgame and trace 67/67.)
 - [ ] Prebuilt app hosts (item 10). Hosts read their story settings at
       launch; `kinetic apps` builds both apps with no Swift or Go.
 - [ ] Release and install docs (item 11). CREATE.md around `kinetic`,

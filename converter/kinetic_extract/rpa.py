@@ -37,6 +37,7 @@ import re
 import zlib
 from pathlib import Path
 
+from . import paths
 from .media import IMAGE_EXTS, VIDEO_EXTS
 
 _RPA3_MAGIC = b"RPA-3.0 "
@@ -234,12 +235,12 @@ def reset_cache() -> None:
 
 
 def extract_cache_dir() -> Path:
-    """Repo ``.tmp/kinetic-extract-cache`` (overridable for tests)."""
+    """Repo ``.tmp/kinetic-extract-cache``, or the per-user cache's
+    from an installed wheel (``paths.cache_dir``); overridable for tests."""
     env = os.environ.get("KINETIC_EXTRACT_CACHE")
     if env:
         return Path(env)
-    repo_root = Path(__file__).resolve().parents[2]
-    return repo_root / ".tmp" / "kinetic-extract-cache"
+    return paths.cache_dir("kinetic-extract-cache")
 
 
 def extract_cached(archive: RpaArchive, name: str,

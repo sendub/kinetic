@@ -45,13 +45,12 @@ import {
   sleep,
 } from "./core.mjs";
 
-const scratch = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  "..",
-  ".tmp",
-);
+// Browser profiles and crash dumps: the checkout's .tmp, or the folder
+// KINETIC_SCRATCH_DIR names (`kinetic check` from an installed Kinetic
+// sets it to a per-user cache; converter/kinetic_extract/check.py).
+const scratch =
+  process.env.KINETIC_SCRATCH_DIR ??
+  join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", ".tmp");
 
 /** What each engine stands for, as openGame reports its choice. */
 export const ENGINE_NAMES = {

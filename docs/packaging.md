@@ -102,6 +102,79 @@ A folder already made takes a newer player with
 only its `index.html` and `app.js` (CREATE.md, "Upgrading to a newer
 Kinetic"); `manifest.json`, media and `lang/` stay as they are.
 
+## Installing the tools
+
+The tools that make a folder (converting, validating, assembling,
+upgrading, checking) also come without a checkout, as one command,
+`kinetic`, installed from a wheel attached to each GitHub release
+(docs/plan.md Phase 57):
+
+```sh
+python3 -m venv ~/kinetic-venv
+~/kinetic-venv/bin/pip install <release-url>/kinetic-<version>-py3-none-any.whl
+~/kinetic-venv/bin/kinetic setup
+```
+
+`kinetic --help` lists the subcommands: `setup`, `extract`, `media`
+(`ship`, `rebuild`, `posters`), `validate`, `assemble`, `upgrade`,
+`check`, `report`, `routes` and `export`. Each wrapped tool takes the
+arguments, prints the output and exits with the codes of the command it
+stands for (CREATE.md, "Without a checkout: the `kinetic` command").
+`kinetic-extract` and `kinetic-media` install beside it, and in a
+checkout `tools/*.py` keep working; those scripts are thin wrappers
+over the same modules in `converter/kinetic_extract/`. Making the
+macOS app or the Windows exe still needs a checkout
+(`tools/build_apps.py`, or `--mac`/`--windows` on assemble).
+
+The wheel carries what the tools read from the repo in a checkout,
+under `kinetic_extract/data/`: the repo's VERSION,
+`converter/media-tools.json`, the two schemas from docs/, the media
+self-test's samples, vendored unrpyc, the built player (`index.html`
+and `app.js`, which `kinetic assemble` and `kinetic upgrade` copy), and
+check-game bundled with puppeteer-core into one file. `kinetic check`
+runs that file with the system Node, so it needs Node.js at the version
+puppeteer-core needs (22.12 or later; the check names it when Node is
+missing or older) and Chrome, found as check-game finds it
+(`KINETIC_CHROME`, else the usual place). The engine `auto` uses
+WebKit on macOS only when the wheel carries a prebuilt WebKit driver
+beside the bundle (`check/kinetic-webkit-driver`); without one it tests
+on Chrome and says why.
+
+Where an installed Kinetic writes, `KINETIC_HOME` when set, else the
+system's place for an application's data and caches. The media tools
+are what `kinetic setup` installs; the caches hold encodes, files read
+from archives, decompiled scripts and check-game's browser profiles:
+
+| | Media tools | Caches |
+| --- | --- | --- |
+| `KINETIC_HOME` set | `$KINETIC_HOME/media-tools/` | `$KINETIC_HOME/cache/` |
+| macOS | `~/Library/Application Support/Kinetic/media-tools/` | `~/Library/Caches/Kinetic/` |
+| Windows | `%LOCALAPPDATA%\Kinetic\media-tools\` | `%LOCALAPPDATA%\Kinetic\Cache\` |
+| Linux | `$XDG_DATA_HOME/kinetic/media-tools/` (`~/.local/share`) | `$XDG_CACHE_HOME/kinetic/` (`~/.cache`) |
+
+`KINETIC_MEDIA_CACHE` still moves or disables the encode cache. In a
+checkout nothing changes: the package sees it sits in
+`<repo>/converter/kinetic_extract/` beside the repo's VERSION and
+`player/package.json`, reads the repo's files, installs the media tools
+into `.media-tools/`, keeps its caches under `.tmp/`, and ignores
+`KINETIC_HOME`; `kinetic check` runs
+`player/scripts/testing/check-game.mjs`, which needs `npm ci` in
+`player/`.
+
+The wheel is built in a checkout with
+
+```sh
+.venv/bin/python tools/build_wheel.py [--out DIR]
+```
+
+which builds the player afresh into a staging folder (player/dist/ is
+left alone) and refuses a bundle not stamped with the checkout's
+VERSION, bundles check-game (`player/scripts/bundle-check.mjs`), and
+writes `dist/kinetic-<version>-py3-none-any.whl` with `pip wheel`. It
+needs Node and `player/node_modules`. The wheel is about 1.1 MB, of
+which the bundled check-game is 2.4 MB and the player 1.4 MB before
+compression (2026-11-17).
+
 ## Double-click behavior and transport
 
 Double-clicking `index.html` opens the novel in the default browser, and

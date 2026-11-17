@@ -687,6 +687,26 @@ file after either:
 
 Reference: converter/README.md, "Pinned media tools".
 
+### Without a checkout: the `kinetic` command
+
+The same tools come as one command, `kinetic`, from a wheel: `pip
+install` the release's `kinetic-<version>-py3-none-any.whl` into a venv
+of its own, then `kinetic setup` once. Each subcommand takes the
+arguments of the tool it stands for: `kinetic setup` is
+`tools/setup_media_tools.py`, `kinetic extract` is `kinetic-extract`,
+`kinetic media` is `kinetic-media`, `kinetic validate`, `assemble` and
+`upgrade` are `tools/validate_content.py`, `assemble_folder.py` and
+`upgrade_folder.py`, and `kinetic check` is check-game ("Testing your
+game"), which needs Node.js 22.12 or later and Chrome. `kinetic --help`
+lists them all. In a checkout `.venv/bin/kinetic` works too, and the
+commands this guide shows stay as they are.
+
+An installed Kinetic keeps the media tools and its caches in a folder
+of your own (`~/Library/Application Support/Kinetic` and
+`~/Library/Caches/Kinetic` on macOS; `KINETIC_HOME` names another),
+not in `.media-tools/` and `.tmp/`; docs/packaging.md, "Installing the
+tools", says where on each system and how the wheel is built.
+
 ### Converting, checking and playing one game
 
 ```sh

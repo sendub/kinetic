@@ -352,9 +352,9 @@ def _add_limits(parser: argparse.ArgumentParser) -> None:
                              "quarter of --jobs, at least 1)")
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, prog: str = PROG) -> int:
     argp = argparse.ArgumentParser(
-        prog=PROG, description="Kinetic media work without a story parse.")
+        prog=prog, description="Kinetic media work without a story parse.")
     add_version_option(argp)
     sub = argp.add_subparsers(dest="command", required=True)
     shipp = sub.add_parser(
