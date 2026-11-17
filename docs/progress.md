@@ -5572,6 +5572,9 @@ truthful: an unchecked box means nothing was accepted.
       test_setup_media_tools 23 passed, 2 skipped; PC and WSL cleaned.
       Orchestrator: setup, media_tools, media_ship and poster tests 84
       passed; Mac setup self-test 22 cases passed.)
+- [ ] Per-platform goldens (item 8b). A platform holds its own golden
+      for a case a CPU difference changes; rebuild names the platform
+      that can verify; Windows and linux-x86_64 pinned.
 - [x] The `kinetic` command and the wheel (item 9). One command with
       the old names as wrappers, the player bundle and a bundled
       check-game inside; installs and runs from a fresh venv.

@@ -4260,6 +4260,22 @@ The orchestrator's choices, within those decisions:
     malformed and exit 1 or 2 as fits), and guard the walks against a
     backward join. Tests: a malformed folder for each tool finishes
     under a time bound.
+8b. Per-platform goldens (the user, 2026-11-17, after item 8 found that
+    every x86_64 build, whatever its publisher, differs from the
+    arm64 goldens on the same 6 cases: the CPU, not the build). A
+    platform may hold its own golden for a case; every other case
+    still matches the shared golden. `--pin` on a new platform records
+    the archive checksums (publisher-checked) and that platform's own
+    goldens for the cases that differ, refusing when a case fails to
+    run or differs on more than the cases a CPU difference explains
+    (the user approves any new differing case). The encode cache keys
+    on the platform; the media ledger records the platform that made
+    each output, and `kinetic media rebuild` on another platform says
+    which platform can verify those outputs instead of reporting a bare
+    mismatch. AGENTS.md's pin rule says so. The orchestrator then runs
+    `--pin` on Windows and in WSL. Tests: setup tests for platform
+    goldens and the refusal; cache and rebuild tests for the platform
+    key; the self-test on Windows and WSL against their own goldens.
 8. Media tools for Windows and Linux. Drop `macos-x86_64` from
    `converter/media-tools.json` and the docs. On the user's Windows PC
    over SSH (the user's global notes say how), try ffmpeg 9.0.2 builds
