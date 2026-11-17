@@ -17,7 +17,7 @@ Taking a new release means replacing a game folder's player (CREATE.md,
 "Upgrading to a newer Kinetic"). Bullets marked **Upgrading:** ask
 something more of an author.
 
-## 1.10.1-dev
+## 1.10.1 (2026-11-17)
 
 - Tests on the `webkit` engine (check-game, `openGame`) no longer lose
   clicks and drags when the computer's own mouse button is down while

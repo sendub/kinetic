@@ -4921,5 +4921,13 @@ truthful: an unchecked box means nothing was accepted.
       6/6 on both engines, the two files 153/153 on Chrome and 5 of 5
       WebKit runs with 151 pass, 2 partial (headless fullscreen), 0
       fail.)
-- [ ] Phase-closer (Phase 55): full suites; VERSION 1.10.1, the
+- [x] Phase-closer (Phase 55): full suites; VERSION 1.10.1, the
       CHANGELOG dated, tag v1.10.1, `main` fast-forwarded.
+      (2026-11-17 on 77faec0, load average 3-13: full pytest 1241
+      passed; apps/voice 87 passed; Go test and Windows vet clean; npm
+      test 1539, check clean; full `npm run verify` 795/795 on Chrome;
+      `npm run verify -- --webkit` 855 pass, 5 partial (the headless
+      fullscreen checks), 0 fail; package-proof 18/18 with
+      .tmp/extract-demo regenerated. VERSION, package.json, its lockfile
+      and pyproject 1.10.1; the CHANGELOG entry dated; tag v1.10.1;
+      `main` fast-forwarded.)
