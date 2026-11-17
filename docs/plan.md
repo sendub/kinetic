@@ -4175,6 +4175,22 @@ The orchestrator's choices, within those decisions:
    two corpus games reports how many lines got colours and how many
    transitions mapped or were cut, in the evidence note without naming
    the games.
+4b. Ren'Py's script walk (item 4's corpus run). Both corpus games keep
+    their story in subfolders of `game/`, which the walk skips unless
+    `--files` reaches them (docs/extracting.md, "Which scripts are
+    walked"), though Ren'Py loads every script under `game/`. Walk loose
+    `.rpy`/`.rpyc` in subfolders by default, as Ren'Py does, keeping
+    `tl/` out and the one-source-per-path rules; `--files` still
+    narrows. Tests: synthetic walk cases; the two corpus games convert
+    with no `--files`.
+4c. Old-style characters (item 4's corpus run). Characters made in
+    `init:` blocks and `$ e = Character(...)` lines give the same names
+    and colours as `define`, and a Character with no name argument takes
+    its `kind=`'s name, as Ren'Py does. Tests: synthetic cases.
+4d. A corpus game's lost pictures (item 4's corpus run). Game 1's scenes
+    mostly resolve to no image (3576 visuals dropped). Find the cause in
+    the image lookup and fix it in general, not for that game. Tests: a
+    synthetic case of the cause; game 1's dropped count after the fix.
 5. `kinetic report <folder>`. Reading time per route from "Timing",
    speakers with line counts (names that differ only in case,
    spacing, or by one letter are flagged), files in the folder no item

@@ -10,6 +10,13 @@ the build ledger keeps the source asset paths. Audio statements attach to
 the next item emitted through kinetic_extract.audio_cues (docs/plan.md
 Phase 47 item 8): each record's ``audio`` and the result's
 ``audio_tracks``.
+
+Transitions (docs/plan.md Phase 57 item 4): a scene/show's `with` clause
+gives its visual's item the transition; a bare `with` gives it to the
+visual still waiting to be emitted when that visual changed since the
+last interaction (a line, a pause, a menu, an earlier `with`), as Ren'Py
+applies a `with` to the changes since the last one. A `with` with no such
+change gives nothing. kinetic_extract.presentation reads the expression.
 """
 
 from __future__ import annotations
@@ -23,6 +30,9 @@ from typing import Any
 from .audio_cues import AudioFiles, AudioTrack, CueWalker
 from .media import probe_duration_seconds
 from .parser import Event, FileParse, Report, slug as _slug
+from .presentation import (CharacterColors, Resolved, TransitionCounts,
+                           character_colors, resolve_transition,
+                           transition_defines)
 
 _INTERPOLATION_RE = re.compile(r"\[[^][]*\]")
 _INTERPOLATION_NOTE = " interpolation(s) literal in text"
@@ -132,6 +142,13 @@ class TimelineResult:
     branch_candidates: list[dict[str, Any]] = field(default_factory=list)
     # Track id -> the track the items' audio cues name.
     audio_tracks: dict[str, AudioTrack] = field(default_factory=dict)
+    # Speaker display name -> the coloured Character defines whose lines
+    # the walk gave that name (kinetic_extract.presentation).
+    speaker_colors: dict[str, list[CharacterColors]] = field(
+        default_factory=dict)
+    # The `with` expressions met: how many read as a transition, and the
+    # cuts by name.
+    transitions: TransitionCounts = field(default_factory=TransitionCounts)
 
     def _next_id(self, slug: str) -> str:
         return f"{slug}-{len(self.items) + 1:03d}"
@@ -160,6 +177,9 @@ class _Pending:
         # Resolution notes carried onto the item's ledger entry (e.g. an
         # ambiguous implicit name).
         self.notes: list[str] = []
+        # The item `transition` its `with` gave (docs/content-format.md,
+        # "Transitions"); None: a cut.
+        self.transition: dict[str, Any] | None = None
 
 
 class _SliceDone(Exception):
@@ -205,6 +225,14 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     result = TimelineResult()
     cues = CueWalker(parses, audio_files or AudioFiles(game_dir))
     pending: _Pending | None = None
+    colors = character_colors(parses)
+    defines = transition_defines(parses)
+    # Whether the pending visual changed since the last interaction, so
+    # a bare `with` applies to it.
+    fresh = False
+    # Note -> (parse, first source, statement, uses) for how transitions
+    # were read (a clamped time, a fade colour), reported once each.
+    transition_notes: dict[str, list[Any]] = {}
     started = start_label is None
     menu_state: dict[str, Any] | None = None  # open menu region (Phase 13)
     # The item the last say statement's text went to, which an `extend`
@@ -215,6 +243,20 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     def check_limit() -> None:
         if max_items is not None and len(result.items) >= max_items:
             raise _SliceDone()
+
+    def read_transition(parsed: FileParse, source: str,
+                        expr: str) -> Resolved:
+        """Read a `with` expression, counting it and noting how."""
+        got = resolve_transition(expr, defines)
+        if got.transition is not None:
+            result.transitions.read += 1
+        else:
+            result.transitions.cut[got.cut or expr] += 1
+        for note in got.notes:
+            seen = transition_notes.setdefault(
+                note, [parsed, source, f"with {expr}", 0])
+            seen[3] += 1
+        return got
 
     def asset_paths(rel: str | None, kind: str,
                     ) -> tuple[str | None, Path | None,
@@ -271,6 +313,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         if pend.kind == "video":
             set_video_duration(record)
         apply_line(item, record, speaker, text)
+        if pend.transition is not None:
+            item["transition"] = dict(pend.transition)
         cues.attach(record)
         result.items.append(record)
         check_limit()
@@ -283,6 +327,10 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             return
         if speaker is not None:
             item["speaker"] = characters.get(speaker, speaker)
+            if speaker in colors:
+                known = result.speaker_colors.setdefault(item["speaker"], [])
+                if colors[speaker] not in known:
+                    known.append(colors[speaker])
             if speaker in characters:
                 record.notes.append(
                     f"speaker {speaker!r} display name from Character define")
@@ -371,7 +419,27 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         started = True
                     continue
                 check_limit()
+                if event.kind in ("dialogue", "interact", "menu-open",
+                                  "choice-open", "menu-close",
+                                  "stop-movie"):
+                    fresh = False
+                if event.kind == "with":
+                    got = read_transition(parsed, event.source,
+                                          event.name or "None")
+                    if (fresh and pending is not None
+                            and not pending.consumed
+                            and not pending.unresolved):
+                        pending.transition = got.transition
+                    fresh = False
+                    continue
                 if event.kind == "visual":
+                    # A `with` clause: `with None`, the statement, then
+                    # the clause's `with`, so the visual takes it and the
+                    # changes before it are settled.
+                    clause = (read_transition(parsed, event.source,
+                                              event.transition)
+                              if event.transition is not None else None)
+                    fresh = clause is None
                     name = event.name or "black"
                     if name in _SOLID_COLORS and name not in image_defs:
                         # A solid screen carries no media; the visual is
@@ -423,6 +491,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     kind, ledger_rel, abs_path, src_ref, n = resolved
                     pending = _Pending(kind, name, ledger_rel, abs_path,
                                        event.source, src_ref)
+                    if clause is not None:
+                        pending.transition = clause.transition
                     if n > 1:
                         chosen = ledger_rel.rsplit("!", 1)[-1]
                         pending.notes.append(
@@ -430,6 +500,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                             f"answer it; using the first in sorted order "
                             f"({chosen})")
                 elif event.kind == "video":
+                    fresh = True
                     ledger_rel, abs_path, src_ref = asset_paths(
                         event.asset, "video")
                     flush_bare()
@@ -516,6 +587,13 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             flush_bare()
     except _SliceDone:
         pass
+    for note, (parsed, source, statement, uses) in transition_notes.items():
+        parsed.reports.append(Report(
+            source, statement,
+            f"transition: {note} ({uses} use{'s' if uses != 1 else ''}; "
+            "this is the first)"))
+    for known in result.speaker_colors.values():
+        known.sort(key=lambda c: c.order)
     cues.finish()
     result.audio_tracks = cues.tracks
 

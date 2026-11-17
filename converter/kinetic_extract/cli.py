@@ -100,6 +100,7 @@ from .media import (DEFAULT_SIZE, ExistingFileError,
 from .media_cache import open_cache
 from .media_tools import MediaToolsError, run_tools
 from .parser import ID_MAX, FileParse, Report, parse_project, slug
+from .presentation import characters_table, transition_summary
 from .rpa import AssetArchives
 from .schema_copy import LANG_SCHEMA_REF, SCHEMA_REF, write_schema_copy
 from .selftest import ensure_ready
@@ -137,6 +138,11 @@ SIMPLIFICATIONS = [
     "past its end drops its cues (ledger `audioTracks`); a video item "
     "gets its own sound as `videoSound` only when that is audible and "
     "lasts to the item's range end (ledger item `sound`)",
+    "a `with` gives the visual item it lands on a transition only for "
+    "dissolve, fade, Dissolve(t), Fade(out, hold, in) and names defined "
+    "as those; every other transition, and `with None`, is a cut "
+    "(ledger `transitions`); speaker colours come only from literal "
+    "Character colours",
 ]
 
 
@@ -307,6 +313,7 @@ def build_manifest(result: TimelineResult, width: int, height: int,
                    audio_tracks: dict[str, dict[str, Any]] | None = None,
                    languages: list[str] | None = None,
                    language: str | None = None,
+                   characters: dict[str, dict[str, str]] | None = None,
                    ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
         # First, where editors look: the schema copy write_outputs puts
@@ -333,6 +340,10 @@ def build_manifest(result: TimelineResult, width: int, height: int,
     }
     if audio_tracks:
         manifest["audio"] = {"tracks": audio_tracks}
+    if characters:
+        # Speaker colours from the Character defines (docs/extracting.md,
+        # "Colours and transitions").
+        manifest["characters"] = characters
     manifest["items"] = [record.item for record in result.items
                          if not record.skipped]
     if branches:
@@ -530,6 +541,7 @@ def print_summary(result: TimelineResult, reports: list[Report],
                   sound: SoundShipment | None = None,
                   version: tuple[str | None, str] | None = None,
                   translation_lines: list[str] | None = None,
+                  presentation_lines: list[str] | None = None,
                   ) -> None:
     counts: dict[str, int] = {}
     for record in result.items:
@@ -558,6 +570,8 @@ def print_summary(result: TimelineResult, reports: list[Report],
         reasons = sorted({n["reason"] for n in skipped_menus})
         line += f" ({'; '.join(reasons)})"
     print(line)
+    for line in presentation_lines or []:
+        print(line)
     for record in result.items:
         warning = record.asset_meta.get("warning")
         if warning:
@@ -685,6 +699,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"kinetic-extract: {exc}", file=sys.stderr)
         return 1
     branches, branch_notes = finalize_branches(result, parses, reports)
+    shown = [record.item for record in result.items if not record.skipped]
+    characters = characters_table(
+        [e.result.speaker_colors for e in episodes],
+        {item["speaker"] for item in shown if "speaker" in item}, reports)
+    transition_line, transition_record = transition_summary(
+        shown, result.transitions)
+    speakers = len({item["speaker"] for item in shown if "speaker" in item})
+    presentation_lines = [
+        f"speaker colours: {len(characters)} of {speakers} speakers",
+        transition_line]
 
     if args.width and args.height:
         width, height, source_note = args.width, args.height, "--width/--height override"
@@ -725,7 +749,8 @@ def main(argv: list[str] | None = None) -> int:
                               story_id=story_id, title=title,
                               version=version,
                               audio_tracks=sound.tracks,
-                              language=args.base_language)
+                              language=args.base_language,
+                              characters=characters)
     projects_tl = [e.translations for e in episodes
                    if e.translations is not None]
     lang_files, lang_stats, lang_warnings = language_files(
@@ -738,7 +763,8 @@ def main(argv: list[str] | None = None) -> int:
                                   audio_tracks=sound.tracks,
                                   language=args.base_language,
                                   languages=[d["language"]
-                                             for d in lang_files])
+                                             for d in lang_files],
+                                  characters=characters)
     slice_opts = {"label": args.label, "maxItems": args.max_items,
                   "files": args.files}
     folders = [project_folder_name(e.project) for e in episodes]
@@ -753,6 +779,9 @@ def main(argv: list[str] | None = None) -> int:
                           decoders=args.decoder,
                           projects=folders if several else None,
                           audio_tracks=sound.ledger)
+    # What became of the `with` statements (docs/extracting.md, "Colours
+    # and transitions").
+    ledger["transitions"] = transition_record
     skipped_tl = [name for p in projects_tl for name in p.skipped]
     if lang_stats or skipped_tl:
         # Per Ren'Py language read from game/tl/: its tag, the dialogue
@@ -773,7 +802,8 @@ def main(argv: list[str] | None = None) -> int:
                   [f"warning: {w}" for w in lang_warnings]
                   + summary_lines(lang_stats,
                                   [d["language"] for d in lang_files],
-                                  skipped_tl))
+                                  skipped_tl),
+                  presentation_lines)
     if len(derived_ids) > 1:
         print("note: the projects derive different story ids ("
               + ", ".join(derived_ids) + "); using the first; --story-id "
@@ -898,6 +928,7 @@ def _join_results(results: list[TimelineResult]) -> TimelineResult:
         joined.source_images += result.source_images
         joined.decoded_sizes += result.decoded_sizes
         joined.audio_tracks |= result.audio_tracks
+        joined.transitions.add(result.transitions)
         joined.branch_candidates += [{
             **cand,
             "after_idx": cand["after_idx"] + offset,

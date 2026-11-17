@@ -198,7 +198,8 @@ with the current schema.
 ignore it. Besides the walk's record (`inputs`, `items`, `report`,
 `branchDetection`, the `rpyc*`/`rpa*` source lists, `slice`, the
 sound's `audioTracks` and video items' `sound`: Shipping the sound,
-below, and `translations`: Translations, below), it holds
+below, `transitions`: Colours and transitions, below, and
+`translations`: Translations, below), it holds
 enough to make every shipped media file again from the original game
 files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
 
@@ -1448,6 +1449,97 @@ error), and the run summary prints all three with their sources
 (`game version: (none)` when there is none). `--version` prints
 Kinetic's own version, not the game's. Keep the `storyId` the same when you
 re-extract an updated game, or readers' progress will not follow it.
+
+## Colours and transitions
+
+docs/plan.md Phase 57 item 4: the converter carries the speaker colours
+and crossfades Ren'Py draws, into the manifest's `characters` and item
+`transition` (docs/content-format.md, "Characters" and "Transitions").
+The code is `converter/kinetic_extract/presentation.py`. Text tags
+(`{i}`, `{b}`, `{w}` and the rest) stay in the text exactly as written,
+neither stripped nor escaped; the player reads them
+(docs/content-format.md, "Text tags").
+
+Speaker colours come from `define x = Character(...)` and
+`DynamicCharacter(...)`, the call over one line or several:
+
+- `color` and `who_color` give the name's colour, `nameColor`;
+  `who_color` wins when both are given. `what_color` gives the lines'
+  colour, `textColor`.
+- Only a string literal is read, in the forms Ren'Py's `Color` reads:
+  `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`, the `#` optional. It is
+  written as `#rrggbb` in lowercase, short forms doubled and any alpha
+  dropped. A colour that is an expression or a variable
+  (`gui.accent_color`, `"#" + x`) or a string in no such form is left
+  out, with a report line.
+- `kind=other`, naming another Character define, inherits that define's
+  colours, and the define's own colours replace them, as in Ren'Py. Any
+  other `kind` (Ren'Py's `adv` or `nvl`, an expression) gives nothing.
+- `characters` is keyed by the speaker as the items carry it (the
+  display name, or the variable when the name is not a literal), and
+  holds only speakers some item in the folder shows, and only those with
+  a colour. When several defines give one name, the first defined that
+  has a colour wins; a later one with other colours gets a report line,
+  `speaker 'Ana' has other colours here than at game/script.rpy:3: the
+  first define is kept`. Several projects: the first project's wins.
+
+Transitions come from `with`: a clause ending `scene`, `show` or `hide`
+(`scene bg with dissolve`), and the bare statement (`with fade` after
+the lines it applies to). Ren'Py applies a `with` to what changed on
+screen since the last interaction, and the converter does the same with
+the pictures it emits: a clause gives its own statement's item the
+transition, and a bare `with` gives it to the picture waiting for its
+item when that picture changed since the last line, `pause`, menu or
+earlier `with`. When several `scene` and `show` lines come before one
+`with`, each still becomes its own item as before, and only the last,
+the one the `with` lands on, takes the transition. A `with` after no
+picture change (only a sound, a `hide`, which changes no picture the
+folder shows, or a solid colour screen) gives nothing.
+
+| Ren'Py | `transition` |
+| --- | --- |
+| `dissolve` | `{"kind": "dissolve", "seconds": 0.5}` |
+| `Dissolve(t)`, `Dissolve(time=t)` | `{"kind": "dissolve", "seconds": t}` |
+| `fade` | `{"kind": "fade", "out": 0.5, "hold": 0.0, "in": 0.5}` |
+| `Fade(out, hold, in)` | `{"kind": "fade", "out": out, "hold": hold, "in": in}` |
+| a name `define`d as one of these | as that |
+| `None` and anything else | none: a cut |
+
+- `dissolve` and `fade` are Ren'Py's own definitions
+  (`renpy/common/00definitions.rpy`: `Dissolve(0.5)` and
+  `Fade(0.5, 0.0, 0.5)`). A game's own `define` of the same name wins,
+  as in Ren'Py, and a define may name another define. A `define` is
+  read with or without an init priority (`define -2 quick =
+  Dissolve(0.2)`), for transitions and Character defines alike.
+- A time must be a number literal; `Dissolve(t)` with a variable is a
+  cut. Other arguments (`alpha=`, `time_warp=`) are ignored.
+- A time above 5 seconds is clamped to 5, and a `Fade` time below 0 to
+  0, each with a report line. `Dissolve(0)`, or a `Fade` whose `out`
+  and `in` are both 0, is a cut.
+- `Fade`'s `color` is not carried: the fade goes through black. A colour
+  other than black gets a report line and the fade is kept.
+- Every other transition is a cut: `with None`, Ren'Py's `pixellate`,
+  the `move`, `wipe`, `slide`, `push`, `iris` and `zoom` families, `hpunch` and `vpunch`, `ImageDissolve`, `Pixellate(...)`,
+  `MoveTransition(...)`, a dict of layer transitions, and a name
+  `define`d as any of those.
+
+A note about how a transition was read (a clamped time, a fade's
+colour) is one report line, at its first use, counting the uses:
+`transition: Dissolve time 8 s clamped to 5 s (2 uses; this is the
+first)`. The run summary prints two lines after the branches:
+
+```text
+speaker colours: 5 of 7 speakers
+transitions: kept dissolve 40, fade 6; with no picture change 9; cut: None x31, hpunch x4, pixellate x1
+```
+
+`kept` counts the transitions on the folder's items by kind; `with no
+picture change` the `with` statements read as a dissolve or fade that
+landed on no item the folder shows (including an item the asset pass
+dropped); `cut` every cut met in the walk, by the name written (a call
+by its function's name, a define by its own name). The ledger's
+`transitions` holds the same counts: `kept` (kind to count),
+`noPictureChange` and `cut` (name to count).
 
 ## Translations
 

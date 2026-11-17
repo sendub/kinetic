@@ -32,6 +32,12 @@ Design notes:
   Python, an ``if``), inside an unsupported menu, or in a form that is
   not read. ``define audio.x``, ``register_channel`` and
   ``register_statement`` are read on every line, blocks included.
+- A ``with`` clause on ``scene``/``show`` rides on its visual event; a
+  bare ``with`` (and a ``hide``'s clause) is a ``with`` event and a
+  ``pause`` an ``interact`` event, so the timeline can give the item a
+  ``transition`` (kinetic_extract.presentation reads the expression,
+  the Character defines' colours and the ``define``d aliases kept in
+  ``character_defs`` and ``simple_defines``).
 """
 
 from __future__ import annotations
@@ -46,10 +52,12 @@ from .audio_statements import (AudioChannel, AudioStatement, mentions_audio,
                                read_audio_define, read_channel, read_python,
                                read_statement)
 
-# `define e = Character(...)` or `DynamicCharacter(...)`: the display
-# name is read from the arguments by character_name.
+# `define e = Character(...)` or `DynamicCharacter(...)`, with or
+# without an init priority (`define -2 e = ...`): the display name is
+# read from the arguments by character_name.
 _DEFINE_CHAR_RE = re.compile(
-    r"define\s+([A-Za-z_]\w*)\s*=\s*(Character|DynamicCharacter)\s*\(")
+    r"define\s+(?:[+-]?\d+\s+)?([A-Za-z_]\w*)\s*=\s*"
+    r"(Character|DynamicCharacter)\s*\(")
 # A name argument the converter can read: a string literal, plain or
 # wrapped in Ren'Py's translation markers `_()` or `__()`.
 _NAME_ARG_RE = re.compile(
@@ -77,6 +85,13 @@ _CONFIG_STRING_RE = re.compile(
     r"""(_\(\s*)?(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
 _WHOLE_VALUE_SETTINGS = frozenset({"version"})
 _SPEAKER_SAY_RE = re.compile(r"([A-Za-z_]\w*)\s*\"")
+# `define NAME = value` with a plain name: transition aliases
+# (kinetic_extract.presentation) are read from these.
+_SIMPLE_DEFINE_RE = re.compile(
+    r"define\s+(?:[+-]?\d+\s+)?([A-Za-z_]\w*)\s*=(?!=)\s*(.+)")
+# The `with` clause ending a scene/show/hide statement.
+_WITH_CLAUSE_RE = re.compile(r"(?:^|\s)with\s+(?=\S)")
+_QUOTED_TEXT_RE = re.compile(r""""(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'""")
 _LABEL_HEAD_RE = re.compile(r"^label\s+([A-Za-z_]\w*)")
 # `renpy.register_statement("name", ...)`: a creator-defined statement.
 _REGISTER_STATEMENT_RE = re.compile(
@@ -223,17 +238,21 @@ def character_name(line: str) -> tuple[str, str] | None:
 
 
 def strip_comment(line: str) -> str:
-    """Remove a ``#`` comment that is not inside a quoted string."""
-    in_quote = False
+    """Remove a ``#`` comment that is not inside a quoted string, double-
+    or single-quoted (`color='#fff'` keeps its colour)."""
+    quote = ""
     i = 0
     while i < len(line):
         ch = line[i]
-        if ch == "\\" and in_quote and i + 1 < len(line):
+        if ch == "\\" and quote and i + 1 < len(line):
             i += 2
             continue
-        if ch == "\"":
-            in_quote = not in_quote
-        elif ch == "#" and not in_quote:
+        if ch == "\"" or (ch == "'" and quote != "\""):
+            if not quote:
+                quote = ch
+            elif quote == ch:
+                quote = ""
+        elif ch == "#" and not quote:
             return line[:i].rstrip()
         i += 1
     return line.rstrip()
@@ -260,13 +279,18 @@ class Event:
     items to route spans by position."""
 
     kind: str            # visual | video | dialogue | stop-movie | label |
-                         # menu-open | choice-open | menu-close | audio
+                         # menu-open | choice-open | menu-close | audio |
+                         # with (a bare `with`) | interact (a `pause`, or
+                         # the implicit `with None` of a hide's clause)
     source: str
     text: str = ""       # dialogue text (dialogue events)
     speaker: str | None = None
     asset: str | None = None   # source image/video path relative to game/
     name: str | None = None    # image name (visual) or raw statement text
+                               # (the `with` expression of a with event)
     cue: AudioStatement | None = None  # the statement (audio events)
+    # The `with` clause's expression on a scene/show (visual events).
+    transition: str | None = None
 
 
 @dataclass
@@ -304,6 +328,12 @@ class FileParse:
     # e.g. `Movie(play="x.webm")` — kinetic_extract.timeline classifies it).
     image_defs: dict[str, tuple[str, str]] = field(default_factory=dict)
     characters: dict[str, str] = field(default_factory=dict)   # var -> display
+    # var -> (source, statement) of each Character define, the call
+    # joined onto one line (kinetic_extract.presentation reads colours).
+    character_defs: dict[str, tuple[str, str]] = field(default_factory=dict)
+    # name -> value text of every other `define NAME = value` with a
+    # plain name (transition aliases).
+    simple_defines: dict[str, str] = field(default_factory=dict)
     reports: list[Report] = field(default_factory=list)
     # First string literal assigned to `config.save_directory`,
     # `config.name` (the manifest storyId and title), `config.version`
@@ -329,6 +359,22 @@ def _label_names(lines: list[str]) -> set[str]:
         if m:
             names.add(m.group(1))
     return names
+
+
+def with_clause(rest: str) -> str | None:
+    """The expression of the `with` clause ending a scene/show/hide
+    statement's ``rest`` (an ATL block's `:` left off), or None. The
+    clause is the last `with` outside quoted strings, so `show text
+    "with you" with dissolve` gives `dissolve`."""
+    masked = _QUOTED_TEXT_RE.sub(lambda q: "\"" + "x" * (len(q.group(0)) - 2)
+                                 + "\"", rest)
+    found = list(_WITH_CLAUSE_RE.finditer(masked))
+    if not found:
+        return None
+    expr = rest[found[-1].end():].strip()
+    if expr.endswith(":"):
+        expr = expr[:-1].strip()
+    return expr or None
 
 
 def _name_tokens(rest: str) -> str:
@@ -412,14 +458,20 @@ def _classify_menu_statement(src: str, line: str,
         return "reject", "nested menu inside a choice block"
     if keyword == "scene":
         return "event", Event("visual", src,
-                              name=_name_tokens(rest) or "black")
+                              name=_name_tokens(rest) or "black",
+                              transition=with_clause(rest))
     if keyword == "show":
         if rest.startswith("layer "):
             return "reject", "show layer inside a choice block"
         name = _name_tokens(rest)
         if not name:
             return "reject", f"show without an image: {line}"
-        return "event", Event("visual", src, name=name)
+        return "event", Event("visual", src, name=name,
+                              transition=with_clause(rest))
+    if keyword == "with" and rest:
+        return "event", Event("with", src, name=rest)
+    if keyword == "pause":
+        return "event", Event("interact", src)
     if keyword in {"jump", "call", "return"}:
         return "reject", (f"{keyword} inside a choice block "
                           "(flow does not continue in place)")
@@ -737,13 +789,19 @@ def parse_file(text: str, relname: str,
             continue
 
         if keyword == "define":
-            if _DEFINE_CHAR_RE.match(line):
+            char = _DEFINE_CHAR_RE.match(line)
+            if char:
                 # A Character call may run over several lines; they are
                 # not statements of their own.
                 line, i = _continued(raw_lines, lineno - 1, line)
+                result.character_defs[char.group(1)] = (source, line)
                 named = character_name(line)
                 if named is not None:
                     result.characters[named[0]] = named[1]
+            elif _SIMPLE_DEFINE_RE.match(line):
+                line, i = _continued(raw_lines, lineno - 1, line)
+                m = _SIMPLE_DEFINE_RE.match(line)
+                result.simple_defines[m.group(1)] = m.group(2).strip()
             # other defines: skipped silently
             continue
         if line.startswith("$"):
@@ -752,6 +810,12 @@ def parse_file(text: str, relname: str,
             _audio_event(result, source, line, read_python(line))
             continue
         if keyword == "default":
+            continue
+        if keyword == "with" and rest:
+            result.events.append(Event("with", source, name=rest))
+            continue
+        if keyword == "pause":
+            result.events.append(Event("interact", source))
             continue
         if keyword in _QUIET_STATEMENT_KEYWORDS:
             continue
@@ -766,7 +830,8 @@ def parse_file(text: str, relname: str,
         if keyword == "scene":
             name = _name_tokens(rest)
             result.events.append(
-                Event("visual", source, name=name or "black"))
+                Event("visual", source, name=name or "black",
+                      transition=with_clause(rest)))
             continue
         if keyword == "show":
             if rest.startswith("layer "):
@@ -777,13 +842,20 @@ def parse_file(text: str, relname: str,
             name = _name_tokens(rest)
             if name:
                 result.events.append(
-                    Event("visual", source, name=name))
+                    Event("visual", source, name=name,
+                          transition=with_clause(rest)))
             else:
                 result.reports.append(Report(source, line, "show without an image"))
             continue
         if keyword == "hide":
             result.reports.append(
                 Report(source, line, "hide skipped (visual unchanged)"))
+            clause = with_clause(rest)
+            if clause is not None:
+                # `hide x with t` is `with None`, `hide x`, `with t`: the
+                # hide changes no picture the folder shows.
+                result.events.append(Event("interact", source))
+                result.events.append(Event("with", source, name=clause))
             continue
         if keyword == "movie":
             quoted = _parse_quoted(rest, rest.find("\""))

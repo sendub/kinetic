@@ -5292,9 +5292,39 @@ truthful: an unchecked box means nothing was accepted.
       counting shown characters.
 - [ ] The player's transitions (item 3). `dissolve` and `fade` that
       never delay navigation or text; navigation p95 within noise.
-- [ ] The converter carries Ren'Py's presentation (item 4). Character
+- [x] The converter carries Ren'Py's presentation (item 4). Character
       colours and `with` transitions mapped; other transitions cut and
       counted in the conversion report.
+      (2026-11-17: `converter/kinetic_extract/presentation.py`. Colours
+      from literal `color`/`who_color` (who wins) and `what_color`,
+      `#rgb`/`#rgba`/`#rrggbb`/`#rrggbbaa` (or bare) to lowercase
+      `#rrggbb`, `kind=` inheritance, expressions left out with a report
+      line; `characters` holds only shown speakers with a colour, the
+      first coloured define winning a shared name. Transitions:
+      `dissolve` 0.5, `Dissolve(t)`, `fade` 0.5/0/0.5, `Fade(o,h,i)`
+      positional or keyword, `define` aliases and chains (a game's own
+      `define dissolve` wins); a clause gives its own visual the
+      transition, a bare `with` only a visual changed since the last
+      line, pause, menu or with; times over 5 s clamp, `None`, zero
+      times and other names cut. Summary lines `speaker colours: a of b
+      speakers` and `transitions: kept ...; with no picture change N;
+      cut: name xN`, ledger `transitions`; docs/extracting.md "Colours
+      and transitions". Parser fixes on the way: `strip_comment` reads
+      single-quoted strings, and `define` takes an init priority
+      (`define -2 x = ...`, which had cut 313 dissolves in a corpus
+      game). Corpus, read-only, with `--files '**/*.rpy'`: game 1 4/4
+      speakers coloured, 200 dissolves and 3 fades kept, 1 cut; game 2
+      8/9 speakers, 334 dissolves and 4 fades kept, 19 cut (wipes,
+      punches, an ImageDissolve alias); leads became items 4b-4d.
+      Subagent: test_presentation 41, converter suite 917 passed.
+      Orchestrator: converter suite 917 passed.)
+- [ ] Ren'Py's script walk (item 4b). Loose scripts in subfolders of
+      `game/` are walked by default, as Ren'Py loads them.
+- [ ] Old-style characters (item 4c). Characters made in `init:` and
+      `$` lines give names and colours; a nameless Character takes its
+      kind's name.
+- [ ] A corpus game's lost pictures (item 4d). The cause of game 1's
+      3576 dropped visuals found and fixed.
 - [ ] `kinetic report` (item 5). Reading time per route, speakers,
       unused files, longest lines, unknown tags; check-game reports
       overflowing lines.
