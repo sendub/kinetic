@@ -5448,6 +5448,9 @@ truthful: an unchecked box means nothing was accepted.
       rename. Orchestrator: flow, parser, translations, episodes,
       presentation, rpa 237; converter suite with validate and assemble
       tests 1485 passed.)
+- [ ] Python-picked scenes read in place (item 4f). Each candidate
+      label goes to the computed site nearest where its name is
+      written, not to the first site the walk meets.
 - [x] `kinetic report` (item 5). Reading time per route, speakers,
       unused files, longest lines, unknown tags; check-game reports
       overflowing lines.

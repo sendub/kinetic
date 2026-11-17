@@ -4210,6 +4210,16 @@ The orchestrator's choices, within those decisions:
     reported, not emitted. Keep `--label` working. Tests: synthetic
     projects with story order unlike file order, a call and return, an
     unreached developer label; the two corpus games before and after.
+4f. Python-picked scenes read in place (item 4e's follow-up). Every
+    computed `jump/call expression` site draws on one shared list of
+    labels named in the game's code, so the first site the walk reaches
+    takes all of them (one corpus game reads 30 nightly scenes at a
+    gallery-replay call). Give each candidate to the site its name is
+    most tied to: a site whose own expression or the Python that sets
+    its variable (the same label or init block, a function it calls)
+    names it, else the nearest site in the same file, else the first.
+    Tests: synthetic projects with two computed sites and their own
+    candidate sets; the corpus game's scenes land at the nightly call.
 5. `kinetic report <folder>`. Reading time per route from "Timing",
    speakers with line counts (names that differ only in case,
    spacing, or by one letter are flagged), files in the folder no item
