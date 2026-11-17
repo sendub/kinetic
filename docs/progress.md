@@ -4769,7 +4769,7 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 53: Docs after 1.9.0 (2026-11-16, user)
 
-- [ ] Windows spoken lines in the docs (docs/plan.md Phase 53, item 1).
+- [x] Windows spoken lines in the docs (docs/plan.md Phase 53, item 1).
       CREATE.md, README.md, docs/packaging.md and any other user-facing
       doc stop describing Windows spoken lines as still to come.
       (2026-11-16: CREATE.md "Giving characters voices" speaks of the Mac
@@ -4797,3 +4797,18 @@ truthful: an unchecked box means nothing was accepted.
       6/6 on WebKit. Then VERSION, package.json, its lockfile and
       pyproject 1.9.1, the CHANGELOG entry dated, tag v1.9.1, `main`
       fast-forwarded.)
+
+## Phase 54: Item trace for tests (2026-11-17, converting agent)
+
+- [ ] Player trace (docs/plan.md Phase 54, item 1).
+      `window.KINETIC_TEST_TRACE` makes the player append an item,
+      choice or end record to `window.__kineticTrace` and dispatch it as
+      a `kinetic:item` event, every arrival included, capped with
+      `__kineticTraceDropped`; nothing without the flag.
+- [ ] The trace in the testing tools (docs/plan.md Phase 54, item 2).
+      `openGame(folder, { trace: true })` and the handle's `trace()`;
+      `check-game --trace FILE`.
+- [ ] Docs (docs/plan.md Phase 54, item 3). CREATE.md, AGENTS.md,
+      docs/verify-player.md and the CHANGELOG describe the trace.
+- [ ] Phase-closer (Phase 54): full suites; VERSION 1.10.0, the
+      CHANGELOG dated, tag v1.10.0, `main` fast-forwarded.

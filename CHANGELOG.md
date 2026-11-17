@@ -17,6 +17,13 @@ Taking a new release means replacing a game folder's player (CREATE.md,
 "Upgrading to a newer Kinetic"). Bullets marked **Upgrading:** ask
 something more of an author.
 
+## 1.10.0-dev
+
+- A test-only trace of every screen the player shows: with
+  `window.KINETIC_TEST_TRACE` set before it starts, the player records
+  each item, choice screen and end card, skipped items included, in
+  `window.__kineticTrace` and as `kinetic:item` events.
+
 ## 1.9.1 (2026-11-16)
 
 - CREATE.md, README.md and docs/packaging.md no longer describe spoken

@@ -3562,6 +3562,88 @@ be fixed. Docs only, so this phase closes as the patch release 1.9.1.
 2. Phase-closer: full suites; VERSION 1.9.1, the CHANGELOG dated, tag,
    `main` fast-forwarded.
 
+## Phase 54: Item trace for tests (2026-11-17, converting agent)
+
+The converting agent's check for decisions with `continue` routes must
+show that a first-time reader goes from a pick straight to the
+decision's `continueAt` with no stray choice screen, and that Play all
+runs each route once. It cannot ask the player which items were shown,
+so it reads the player's IndexedDB state writes. Those writes coalesce
+during a skip burst (the writer keeps one write in flight and one
+pending snapshot, `player/src/main.ts`), so runs of items never reach
+the log: on a 57,232-item draft with 50 such decisions the check failed
+5 times, reaching the next choice screen before `continueAt` showed in
+the log, or jumping over about 120 items. The stage's `data-item`
+(Phase 46, item 2) names the item on screen, but a poll misses the
+items of a burst too. They asked for an opt-in, test-only trace of
+every screen shown, in order, absent from normal play, and for
+check-game to expose it; they are fixing their tool meanwhile and
+would switch to the trace, keeping page reading for older players.
+
+Settled from the request (the record's names were left to us): the
+trace is both an array and an event; it records arrivals, so a skip
+burst's items all appear; a video's segment steps are not arrivals and
+get no record (an arrival never lands on a segment); the array is
+capped with a counter, never silently; nothing is heard or timed
+differently. A feature, so this phase closes as 1.10.0.
+
+1. Player trace. `window.KINETIC_TEST_TRACE = true`, set before the
+   player starts, turns it on; the player reads the flag once at start
+   and, when it is unset, subscribes nothing and defines no globals.
+   When on, every record is appended to `window.__kineticTrace` (an
+   array the player creates) and dispatched on `document` as a
+   `kinetic:item` `CustomEvent` whose `detail` is the same record
+   (frozen, plain JSON). Records, in the order they happen:
+   - `kind: "item"`, one per machine arrival (`Machine.arrival()`, its
+     number changing; a re-emit gives none): `itemId`, `type` (the
+     item's type: image, animation, video, text), `arrival` (read,
+     skip, walk or jump), `routeStack` (the open routes, outermost
+     first, as `{ decision, route }` ids, as the saved state has them),
+     `playAll` and `skipping`.
+   - `kind: "choice"`, each time a choice screen opens (a new
+     arrival's, a choice appearing on the same item, or a different
+     decision's): `itemId` (the item it is drawn over), `decisionId`,
+     `routes` (the route ids offered, in order), `returnRow` (the
+     "Return to main route" row is offered), `autoPick` (Play all is
+     answering it), `walked` (the wheel walked onto it), with
+     `routeStack`, `playAll` and `skipping`.
+   - `kind: "end"`, each time the end card shows: `itemId`, with
+     `routeStack`, `playAll` and `skipping`.
+   Every record carries `n`, counting from 0 per page load over all
+   records, so a gap shows. Within one state change an item record
+   comes before its choice or end record. The array holds at most
+   200,000 records; past that a record is not appended but still gets
+   its `n` and its event, and `window.__kineticTraceDropped` counts it.
+   A reader may empty the array (`length = 0`) to make room; the player
+   keeps appending to the same array. A render-layer module subscribed
+   from main.ts; the game apps never set the flag. Tests (vitest): every
+   item of a Tab skip burst appears once, in order, matching the
+   machine's own path; a Play all walk over decisions with continuing
+   routes (each route once, then `continueAt`, no other choice record);
+   choice records with the return row, play-all countdown and a walked
+   screen; an end record; the cap and its counter; draining; no flag, no
+   globals and no listener. Scenario file `trace`, Chrome and WebKit: a
+   skip burst over `fixtures/demo` traced with no gap and the event's
+   detail equal to the array's record; no flag, no `__kineticTrace`.
+2. The trace in the testing tools. `openGame(folder, { trace: true })`
+   sets the flag before the player starts; the handle's `trace()`
+   resolves with `{ records, dropped }`, the records since the last call
+   (it empties the page's array), and rejects naming the folder's
+   player when that player keeps no trace (an older player).
+   `check-game --trace FILE` traces its walk and writes every record to
+   FILE as one JSON line, and the summary says how many records and how
+   many dropped; an older player fails the run with exit 1 and that
+   reason. Tests: the argument parsing (walk.test.mjs), the handle on a
+   built demo with a pick and a Play all run (kinetic.test.mjs), and the
+   written file's records numbered from 0 with no gap.
+3. Docs: CREATE.md, "Testing your game" (the trace: flag, records,
+   event, cap and draining, detecting an older player with
+   `folderKineticVersion`, the stage's `data-item` for the one item on
+   screen; `trace()`; check-game `--trace`), AGENTS.md's check-game
+   line, docs/verify-player.md (the `trace` scenario), the CHANGELOG.
+4. Phase-closer: full suites; VERSION 1.10.0, the CHANGELOG dated, tag,
+   `main` fast-forwarded.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
