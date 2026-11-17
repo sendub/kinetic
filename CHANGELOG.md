@@ -23,6 +23,13 @@ something more of an author.
   `window.KINETIC_TEST_TRACE` set before it starts, the player records
   each item, choice screen and end card, skipped items included, in
   `window.__kineticTrace` and as `kinetic:item` events.
+- The testing library reads that trace: `openGame(folder, { trace: true
+  })` turns it on, and the game's `trace()` returns the records since
+  the last call, so a test can check every item a skip or a Play all run
+  passed. It refuses a folder whose player is too old to keep a trace,
+  saying so.
+- check-game's `--trace FILE` writes every record of its walk to FILE,
+  one JSON object per line, and its summary says how many it wrote.
 
 ## 1.9.1 (2026-11-16)
 

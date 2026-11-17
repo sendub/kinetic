@@ -4845,7 +4845,19 @@ truthful: an unchecked box means nothing was accepted.
       average 10-13; a real `--steps all --trace` walk of the assembled
       demo wrote 37 records, n 0-36 with no gap, 4 choice records, an
       end record last.)
-- [ ] Docs (docs/plan.md Phase 54, item 3). CREATE.md, AGENTS.md,
+- [x] Docs (docs/plan.md Phase 54, item 3). CREATE.md, AGENTS.md,
       docs/verify-player.md and the CHANGELOG describe the trace.
+      (2026-11-17: CREATE.md "Testing your game" gains "The item trace"
+      (turning it on, the records with three real examples from a demo
+      walk, when records are written, reading and the cap, an older
+      player and the stage's `data-item`, `trace()` with an example
+      script the subagent ran to `ok` on both engines, check-game
+      `--trace`), the quick check's `--trace` option, summary line and
+      exit rows, and the library's option and method. AGENTS.md's
+      check-game line, the `trace` and `checkgame` rows of
+      docs/verify-player.md and the 1.10.0-dev CHANGELOG entry follow.
+      Orchestrator: added lines ASCII only; `npm run check` clean;
+      tools/test_validate_content.py, test_release_version.py and
+      test_build_apps.py 469 passed.)
 - [ ] Phase-closer (Phase 54): full suites; VERSION 1.10.0, the
       CHANGELOG dated, tag v1.10.0, `main` fast-forwarded.

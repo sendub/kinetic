@@ -1717,6 +1717,8 @@ engine. The other options:
   (Checking part of a game, below).
 - `--no-media-check` skips the media check after the walk (The media
   check, below).
+- `--trace FILE` writes the player's record of every screen the walk
+  showed to FILE, one JSON object per line (The item trace, below).
 
 Any walk stops at the story's end, whatever `--steps` says. The story
 has ended when Space changes nothing (the same item, line, picture,
@@ -1741,6 +1743,7 @@ steps`, followed by the reason when there is one (`reached ID
   showed, in manifest order.
 - After a walk that reached its `--until` item, `span:` and the items of
   the span not shown (Checking part of a game, below).
+- With `--trace FILE`, `trace: N records written to FILE, D dropped`.
 - `media: N files: L loaded during the walk, C checked after it (R never
   requested)`, from the media check.
 
@@ -1789,8 +1792,8 @@ The exit status says how it went:
 | Status | Meaning |
 | --- | --- |
 | 0 | Passed. |
-| 1 | Console or page errors (a file that failed to load or decode, a symbolic link out of the folder), a game that would not open (a player too old for `--start-at` among them), a stuck player, the `--steps all` limit, an `--until` item not reached, or a media check that stalled or failed. |
-| 2 | Bad arguments: an unknown option, an `--engine` other than `webkit`, `chrome` or `auto`, a `--steps` that is neither a number nor `all`, or an id the manifest does not have (checked before anything opens). |
+| 1 | Console or page errors (a file that failed to load or decode, a symbolic link out of the folder), a game that would not open (a player too old for `--start-at` among them), a stuck player, the `--steps all` limit, an `--until` item not reached, a media check that stalled or failed, or a `--trace` the folder's player cannot keep (an older player). |
+| 2 | Bad arguments: an unknown option, an `--engine` other than `webkit`, `chrome` or `auto`, a `--steps` that is neither a number nor `all`, an id the manifest does not have, or a `--trace` with no FILE or one that cannot be written (checked before anything opens). |
 | 3 | A walk from the opening reached the story's end with items never shown, or a walk reached its `--until` item with items of its span not shown. |
 
 1 wins over 3: a walk with errors and items never shown exits 1.
@@ -2126,6 +2129,225 @@ longer before reading `target` there. A one-shot is listed (slot `sfx`)
 only from its `delayMs` on, and only when the walk reads onto its item:
 the wheel, jumps and skip never fire one.
 
+### The item trace
+
+A check that must know every screen the player showed, in order, can
+ask the player to record them. Polling the page is not enough: during
+a Tab skip burst the player passes items faster than a poll, and its
+saved place is written less often than it moves. The trace is for
+tests only. Readers never see it, the Mac and Windows apps never turn
+it on, and with it on nothing sounds or runs differently.
+
+#### Turning it on
+
+Set `window.KINETIC_TEST_TRACE = true` in the page before the player
+starts. The player reads the flag once, as it starts; setting it later
+does nothing, and without it the player defines no trace at all. With
+your own browser driver, run a script before `app.js` loads, such as
+puppeteer's `evaluateOnNewDocument` or Playwright's `addInitScript`:
+
+```js
+// Runs in the page before app.js.
+window.KINETIC_TEST_TRACE = true;
+document.addEventListener("kinetic:item", (event) => {
+  console.log(JSON.stringify(event.detail));
+});
+```
+
+`openGame` and check-game set it for you (below).
+
+#### The records
+
+The player appends each record to `window.__kineticTrace`, an array it
+creates, and dispatches the same record on `document` as a
+`kinetic:item` event, its `detail` the very object the array holds.
+Records are frozen plain JSON. Add the listener before the player
+starts too, or the event for record 0 is gone; the array still has it.
+
+Every record has these fields:
+
+- `n`: counts every record from 0, so a gap shows. It starts again at
+  0 on each page load, a reload included, with a new array.
+- `kind`: `"item"`, `"choice"` or `"end"`.
+- `itemId`: the item on screen. For a choice, the item it is drawn over.
+- `routeStack`: the open routes, outermost first, each `{ decision,
+  route }` by id, as the saved place has them. `[]` on the main line.
+- `playAll`: Play all routes is on.
+- `skipping`: a Tab skip is running.
+
+An item record also has `type` (`image`, `animation`, `video` or
+`text`) and `arrival`, how the reader got there:
+
+- `read`: Space, auto-forward or a pick (Play all's included), and a
+  join reached by reading on.
+- `skip`: a step of a Tab skip burst.
+- `walk`: a wheel step.
+- `jump`: `e`, `u`, a bookmark, a branch-map click, and the load.
+
+A choice record also has `decisionId`, `routes` (the route ids offered,
+in order), `returnRow` (the "Return to main route" row is offered),
+`autoPick` (Play all is answering it with its countdown) and `walked`.
+`walked` is true on a choice screen the reader browsed onto, with the
+wheel or a branch-map click on the decision, rather than one that
+opened by reading; a pick from it still enters the route. An end record
+has only the common fields.
+
+From check-game's walk of the demo, the first choice, the item Play
+all's pick led to, and the end:
+
+```text
+{"n":23,"kind":"choice","itemId":"branch-decide","decisionId":"outer","routes":["route1","route2"],"returnRow":false,"autoPick":true,"walked":false,"routeStack":[],"playAll":true,"skipping":false}
+{"n":24,"kind":"item","itemId":"route2-start","type":"image","arrival":"read","routeStack":[{"decision":"outer","route":"route2"}],"playAll":true,"skipping":false}
+{"n":36,"kind":"end","itemId":"after-end","routeStack":[],"playAll":true,"skipping":false}
+```
+
+#### When records are written
+
+- The screen the load shows is record 0, an item record with arrival
+  `jump`.
+- One item record per arrival at a screen: every Space, pick, wheel
+  step, jump, and every item of a skip burst, each once, in order.
+- A choice record each time a choice screen opens: on a new arrival,
+  on Space at the decision's item (a choice record with no item record
+  before it), and when a route's end offers the choice again,
+  Play all's re-offers included.
+- An end record each time the end card shows. A story with no
+  decisions shows no end card when read to its end, so its trace has
+  no end record.
+- When one press makes both, the item record comes before its choice
+  or end record.
+
+Nothing else writes a record: not a video's view steps (Camera views in
+one video: segments), an item settling, a settings change, the Esc
+screen or map opening, nor the steps of Play all's countdown. When a
+route's end offers the choice again, that route has already closed: the
+re-offer's `routeStack` holds only the routes open around the decision,
+`[]` for a decision on the main line. Record 0 shows the setting as the
+profile had it at the load: after `openGame` with `playAll: false`,
+record 0 can still say `playAll: true`, since `openGame` turns Play all
+off after the load.
+
+#### Reading it, and the cap
+
+Read the array from the page whenever you like. To make room, empty it
+in place; the player keeps appending to that same array, so do not
+replace it:
+
+```js
+// Runs in the page: takes the records so far and empties the array.
+const records = window.__kineticTrace.slice();
+window.__kineticTrace.length = 0;
+const dropped = window.__kineticTraceDropped;
+window.__kineticTraceDropped = 0;
+```
+
+The array holds at most 200,000 records. Past that a record is not
+appended, but it still gets its `n` and its event, and
+`window.__kineticTraceDropped` (0 at the start) counts it. You may
+reset the counter; the player adds to whatever it finds there.
+
+#### An older player
+
+The trace ships in Kinetic 1.10.0. A folder with an older player still
+plays with the flag set, but once its first screen shows the page has
+no `__kineticTrace`. To say why, read the folder's player version from
+its `app.js` on disk: `folderKineticVersion(folder)` from
+`player/scripts/version.mjs` in this repo, or
+`kinetic_extract.version.folder_player_version` in Python, gives the
+version, or `null` for a player built before Kinetic 1.8.0. Upgrade an
+older folder's player (Upgrading to a newer Kinetic). A player built
+from a checkout between releases (`1.10.0-dev`) may predate the trace,
+so the array, not the version, is the sure test.
+
+For only the item on screen now, any current player names it on the
+stage: `document.getElementById("stage").getAttribute("data-item")`,
+the attribute `current()` reads. A poll of it misses the items of a
+skip burst; the trace does not.
+
+#### In a test script
+
+`openGame(folder, { trace: true })` sets the flag before the player
+starts, on every load. The game's `trace()` resolves with `{ records,
+dropped }`: the records since the last call, oldest first, and how many
+the player dropped past its cap since then. Each call empties the
+page's array and resets the counter, so call it often on a long walk.
+After a `reload()` the trace starts again from `n` 0, so read it before
+reloading. On the demo:
+
+```js
+// test-trace.mjs: node test-trace.mjs <game-folder> [webkit|chrome]
+import assert from "node:assert/strict";
+import { openGame } from "/path/to/kinetic/player/scripts/testing/kinetic.mjs";
+
+const [folder, engine = "auto"] = process.argv.slice(2);
+const game = await openGame(folder, { engine, trace: true, playAll: false });
+
+// Record 0 is the load's screen, traced before openGame turned Play all off.
+const opening = await game.trace();
+assert.deepEqual(opening.records, [
+  {
+    n: 0, kind: "item", itemId: "intro-title", type: "image",
+    arrival: "jump", routeStack: [], playAll: true, skipping: false,
+  },
+]);
+
+// Read on to the choice and take route 2.
+await game.spaceUntil((now) => now.choice !== null);
+await game.pickRoute(2);
+const { records, dropped } = await game.trace();
+assert.equal(dropped, 0);
+assert.equal(records[0].n, 1); // n carries on from the last call
+
+const choice = records.find((r) => r.kind === "choice");
+assert.equal(choice.decisionId, "outer");
+assert.deepEqual(choice.routes, ["route1", "route2"]);
+assert.equal(choice.autoPick, false);
+
+const last = records.at(-1);
+assert.equal(last.itemId, "route2-start");
+assert.deepEqual(last.routeStack, [{ decision: "outer", route: "route2" }]);
+assert.deepEqual(game.errors(), []);
+await game.close();
+console.log(`${game.engine}: ok`);
+```
+
+`node test-trace.mjs demo-play webkit` and `node test-trace.mjs
+demo-play chrome` each print `ok`. `trace()` rejects on a game opened
+without `trace: true`, and on a folder whose player keeps no trace,
+naming its version and the fix:
+
+```text
+trace: the folder's player (Kinetic 1.9.1) keeps no item trace; rebuilding the folder with a current player fixes this (CREATE.md, "Upgrading to a newer Kinetic")
+```
+
+A player built before Kinetic 1.8.0 is named as `built before Kinetic
+versions were stamped`.
+
+#### With check-game
+
+```sh
+node player/scripts/testing/check-game.mjs novel-play --steps all --trace walk.jsonl
+```
+
+check-game creates or empties FILE before any browser starts, opens the
+game with the trace on, and writes every record to FILE as one JSON
+object per line, in the order the player made them: `n` runs from 0
+with no gap unless the player dropped some. It drains the trace at the
+open, every 100 steps and after the walk, so the page's array never
+nears its cap. A view step prints as a step of the walk but writes no
+record. After the lines saying how the walk stopped, the summary says
+how many records it wrote:
+
+```text
+story ended at step 35
+visited 32 of 32 items
+trace: 37 records written to /Users/you/walk.jsonl, 0 dropped
+```
+
+A folder whose player keeps no trace exits 1 before the walk, with the
+message above. `--trace` with no FILE, or a FILE it cannot write such
+as a folder, exits 2 before any browser starts.
+
 ### What the library offers
 
 `openGame(folder, options)` resolves with the game. Its options:
@@ -2153,6 +2375,9 @@ the wheel, jumps and skip never fire one.
   as check-game's `--no-media-check` does: `errors()` then lists only
   the failed loads the page's own elements report, and `checkMedia()`
   throws. `true` by default.
+- `trace`: `true` turns the item trace on before the player starts, on
+  every load, for `trace()` to read (The item trace, above). `false` by
+  default.
 - `log`: a function given openGame's notes (the engine `auto` chose,
   and any links out of the folder, below), printed to stderr by default,
   or `null` for none.
@@ -2274,6 +2499,11 @@ The game:
   above). The library reports these itself, since WebKit reports no
   failed load and Chrome reports a missing file but not one it cannot
   decode. After a walk, await `checkMedia()` first.
+- `trace()` resolves with `{ records, dropped }`, the item trace's
+  records since the last call and how many the player dropped since
+  then, emptying the page's array (The item trace, above). It rejects
+  on a game opened without `trace: true` and on a folder whose player
+  keeps no trace.
 - `close()` closes the game; every open needs one.
 - `page` is the puppeteer page for anything else (`page.evaluate`,
   `page.mouse.click(x, y)`). In WebKit it offers the subset the player's

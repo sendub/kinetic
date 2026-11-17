@@ -76,17 +76,20 @@ are implementing and docs/stack.md for settled decisions.
 - Play a built game folder with no window (WebKit or headless Chrome):
   `node player/scripts/testing/check-game.mjs <folder> [--engine
   webkit|chrome] [--steps N|all] [--start-at ID] [--until ID]
-  [--no-media-check]` (any walk stops at the story's end; a video
-  segment step prints as its own step ending `view n of m`; `--until`
-  walks as `--steps all` unless `--steps` is given and reports its span
-  from the start; `--no-media-check` skips the media check after the
-  walk; exit 0 passed, 1 errors, a stuck player, the `all` cap, `--until`
-  not reached or a stalled media check, 2 bad arguments (a bad
-  `--engine` too), 3 a walk from the opening reached the end with items
-  never shown, or a span with items not shown; 1 wins over 3), or a
-  script using `openGame` from
-  `player/scripts/testing/kinetic.mjs` (CREATE.md, "Testing your game");
-  never hand-roll puppeteer against `player/node_modules`.
+  [--no-media-check] [--trace FILE]` (any walk stops at the story's end;
+  a video segment step prints as its own step ending `view n of m`;
+  `--until` walks as `--steps all` unless `--steps` is given and reports
+  its span from the start; `--no-media-check` skips the media check
+  after the walk; `--trace FILE` writes the player's item trace, every
+  item, choice and end record of the walk, to FILE as JSON lines; exit 0
+  passed, 1 errors, a stuck player, the `all` cap, `--until` not reached,
+  a stalled media check or a player too old to trace, 2 bad arguments (a
+  bad `--engine` or an unwritable `--trace` FILE too), 3 a walk from the
+  opening reached the end with items never shown, or a span with items
+  not shown; 1 wins over 3), or a script using `openGame` from
+  `player/scripts/testing/kinetic.mjs` (`trace: true` and the handle's
+  `trace()` read the same trace; CREATE.md, "Testing your game"); never
+  hand-roll puppeteer against `player/node_modules`.
 - Automated browsers make no sound: Chrome starts only through
   `launchChrome` in `player/scripts/testing/core.mjs`
   (`--disable-audio-output`; biome blocks other `puppeteer-core`
