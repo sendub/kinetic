@@ -5315,8 +5315,33 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Spoken lines say the shown text (item 2b). The voice engine,
       the live cache key and tools/record_lines.py use the text with
       tags read, together.
-- [ ] The player's transitions (item 3). `dissolve` and `fade` that
+- [x] The player's transitions (item 3). `dissolve` and `fade` that
       never delay navigation or text; navigation p95 within noise.
+      (2026-11-17: `player/src/render/transition.ts` holds the rules
+      (`transitionFor`, `transitionPlan`); visual.ts keeps the visible
+      `<img>`/`<video>` as `#visual-outgoing` (absolute, an outgoing
+      video paused on its frame) under fresh elements drawn as a cut,
+      and ramps opacity with the Web Animations API: dissolve the new
+      0->1 over the old, fade the old 1->0 over `out` then the new in
+      after `out+hold`; a timer at the end releases the outgoing
+      element as a retired video is. Runs only on a fresh `read`
+      arrival (Space, auto-forward, a choice pick, reading on to a
+      join) entering a new picture; every skip, the wheel, map, route
+      and bookmark jumps, `e`, `u`, `#start`, loads, reduced motion and
+      a menu over the stage cut; a key, pointer or wheel ends it at once.
+      Same file still runs (a fade dips to black); nothing before comes
+      in from black; differently shaped pictures show the old edges
+      during a dissolve (documented). content-format "Transitions",
+      perf.md "Transitions (Phase 57)": navigation p95 median 33.5 ms
+      before, 34.0 after; first paint of look-dissolve 22.8-34.6 ms and
+      look-fade 25.8-38.0 ms against 19-32 ms as cuts. Five
+      presentation parts; harness `reducedMotion`. Subagent: npm test
+      1843; smoke 6/6; eight files 331/331 Chrome, WebKit 338 + 3
+      fullscreen partials; checkgame, creator, trace 100/100.
+      Orchestrator: npm test 1842 + reach.test failing once while item
+      7c's validator was mid-change, 1843 on rerun; check clean; smoke
+      6/6; presentation, media, navigation 76/76 on Chrome and WebKit
+      at load 80.)
 - [x] The converter carries Ren'Py's presentation (item 4). Character
       colours and `with` transitions mapped; other transitions cut and
       counted in the conversion report.
@@ -5447,8 +5472,22 @@ truthful: an unchecked box means nothing was accepted.
       routes, and an unhashable decision id raises in routes (item 7c).
       Subagent and orchestrator: report, routes, export,
       validate_content and test_decision_scale 521 passed.)
-- [ ] Malformed branches never hang a tool (item 7c). The validator,
+- [x] Malformed branches never hang a tool (item 7c). The validator,
       report, routes and export stop cleanly on bad branches.
+      (2026-11-17: `folder_model.span_problems` (a route not after its
+      `after`, overlapping routes, a `continueAt` not after every route
+      end, in the validator's own words) gates the reading walks;
+      branches the player only drops still show in routes. The
+      validator skips reach warnings then and exits 1 at once; report
+      prints "not worked out: the branches are malformed", a
+      `branchProblems` key and exit 1; routes and export print the
+      problems on stderr and exit 1, export writing nothing.
+      `shown_by_play_all` stops on a repeated state and `_shortest_ms`
+      on a backward join; routes takes unhashable ids and non-object
+      branch entries. CREATE.md and docstrings. test_malformed_branches
+      (34, each tool in a child process with a 30 s limit, 400 fuzzed
+      shapes); the 20,000-decision bound raised to 10 s for load.
+      Subagent and orchestrator: the six files 555 passed.)
 - [ ] Media tools for Windows and Linux (item 8). Windows and
       linux-x86_64 pinned against the shared goldens, `macos-x86_64`
       dropped, AGENTS.md's pin rule rewritten.

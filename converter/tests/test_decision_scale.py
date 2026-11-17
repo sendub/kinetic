@@ -21,9 +21,10 @@ if str(REPO_ROOT / "tools") not in sys.path:
 
 import validate_content  # noqa: E402
 
-# Generous for a loaded machine: the all-pairs code took about 30 s to
-# resolve 20,000 decisions.
-BOUND_S = 3.0
+# Generous for a heavily loaded machine (each step takes under 1 s on an
+# idle one, 2-7 s at a load average past 100): the all-pairs code took
+# 33 s to resolve 20,000 decisions and 57 s for the report's timing.
+BOUND_S = 10.0
 
 
 def synthetic_manifest(decisions: int, seed: int = 0,
@@ -102,38 +103,64 @@ def reference_parents(decisions: list[folder_model.Decision]) -> list[int]:
     return parents
 
 
-def random_shape(rng: random.Random, forward: bool = False
-                 ) -> dict[str, Any]:
+def random_shape(rng: random.Random) -> dict[str, Any]:
     """A small manifest of any shape, malformed ones included: overlapping
-    and nested spans, routes holding their own decision's `after`, equal
-    widths, unresolvable references. With `forward`, each decision's
-    routes start after its `after` item and its `continueAt` lies past
-    every route end, as the reading walk needs to end."""
+    and nested spans, routes holding their own decision's `after`, joins
+    before their routes, equal widths, unresolvable references."""
     count = rng.randint(1, 30)
     items = [{"id": f"i{k}"} for k in range(count)]
     branches = []
     for b in range(rng.randint(0, 12)):
-        def ref(low: int = 0) -> str:
-            # Sometimes no such item.
-            return f"i{rng.randrange(min(low, count), count + 1)}"
-        after = rng.randrange(count + 1)
+        def ref() -> str:
+            return f"i{rng.randrange(count + 1)}"  # sometimes no such item
         routes_ = []
         for r in range(rng.choice((1, 2, 2, 3, 4))):
-            start = rng.randrange(min(after + 1, count), count + 1) \
-                if forward else rng.randrange(count)
+            start = rng.randrange(count)
             end = min(count - 1, start + rng.choice((0, 0, 1, 2, 5, 30)))
             routes_.append({"id": f"r{r}", "start": f"i{start}",
                             "end": f"i{end}" if rng.random() < 0.95
-                            else ref(start),
+                            else ref(),
                             "result": rng.choice(("ending", "return"))})
-        branch: dict[str, Any] = {"id": f"d{b}", "after": f"i{after}",
+        branch: dict[str, Any] = {"id": f"d{b}", "after": ref(),
                                   "routes": routes_}
         if rng.random() < 0.4:
-            ends = [int(r["end"][1:]) for r in routes_]
             branch["continuingRoute"] = "r0"
-            branch["continueAt"] = ref(max(ends) + 1 if forward else 0)
+            branch["continueAt"] = ref()
         branches.append(branch)
     return {"items": items, "branches": branches}
+
+
+def well_formed_shape(rng: random.Random) -> dict[str, Any]:
+    """A small manifest whose decisions each meet the `branches` rules
+    (disjoint routes after `after`, a `continueAt` past them) while
+    different decisions' spans overlap and nest at random, as the rules
+    allow."""
+    count = rng.randint(4, 40)
+    items = [{"id": f"i{k}", "type": "text", "text": f"i{k}"}
+             for k in range(count)]
+    branches = []
+    for b in range(rng.randint(0, 10)):
+        after = rng.randrange(count - 2)
+        room = list(range(after + 1, count))
+        bounds = sorted(rng.sample(room, min(len(room),
+                                             2 * rng.choice((2, 2, 3)))))
+        if len(bounds) < 4:
+            continue
+        spans = list(zip(bounds[::2], bounds[1::2]))
+        continue_at = rng.randrange(spans[-1][1] + 1, count) \
+            if spans[-1][1] + 1 < count and rng.random() < 0.6 else None
+        results = ("ending", "return", "continue") if continue_at \
+            else ("ending", "return")
+        branch: dict[str, Any] = {"id": f"d{b}", "after": f"i{after}",
+                                  "routes": [
+            {"id": f"r{r}", "start": f"i{start}", "end": f"i{end}",
+             "result": rng.choice(results)}
+            for r, (start, end) in enumerate(spans)]}
+        if continue_at is not None:
+            branch["continuingRoute"] = "r0"
+            branch["continueAt"] = f"i{continue_at}"
+        branches.append(branch)
+    return {"schemaVersion": 1, "items": items, "branches": branches}
 
 
 def test_nesting_matches_the_all_pairs_comparison() -> None:
@@ -196,7 +223,8 @@ def test_reach_warnings_match_the_all_decisions_comparison() -> None:
     rng = random.Random(7)
     inside = 0
     for _case in range(400):
-        manifest = random_shape(rng, forward=True)
+        manifest = well_formed_shape(rng)
+        assert validate_content.branches_problems(manifest) == []
         warnings = validate_content.reach_warnings(manifest)
         assert warnings == reference_reach_warnings(manifest), manifest
         inside += sum(1 for w in warnings if "inside decision" in w)

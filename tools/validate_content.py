@@ -28,7 +28,10 @@ inside a decision's region (after its `after` item, before its
 `continueAt` or, for a pure choice, up to its last route end) in none of
 its routes, a decision that never fires, and what lies past a route end
 the walk reaches with no decision open. They never change the exit
-status, and a manifest without branches prints none.
+status, and a manifest without branches prints none, nor does one whose
+decisions break the span rules (`folder_model.span_problems`: a route
+not after its `after` item, overlapping routes, a `continueAt` not past
+every route end), which are problems and leave no reading to walk.
 
 Audio warnings, `audio_warnings`, need no flag: one `warning: <file>:
 <location>: <reason>` line on stderr per Ogg track file, per looping track
@@ -139,6 +142,7 @@ _scripted_files = folder_model.scripted_files
 _Decision = folder_model.Decision
 _resolve_decisions = folder_model.resolve_decisions
 _shown_by_play_all = folder_model.shown_by_play_all
+_span_problems = folder_model.span_problems
 
 MANIFEST_NAME = "manifest.json"
 SHIM_NAME = "manifest.js"
@@ -651,7 +655,9 @@ def reach_warnings(manifest: Any) -> list[str]:
     decision; any other says no reading reaches it (a decision that never
     fires, or what lies past a route end the walk reaches with no
     decision open, where the story ends). Warnings never change the exit
-    status.
+    status. A manifest whose decisions break the span rules
+    (`folder_model.span_problems`, each also a problem here) gets none:
+    it has no well-defined reading to walk.
     """
     items = manifest.get("items") if isinstance(manifest, dict) else None
     branches = manifest.get("branches") if isinstance(manifest, dict) \
@@ -662,6 +668,8 @@ def reach_warnings(manifest: Any) -> list[str]:
     decisions = _resolve_decisions(items, branches)
     if not decisions:
         return []  # without decisions every item shows in turn
+    if _span_problems(decisions):
+        return []  # malformed: the problems say so, the walk is skipped
     shown = _shown_by_play_all(items, decisions)
     unshown = [i for i in range(len(items)) if i not in shown]
     innermost = _innermost_regions(decisions, unshown)

@@ -40,8 +40,10 @@ routes' files, and `DECISION.ROUTE.md` for each route, the route's whole
 line with the choices and routes nested in it, so each file reads start
 to finish like its label in the script.
 
-Exit codes, as `kinetic report`: 0 when it ran; 2 for bad arguments, a
-folder without a readable manifest, or a `--lang` the folder lacks.
+Exit codes, as `kinetic routes`: 0 when it ran; 1, writing nothing, when
+a decision breaks the span rules (listed on stderr); 2 for bad
+arguments, a folder without a readable manifest, or a `--lang` the
+folder lacks.
 """
 
 from __future__ import annotations
@@ -61,6 +63,7 @@ from kinetic_extract.report import (
     _listed_languages,
     _num,
     _str,
+    malformed_branches,
     read_manifest,
 )
 from kinetic_extract.routes import (
@@ -438,6 +441,8 @@ def run(args: argparse.Namespace) -> int:
     except ReportError as exc:
         print(f"kinetic export: {exc}", file=sys.stderr)
         return 2
+    if malformed_branches("export", folder, manifest):
+        return 1
     words = Words(data)
     if args.out is None:
         sys.stdout.write(export_story(folder, manifest, words, args.lang))

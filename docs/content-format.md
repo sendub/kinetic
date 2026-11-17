@@ -1686,8 +1686,11 @@ flow never settles on, or what lies past a route end the flow reaches
 with no decision of it open (a join that lands inside another
 decision's route), where the story ends (Branches). The warning leaves
 stdout and the exit status alone, and a manifest without branches
-prints none. `check-game` finds the same items by walking (exit 3,
-"never shown").
+prints none, nor does one where a decision the player keeps breaks the
+span rules (a route not after its `after` item, two routes of one
+decision overlapping, a `continueAt` not after every route end): those
+are problems, and such a manifest has no reading to replay.
+`check-game` finds the same items by walking (exit 3, "never shown").
 
 After the voice warnings it warns about characters (Characters): a key
 in `characters` no item's `speaker` names (`no item's speaker is

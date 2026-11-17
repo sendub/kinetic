@@ -87,12 +87,13 @@ class Decision:
     """A decision resolved to item indices, as machine.ts `ResolvedDecision`."""
 
     __slots__ = ("index", "id", "after", "routes", "continuing",
-                 "continue_at", "parent", "region_end")
+                 "continue_at", "parent", "region_end", "branch")
 
     def __init__(self, index: int, branch_id: Any, after: int,
                  routes: list[tuple[int, int, str]], continuing: int,
-                 continue_at: int) -> None:
+                 continue_at: int, branch: int = -1) -> None:
         self.index = index
+        self.branch = branch  # its entry's index in `branches`
         self.id = branch_id
         self.after = after
         self.routes = routes  # (start, end, result) per route
@@ -117,7 +118,7 @@ def resolve_decisions(items: list[Any], branches: list[Any]
         return by_id.get(value, -1) if isinstance(value, str) else -1
 
     resolved: list[Decision] = []
-    for branch in branches:
+    for bi, branch in enumerate(branches):
         if not isinstance(branch, dict):
             continue
         routes = branch.get("routes")
@@ -144,9 +145,49 @@ def resolve_decisions(items: list[Any], branches: list[Any]
         if len(spans) != len(routes):
             continue
         resolved.append(Decision(len(resolved), branch.get("id"), after,
-                                  spans, continuing, continue_at))
+                                  spans, continuing, continue_at, bi))
     _resolve_nesting(resolved)
     return resolved
+
+
+def span_problems(decisions: list[Decision]) -> list[str]:
+    """The ways the decisions the player plays break the span rules of
+    docs/content-format.md "Branches", worded as tools/validate_content.py
+    words them: a route that does not start after its decision's `after`
+    item, two routes of one decision that overlap, a `continueAt` not
+    after every route end. A manifest with any has no well-defined
+    reading (a join can lead backwards), so `kinetic report`, `routes`
+    and `export` and the validator's reach warnings skip it. Entries the
+    player drops (an unresolvable reference and the like) are not among
+    them: they play as plain items."""
+    problems: list[str] = []
+    for decision in decisions:
+        base = f"manifest.json: branches[{decision.branch}]"
+        after = decision.after
+        for ri, (start, end, _result) in enumerate(decision.routes):
+            if start > after:
+                continue
+            where = (f"route span items[{start}]..items[{end}] contains the "
+                     f"decision's after item items[{after}]"
+                     if after <= end else
+                     f"route must start after the decision's after item "
+                     f"items[{after}] (found items[{start}])")
+            problems.append(f"{base}.routes[{ri}].start: {where}")
+        for ri, (a_s, a_e, _result) in enumerate(decision.routes):
+            for rj in range(ri):
+                b_s, b_e, _result = decision.routes[rj]
+                if max(a_s, b_s) <= min(a_e, b_e):
+                    problems.append(
+                        f"{base}.routes[{ri}]: route span items[{a_s}].."
+                        f"items[{a_e}] overlaps the span items[{b_s}].."
+                        f"items[{b_e}] of branches[{decision.branch}]"
+                        f".routes[{rj}]")
+        if 0 <= decision.continue_at <= decision.region_end:
+            problems.append(
+                f"{base}.continueAt: must resolve to an item after every "
+                f"route end items[{decision.region_end}] (found "
+                f"items[{decision.continue_at}])")
+    return problems
 
 
 def _resolve_nesting(decisions: list[Decision]) -> None:
@@ -203,8 +244,12 @@ def shown_by_play_all(items: list[Any], decisions: list[Decision]
 
     The walk ends: entering a route marks it played this pass and that
     record only grows, so there are at most as many entries as routes,
-    and between two entries every move goes forward (a step, a join to a
-    `continueAt` past its routes, a close past a menu region).
+    and between two entries every move of a manifest without span
+    problems (`span_problems`) goes forward (a step, a join to a
+    `continueAt` past its routes, a close past a menu region). A
+    malformed one can join backwards, so the walk also stops where a
+    position and its open routes repeat with no route entered since:
+    from there the moves would repeat, showing nothing new.
     """
     count = len(items)
     by_after: dict[int, list[Decision]] = {}
@@ -217,6 +262,8 @@ def shown_by_play_all(items: list[Any], decisions: list[Decision]
     played: dict[int, set[int]] = {}  # routes entered this pass
     shown = {0}
     cursor = 0
+    # (cursor, open routes) after each move since the last route entered.
+    seen: set[tuple[int, tuple[tuple[int, int], ...]]] = set()
 
     def show(index: int) -> None:
         nonlocal cursor
@@ -262,6 +309,7 @@ def shown_by_play_all(items: list[Any], decisions: list[Decision]
                 return
 
     def enter_route(decision: Decision, route_idx: int) -> None:
+        seen.clear()  # a route not played before: no earlier state recurs
         close_frames_for(decision)
         played.setdefault(decision.index, set()).add(route_idx)
         stack.append((decision, route_idx))
@@ -337,5 +385,8 @@ def shown_by_play_all(items: list[Any], decisions: list[Decision]
         return (len(shown), cursor) != before
 
     while move_forward():
-        pass
+        state = (cursor, tuple((d.index, r) for d, r in stack))
+        if state in seen:
+            break  # a backward join: the moves would repeat from here
+        seen.add(state)
     return shown

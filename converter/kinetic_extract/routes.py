@@ -29,8 +29,11 @@ Default output: an indented outline. `--dot` prints Graphviz DOT
 each route's edge from its decision labelled with its number and label).
 `--json` prints the model as one JSON object.
 
-Exit codes, as `kinetic report`: 0 when it ran, whatever it found; 2 for
-bad arguments, or a folder without a readable manifest.json (or
+Exit codes, as `kinetic report`: 0 when it ran, whatever it found; 1,
+printing nothing on stdout, when a decision breaks the span rules (a
+route not after its `after` item, overlapping routes, a `continueAt` not
+after every route end, as the validator reports them; listed on stderr);
+2 for bad arguments, or a folder without a readable manifest.json (or
 manifest.js).
 """
 
@@ -56,6 +59,7 @@ from kinetic_extract.report import (
     _items,
     _plural,
     _str,
+    malformed_branches,
     read_manifest,
 )
 from kinetic_extract.version import kinetic_version
@@ -170,6 +174,14 @@ def _carries_on(decision: Decision) -> int:
         else decision.region_end + 1
 
 
+def _hashable(value: Any) -> bool:
+    try:
+        hash(value)
+    except TypeError:  # a list or object id, which the schema reports
+        return False
+    return True
+
+
 def build_model(manifest: dict[str, Any]) -> Model:
     """The branch map's model of the manifest (mapmodel.ts `stripOf`,
     without the geometry)."""
@@ -246,10 +258,16 @@ def build_model(manifest: dict[str, Any]) -> Model:
     story_end = bool(main) and isinstance(main[-1], Stretch)
     shown = shown_by_play_all(items, decisions) if decisions and items \
         else set(range(len(items)))
-    resolved_branch_ids = {d.id for d in decisions}
-    dropped = [b.get("id") for b in branches
-               if not isinstance(b, dict)
-               or b.get("id") not in resolved_branch_ids]
+    resolved_ids = {d.id for d in decisions if _hashable(d.id)}
+    odd_ids = [d.id for d in decisions if not _hashable(d.id)]
+
+    def resolved(branch_id: Any) -> bool:
+        return branch_id in resolved_ids if _hashable(branch_id) \
+            else branch_id in odd_ids
+
+    dropped = [b.get("id") if isinstance(b, dict) else None
+               for b in branches
+               if not isinstance(b, dict) or not resolved(b.get("id"))]
     return Model(
         items=items, line=main, story_end=story_end, decisions=decisions,
         drawn=[placed[d.index] for d in decisions if d.index in placed],
@@ -536,6 +554,8 @@ def run(args: argparse.Namespace) -> int:
     except ReportError as exc:
         print(f"kinetic routes: {exc}", file=sys.stderr)
         return 2
+    if malformed_branches("routes", folder, manifest):
+        return 1
     model = build_model(manifest)
     if args.dot:
         sys.stdout.write(format_dot(model, manifest))

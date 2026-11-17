@@ -51,9 +51,18 @@ the `--json` object:
 - `longestLines`: the 20 longest lines by shown code points, with id,
   speaker, length and their first 60 characters.
 
+Where a decision the player keeps breaks the span rules of
+docs/content-format.md "Branches" (a route not after its `after` item,
+two of its routes overlapping, a `continueAt` not after every route
+end; the validator reports each as a problem), there is no well-defined
+reading: `timing` lists those problems as `branchProblems` in place of
+its figures, and the rest of the report is as ever. Entries the player
+drops play as plain items and change nothing here.
+
 Exit codes: 0 when the report ran, whatever it found (its findings are
-information, not failures); 2 for bad arguments, or a folder without a
-readable manifest.json (or manifest.js).
+information, not failures); 1 when it ran but the branches are
+malformed, so the timing is missing; 2 for bad arguments, or a folder
+without a readable manifest.json (or manifest.js).
 """
 
 from __future__ import annotations
@@ -75,6 +84,7 @@ from kinetic_extract.folder_model import (
     resolve_decisions,
     scripted_files,
     shown_by_play_all,
+    span_problems,
 )
 from kinetic_extract.schema_copy import COPY_NAMES
 from kinetic_extract.version import kinetic_version
@@ -295,9 +305,15 @@ def _shortest_ms(holds: list[float], decisions: list[Decision]) -> float:
     decision with a continuing route, the quicker of its routes that lead
     on (the continuing route, a `"continue"` route) or one whose end is an
     ending; at a pure choice, every route, or one whose end is an ending.
-    The manifest's last item is an ending."""
+    The manifest's last item is an ending.
+
+    Malformed branches (`span_problems`) cannot hang it: a decision
+    whose line carries on at or before its own `after` item ends the span
+    there, and one already being walked further up plays as a plain
+    item."""
     by_after = {(d.after, d.parent): d for d in reversed(decisions)}
     infinity = float("inf")
+    active: set[int] = set()  # the decisions being walked
 
     def walk(lo: int, hi: int, parent: int) -> tuple[float, float]:
         """(through, stop) of the span lo..hi: the time to step off its
@@ -306,12 +322,14 @@ def _shortest_ms(holds: list[float], decisions: list[Decision]) -> float:
         while i <= hi:
             acc += holds[i]
             decision = by_after.get((i, parent))
-            if decision is None:
+            if decision is None or decision.index in active:
                 i += 1
                 continue
+            active.add(decision.index)
             routes = [(walk(start, end, decision.index), result, ri)
                       for ri, (start, end, result)
                       in enumerate(decision.routes)]
+            active.discard(decision.index)
             for (through, inner), result, ri in routes:
                 stop = min(stop, acc + inner)
                 if result == "ending" and ri != decision.continuing:
@@ -320,10 +338,13 @@ def _shortest_ms(holds: list[float], decisions: list[Decision]) -> float:
                 acc += min(through for (through, _), result, ri in routes
                            if ri == decision.continuing
                            or result == "continue")
-                i = decision.continue_at
+                nxt = decision.continue_at
             else:
                 acc += sum(through for (through, _), _, _ in routes)
-                i = decision.region_end + 1
+                nxt = decision.region_end + 1
+            if nxt <= i:
+                break  # a backward join: the span ends here
+            i = nxt
         return acc, stop
 
     if not holds:
@@ -333,11 +354,24 @@ def _shortest_ms(holds: list[float], decisions: list[Decision]) -> float:
 
 
 def timing_section(manifest: dict[str, Any]) -> dict[str, Any]:
+    """The `timing` section. Where a decision breaks the span rules
+    (`span_problems`), its `branchProblems` lists how and the figures
+    are None and its lists empty: no reading is worked out."""
+    language = _str(manifest.get("language")) \
+        or language_file.DEFAULT_LANGUAGE
+    rule = {"minHoldMs": MIN_HOLD_MS, "msPerChar": MS_PER_CHAR,
+            "readingSpeed": READING_SPEED, "language": language,
+            "factor": reading_factor(language)}
     items = _items(manifest)
-    holds = item_holds(manifest)
     branches = manifest.get("branches")
     decisions = resolve_decisions(items, branches) \
         if items and isinstance(branches, list) else []
+    problems = span_problems(decisions)
+    if problems:
+        return {"rule": rule, "branchProblems": problems,
+                "everything": None, "shortestMs": None, "mainLine": None,
+                "decisions": [], "unreachable": []}
+    holds = item_holds(manifest)
     shown = shown_by_play_all(items, decisions) if decisions \
         else set(range(len(items)))
     in_routes = {k for d in decisions for start, end, _ in d.routes
@@ -347,8 +381,6 @@ def timing_section(manifest: dict[str, Any]) -> dict[str, Any]:
         return {"items": len(indices),
                 "ms": round(sum(holds[k] for k in indices))}
 
-    language = _str(manifest.get("language")) \
-        or language_file.DEFAULT_LANGUAGE
     branch_list = branches if isinstance(branches, list) else []
     by_id: dict[str, dict[str, Any]] = {}
     for b in branch_list:
@@ -387,9 +419,8 @@ def timing_section(manifest: dict[str, Any]) -> dict[str, Any]:
             "routes": routes,
         })
     return {
-        "rule": {"minHoldMs": MIN_HOLD_MS, "msPerChar": MS_PER_CHAR,
-                 "readingSpeed": READING_SPEED, "language": language,
-                 "factor": reading_factor(language)},
+        "rule": rule,
+        "branchProblems": [],
         "everything": figure(sorted(shown)),
         "shortestMs": round(_shortest_ms(holds, decisions)),
         "mainLine": figure([k for k in sorted(shown) if k not in in_routes]),
@@ -709,9 +740,16 @@ def format_text(report: dict[str, Any]) -> str:
         "recorded voice lines hold while they play; choice screens and "
         "transitions are not counted)",
         width=78, initial_indent="  ", subsequent_indent="   "))
-    add(f"  every item once (what Play all routes reads): "
-        f"{_figure(timing['everything'])}")
-    add(f"  shortest reading to an ending: {duration(timing['shortestMs'])}")
+    if timing["branchProblems"]:
+        add("  not worked out: the branches are malformed (kinetic validate "
+            "says the same):")
+        for problem in timing["branchProblems"]:
+            add(f"    {problem}")
+    else:
+        add(f"  every item once (what Play all routes reads): "
+            f"{_figure(timing['everything'])}")
+        add(f"  shortest reading to an ending: "
+            f"{duration(timing['shortestMs'])}")
     if timing["decisions"]:
         add(f"  main line (in no route): {_figure(timing['mainLine'])}")
     for decision in timing["decisions"]:
@@ -793,6 +831,24 @@ def format_text(report: dict[str, Any]) -> str:
     return "\n".join(out) + "\n"
 
 
+def malformed_branches(command: str, folder: Path,
+                       manifest: dict[str, Any]) -> bool:
+    """For `kinetic routes` and `export`, which lay out the branches:
+    True, with the problems on stderr, when a decision breaks the span
+    rules (`span_problems`)."""
+    items = _items(manifest)
+    branches = manifest.get("branches")
+    problems = span_problems(resolve_decisions(items, branches)) \
+        if items and isinstance(branches, list) else []
+    if not problems:
+        return False
+    print(f"kinetic {command}: {folder}: the branches are malformed "
+          f"(kinetic validate says the same):", file=sys.stderr)
+    for problem in problems:
+        print(f"  {problem}", file=sys.stderr)
+    return True
+
+
 def run(args: argparse.Namespace) -> int:
     try:
         report = build_report(Path(args.folder))
@@ -804,6 +860,11 @@ def run(args: argparse.Namespace) -> int:
                          + "\n")
     else:
         sys.stdout.write(format_text(report))
+    if report["timing"]["branchProblems"]:
+        print(f"kinetic report: {args.folder}: the branches are malformed, "
+              "so the reading times are not worked out (kinetic validate "
+              "says why)", file=sys.stderr)
+        return 1
     return 0
 
 

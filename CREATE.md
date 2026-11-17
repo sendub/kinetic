@@ -2471,7 +2471,11 @@ opens no browser and needs no media tools:
 
 `--json` prints the same report as one JSON object. The exit status is
 0 whenever the report ran, whatever it found, and 2 for bad arguments or
-a folder without a readable manifest.
+a folder without a readable manifest. A folder where a decision breaks
+the span rules (a route not after its `after` item, two of its routes
+overlapping, a `continueAt` not after every route end) has no
+well-defined reading, so it gets no reading times: the report lists
+those problems in their place, prints the rest, and exits 1.
 
 #### kinetic routes
 
@@ -2482,7 +2486,9 @@ its label, result, item count, first and last items, and where it ends
 or rejoins, nested decisions indented under their route. Decisions no
 line reaches, `branches` entries the player drops, and items no reading
 reaches are listed after it. `--dot` prints the same as Graphviz DOT,
-`--json` as one JSON object; the exit status is as for `report`.
+`--json` as one JSON object; the exit status is as for `report`, except
+that a decision breaking the span rules prints nothing but those
+problems, on stderr, and exits 1.
 
 ```text
 main line: 29 items
@@ -2511,7 +2517,8 @@ Each choice lists its route labels; each route follows under a
 leads. `--lang TAG` reads the texts, names, prompts and labels from that
 language file, marking `[base] ` each string it lacks. `--out DIR`
 writes `main.md` and one `DECISION.ROUTE.md` per route, each with the
-choices and routes nested in it, in place of stdout.
+choices and routes nested in it, in place of stdout. A decision
+breaking the span rules stops it as it stops `routes`.
 
 ```text
 <a id="route1-nest"></a>
