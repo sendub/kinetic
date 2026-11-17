@@ -145,10 +145,33 @@ Candidates:
 - Authenticode signing of the Windows program with the author's
   certificate, after `kinetic apps` writes the game's resources (it
   refuses to rewrite a signed exe, as that breaks the signature).
+- **One signed player for every game** (the user, 2026-11-17). A
+  signature covers the exact bytes of the app, and `kinetic apps`
+  writes each game's title, storyId and icon into its copy of the host,
+  so a signature on the prebuilt host cannot carry over to a game's
+  app: each author would sign their own, or send it to someone else to
+  sign as its publisher. Instead, a generic Kinetic player app and exe,
+  signed and notarized once per Kinetic release with the Kinetic
+  developer's Apple Developer ID and a Windows code-signing
+  certificate, ship unchanged beside any game folder and read the
+  game's title and storyId from the folder at launch (a game's HTML,
+  JavaScript and media are data, not code, so Gatekeeper and SmartScreen
+  check only the signed player). Every Kinetic game downloaded with it
+  opens with no refusal or warning, and the one exe builds SmartScreen
+  reputation across everyone's downloads. The cost is per-game identity:
+  Finder, the menu bar and the exe's file properties say "Kinetic" and
+  show Kinetic's icon (the window title and Dock icon can still be the
+  game's, set at launch), and all games share one app identity, so
+  macOS's per-app language setting applies to every Kinetic game (saves
+  are per storyId already). Per-game apps signed by their own authors
+  can stay beside it for authors who want their game's name and icon.
+  The phase-closer would sign, notarize and attach the player to each
+  release.
 
 To settle:
 
 - Whether readers should run the apps from a download at all.
+- One signed player, per-game apps signed by their authors, or both.
 - How the author's identity reaches the build (a keychain profile name,
   never a secret in the repo).
 - Testing: agents cannot notarize without the user's Apple account, so

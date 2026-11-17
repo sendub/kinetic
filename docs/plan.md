@@ -4383,7 +4383,11 @@ The orchestrator's choices, within those decisions:
     closer republishes it after the release. Tests: publish_demo's
     folder build in a unit test (no push); the served-over-HTTP walk;
     the live page loads (check-game or a fetch of index.html, app.js
-    and manifest.js) after the first publish.
+    and manifest.js) after the first publish. The Pages demo is the
+    only demo: releases attach no demo folder, app or exe (the user,
+    2026-11-17), since a downloaded app signed ad hoc is refused by
+    macOS and an unsigned exe meets SmartScreen (docs/future.md,
+    "Signed apps for downloads", now holds a one-signed-player design).
 12. Phase-closer: full suites; VERSION 1.12.0, the CHANGELOG dated,
     tag, `main` fast-forwarded, and the wheel attached to the GitHub
     release v1.12.0.
