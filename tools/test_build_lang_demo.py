@@ -71,9 +71,9 @@ def test_validator_reports_only_the_two_deliberate_warnings(
         ["lang/de.json", "items.text-thought.from"]]
     assert "stale" in warnings[1]
     assert lines[2:] == [
-        f"{built}: de: 38 of 39 strings (97.4%), 1 stale, 0 unchecked",
-        f"{built}: ja: 39 of 39 strings (100%), 0 stale, 0 unchecked",
-        f"{built}: ar: 39 of 39 strings (100%), 0 stale, 0 unchecked",
+        f"{built}: de: 43 of 44 strings (97.7%), 1 stale, 0 unchecked",
+        f"{built}: ja: 44 of 44 strings (100%), 0 stale, 0 unchecked",
+        f"{built}: ar: 44 of 44 strings (100%), 0 stale, 0 unchecked",
         f"{built}: 2 translation warnings",
     ]
 
@@ -116,13 +116,14 @@ def test_every_string_translated_but_the_missing_line(
         assert data["language"] == tag
         expected = texts - {"floor-2"} if tag == "de" else texts
         assert set(data["items"]) == expected, tag
-        assert set(data["speakers"]) == speakers == {"Mei", "Theo"}
+        assert set(data["speakers"]) == speakers == {"Mei", "Theo", "Ines"}
         assert {"title", "version", "name"} <= set(data)
         for branch in manifest["branches"]:
             entry = data["decisions"][branch["id"]]
             assert entry["prompt"]["text"] != branch["prompt"]
             assert set(entry["routes"]) == {r["id"] for r in branch["routes"]}
-    assert files["ja"]["speakers"] == {"Mei": "メイ", "Theo": "テオ"}
+    assert files["ja"]["speakers"] == {"Mei": "メイ", "Theo": "テオ",
+                                       "Ines": "イネス"}
 
 
 def test_every_hash_matches_the_base_but_the_stale_line(

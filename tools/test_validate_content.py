@@ -2636,13 +2636,13 @@ def test_a_badly_shaped_voice_is_rejected(folder: Path, change: Any,
 
 def test_an_unused_voice_warns_only(folder: Path) -> None:
     manifest = with_voices(folder)
-    manifest["voices"]["Ines"] = {"file": VOICE_FILES["Theo"]}
+    manifest["voices"]["Nadia"] = {"file": VOICE_FILES["Theo"]}
     write_manifest(folder, manifest)
     assert problems_of(folder) == []
     proc = run_cli(folder)
     assert (proc.returncode, proc.stdout) == (0, ""), proc.stderr
     assert warning_lines(proc) == [
-        "warning: manifest.json: voices.Ines: no item's speaker is 'Ines'"]
+        "warning: manifest.json: voices.Nadia: no item's speaker is 'Nadia'"]
     assert proc.stderr.endswith(f"{folder}: 1 voice warning\n")
 
 
@@ -2859,7 +2859,10 @@ def full_language(manifest: dict[str, Any], tag: str) -> dict[str, Any]:
     """A language file translating every string of `manifest`, each the
     base reversed (so no length warning) with its base hash."""
     def tr(base: str) -> dict[str, str]:
-        return {"text": base[::-1], "from": language_file.base_hash(base)}
+        # Reversed without braces, so a base's text tags leave none
+        # broken behind.
+        text = base.replace("{", "").replace("}", "")[::-1]
+        return {"text": text, "from": language_file.base_hash(base)}
 
     items = [item for item in manifest["items"] if item.get("text")]
     data: dict[str, Any] = {
@@ -2933,14 +2936,14 @@ def test_a_full_translation_passes_with_full_coverage(folder: Path) -> None:
     manifest, _files = add_languages(folder, "de", "ja", version="Episode 1")
     assert problems_of(folder) == []
     assert lang_warnings(folder) == []
-    # title, version, 2 speakers, 29 item texts, 2 prompts and 4 labels
+    # title, version, 3 speakers, 33 item texts, 2 prompts and 4 labels
     assert coverage_of(folder) == [
-        "de: 39 of 39 strings (100%), 0 stale, 0 unchecked",
-        "ja: 39 of 39 strings (100%), 0 stale, 0 unchecked"]
+        "de: 44 of 44 strings (100%), 0 stale, 0 unchecked",
+        "ja: 44 of 44 strings (100%), 0 stale, 0 unchecked"]
     proc = run_cli(folder)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert proc.stdout == ""
-    assert f"{folder}: de: 39 of 39 strings (100%), 0 stale, 0 unchecked" \
+    assert f"{folder}: de: 44 of 44 strings (100%), 0 stale, 0 unchecked" \
         in proc.stderr.splitlines()
     assert "translation warning" not in proc.stderr
 
@@ -2968,7 +2971,7 @@ def test_a_minimal_language_file_passes_with_warnings(folder: Path) -> None:
     write_language(folder, {"language": "de"})
     assert problems_of(folder) == []
     assert coverage_of(folder) == [
-        "de: 0 of 38 strings (0.0%), 0 stale, 0 unchecked"]
+        "de: 0 of 43 strings (0.0%), 0 stale, 0 unchecked"]
 
 
 @pytest.mark.parametrize("tag, why", [
@@ -3257,7 +3260,7 @@ def test_each_missing_string_warns(folder: Path) -> None:
         "translation (base: 'Route 2: an ending')",
     ]
     assert coverage_of(folder) == [
-        "de: 33 of 39 strings (84.6%), 0 stale, 0 unchecked"]
+        "de: 38 of 44 strings (86.3%), 0 stale, 0 unchecked"]
 
 
 def test_missing_strings_are_listed_up_to_the_cap(folder: Path) -> None:
@@ -3266,10 +3269,10 @@ def test_missing_strings_are_listed_up_to_the_cap(folder: Path) -> None:
     write_language(folder, files["de"])
     warnings = lang_warnings(folder)
     assert len(warnings) == validate_content.LIST_MAX + 1
-    assert warnings[-1] == ("warning: lang/de.json: <root>: and 9 more "
+    assert warnings[-1] == ("warning: lang/de.json: <root>: and 13 more "
                             "strings without a translation")
     assert coverage_of(folder) == [
-        "de: 9 of 38 strings (23.6%), 0 stale, 0 unchecked"]
+        "de: 10 of 43 strings (23.2%), 0 stale, 0 unchecked"]
 
 
 def test_a_stale_translation_warns(folder: Path) -> None:
@@ -3284,7 +3287,7 @@ def test_a_stale_translation_warns(folder: Path) -> None:
         f"text hashing to {old!r}, the base now hashes to {now!r} (base: "
         "'Line three waits.')"]
     assert coverage_of(folder) == [
-        "de: 38 of 38 strings (100%), 1 stale, 0 unchecked"]
+        "de: 43 of 43 strings (100%), 1 stale, 0 unchecked"]
 
 
 def test_a_stale_label_warns(folder: Path) -> None:
@@ -3317,7 +3320,7 @@ def test_a_translation_without_from_is_unchecked_not_warned(
     assert problems_of(folder) == []
     assert lang_warnings(folder) == []
     assert coverage_of(folder) == [
-        "de: 38 of 38 strings (100%), 0 stale, 2 unchecked"]
+        "de: 43 of 43 strings (100%), 0 stale, 2 unchecked"]
 
 
 def test_a_text_over_one_and_a_half_times_its_base_warns(
@@ -3363,7 +3366,7 @@ def test_translation_warnings_print_with_a_count(folder: Path) -> None:
     assert proc.stderr.splitlines() == [
         "warning: lang/de.json: items.floor-2: no translation (base: 'Short "
         "line two.')",
-        f"{folder}: de: 37 of 38 strings (97.3%), 0 stale, 0 unchecked",
+        f"{folder}: de: 42 of 43 strings (97.6%), 0 stale, 0 unchecked",
         f"{folder}: 1 translation warning",
     ]
 
@@ -3540,3 +3543,257 @@ def test_lang_schema_track_matches_the_manifest_s() -> None:
     lang = json.loads(LANG_SCHEMA.read_text(encoding="utf-8"))["$defs"]
     for name in ("track", "path", "audioPath"):
         assert lang[name] == content[name], name
+
+
+# ---------------------------------------------------------------------------
+# Presentation (docs/content-format.md, Characters, Transitions and Text
+# tags; docs/plan.md Phase 57 item 1)
+# ---------------------------------------------------------------------------
+
+def test_demo_has_characters_transitions_and_tags_and_warns_nothing(
+        demo: Path) -> None:
+    manifest = read_manifest(demo)
+    assert manifest["characters"]
+    assert any("transition" in item for item in manifest["items"])
+    assert validate_content.character_warnings(manifest) == []
+    assert validate_content.text_tag_warnings(manifest, demo) == []
+
+
+def test_contrast_ratio_is_wcag_s() -> None:
+    assert validate_content.contrast_ratio("#000000", "#FFFFFF") == 21
+    assert validate_content.contrast_ratio("#777777", "#777777") == 1
+    # WCAG's own example pair: #777 on white is just under 4.5:1.
+    assert round(validate_content.contrast_ratio("#777777", "#ffffff"),
+                 2) == 4.48
+
+
+def test_band_background_is_the_players_band_over_white() -> None:
+    """The reference colour is the band's black at its opacity over a
+    white picture; the opacity is the one player/index.html draws."""
+    html = (REPO_ROOT / "player" / "index.html").read_text(encoding="utf-8")
+    band = re.search(r"\.overlay \{.*?rgba\(0, 0, 0, ([0-9.]+)\) 35%", html,
+                     re.S)
+    assert band is not None
+    level = round(255 * (1 - float(band.group(1))))
+    assert validate_content.BAND_BACKGROUND == "#" + f"{level:02x}" * 3
+
+
+def test_characters_in_either_case_pass(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    manifest["characters"] = {"Mei": {"nameColor": "#E6B566",
+                                      "textColor": "#f4efe6"},
+                              "Theo": {}}
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    assert validate_content.character_warnings(manifest) == []
+
+
+@pytest.mark.parametrize(("change", "loc", "reason"), [
+    ({"Mei": {"nameColor": "red"}}, "characters.Mei.nameColor",
+     "must be a colour written #rrggbb (found 'red')"),
+    ({"Mei": {"textColor": "#fff"}}, "characters.Mei.textColor",
+     "must be a colour written #rrggbb (found '#fff')"),
+    ({"Mei": {"textColor": "#ffffffaa"}}, "characters.Mei.textColor",
+     "must be a colour written #rrggbb (found '#ffffffaa')"),
+    ({"Mei": {"color": "#ffffff"}}, "characters.Mei",
+     "Additional properties are not allowed ('color' was unexpected)"),
+    ({"Mei": "#ffffff"}, "characters.Mei", "must be of type object"),
+    ({"": {}}, "characters", "'' should be non-empty"),
+])
+def test_a_badly_shaped_character_is_a_problem(folder: Path, change: Any,
+                                               loc: str, reason: str) -> None:
+    manifest = read_manifest(folder)
+    manifest["characters"] = change
+    assert only_problem(folder, manifest) == f"manifest.json: {loc}: {reason}"
+
+
+def test_an_unused_character_and_a_dim_colour_warn_only(folder: Path
+                                                        ) -> None:
+    manifest = read_manifest(folder)
+    manifest["characters"] = {"Mei": {"nameColor": "#000080",
+                                      "textColor": "#f4efe6"},
+                              "Ines": {"nameColor": "#7fd6c2"},
+                              "Nobody": {"textColor": "#3a3a3a"}}
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout) == (0, ""), proc.stderr
+    assert warning_lines(proc) == [
+        "warning: manifest.json: characters.Mei.nameColor: '#000080' has a "
+        "contrast ratio of 1.10:1 with the text band (#292929), below 4.5:1, "
+        "so it may be hard to read",
+        "warning: manifest.json: characters.Nobody: no item's speaker is "
+        "'Nobody'",
+        "warning: manifest.json: characters.Nobody.textColor: '#3a3a3a' has "
+        "a contrast ratio of 1.27:1 with the text band (#292929), below "
+        "4.5:1, so it may be hard to read",
+    ]
+    assert proc.stderr.endswith(f"{folder}: 3 character warnings\n")
+
+
+def test_character_warnings_survive_malformed_manifests() -> None:
+    assert validate_content.character_warnings(None) == []
+    assert validate_content.character_warnings({"characters": "x"}) == []
+    assert validate_content.character_warnings({
+        "characters": {"A": "x", "B": {"nameColor": 7}},
+        "items": "x"}) == [
+        "warning: manifest.json: characters.A: no item's speaker is 'A'",
+        "warning: manifest.json: characters.B: no item's speaker is 'B'"]
+
+
+def test_a_contrast_just_at_the_line_does_not_warn() -> None:
+    """The limit is 4.5:1 itself: the palest grey at or above it passes
+    and the next darker one warns."""
+    def warns(color: str) -> bool:
+        return bool(validate_content.character_warnings({
+            "characters": {"A": {"textColor": color}},
+            "items": [{"speaker": "A"}]}))
+    greys = [f"#{v:02x}{v:02x}{v:02x}" for v in range(256)]
+    first = next(g for g in greys
+                 if validate_content.contrast_ratio(
+                     g, validate_content.BAND_BACKGROUND) >= 4.5
+                 and int(g[1:3], 16) > 0x29)
+    previous = greys[greys.index(first) - 1]
+    assert not warns(first) and warns(previous)
+
+
+TRANSITIONS = {
+    "dissolve": {"kind": "dissolve", "seconds": 1},
+    "longest dissolve": {"kind": "dissolve", "seconds": 5},
+    "fade": {"kind": "fade", "out": 0.5, "hold": 0.25, "in": 0.5},
+    "fade in only": {"kind": "fade", "out": 0, "hold": 0, "in": 5},
+    "fade out only": {"kind": "fade", "out": 0.1, "hold": 5, "in": 0},
+}
+
+
+@pytest.mark.parametrize("index", [IMAGE, ANIM, VIDEO])
+@pytest.mark.parametrize("name", list(TRANSITIONS))
+def test_a_transition_on_a_visual_item_passes(folder: Path, index: int,
+                                              name: str) -> None:
+    manifest = read_manifest(folder)
+    manifest["items"][index]["transition"] = TRANSITIONS[name]
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+
+
+@pytest.mark.parametrize(("transition", "loc", "reason"), [
+    ({"kind": "dissolve", "seconds": 0}, "transition.seconds",
+     "must be greater than 0 (found 0)"),
+    ({"kind": "dissolve", "seconds": 5.5}, "transition.seconds",
+     "must be at most 5 (found 5.5)"),
+    ({"kind": "dissolve"}, "transition", "'seconds' is a required property"),
+    ({"kind": "dissolve", "seconds": 1, "in": 1}, "transition",
+     "Additional properties are not allowed ('in' was unexpected)"),
+    ({"kind": "fade", "out": -1, "hold": 0, "in": 1}, "transition.out",
+     "must be at least 0 (found -1)"),
+    ({"kind": "fade", "out": 1, "hold": 6, "in": 1}, "transition.hold",
+     "must be at most 5 (found 6)"),
+    ({"kind": "fade", "out": 1, "hold": 0}, "transition",
+     "'in' is a required property"),
+    ({"kind": "fade", "out": 0, "hold": 2, "in": 0}, "transition",
+     'a fade needs "out" or "in" above 0'),
+    ({"kind": "wipe", "seconds": 1}, "transition.kind",
+     "must be one of ['dissolve', 'fade'] (found 'wipe')"),
+    ({"seconds": 1}, "transition", "'kind' is a required property"),
+    ("dissolve", "transition", "must be of type object"),
+])
+def test_a_bad_transition_is_a_problem(folder: Path, transition: Any,
+                                       loc: str, reason: str) -> None:
+    manifest = read_manifest(folder)
+    manifest["items"][IMAGE]["transition"] = transition
+    assert only_problem(folder, manifest) == \
+        f"manifest.json: items[{IMAGE}].{loc}: {reason}"
+
+
+def test_a_transition_on_a_text_item_is_a_problem(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    manifest["items"][TEXT]["transition"] = TRANSITIONS["dissolve"]
+    assert only_problem(folder, manifest) == (
+        f"manifest.json: items[{TEXT}]: Additional properties are not "
+        "allowed ('transition' was unexpected)")
+
+
+def test_transition_problems_survive_malformed_manifests() -> None:
+    assert validate_content.transition_problems(None) == []
+    assert validate_content.transition_problems({"items": [
+        "x", {"transition": "x"}, {"transition": {"kind": "fade"}},
+        {"transition": {"kind": "fade", "out": "0", "in": 0}}]}) == []
+
+
+def tag_warnings(folder: Path) -> list[str]:
+    return validate_content.text_tag_warnings(read_manifest(folder), folder)
+
+
+def test_tags_in_texts_prompts_and_labels_warn_only(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    manifest["items"][IMAGE]["text"] = "A {shake}word{/shake}."
+    manifest["items"][TEXT]["text"] = "{i}Leaning {b}and bold{/i}{/b}"
+    branch = manifest["branches"][1]
+    branch["prompt"] = "Which {u}route?"
+    branch["routes"][0]["label"] = "Route 1{/s} {oops"
+    write_manifest(folder, manifest)
+    assert problems_of(folder) == []
+    proc = run_cli(folder)
+    assert (proc.returncode, proc.stdout) == (0, ""), proc.stderr
+    assert warning_lines(proc) == [
+        f"warning: manifest.json: items[{IMAGE}].text: unknown text tag "
+        "'{shake}': the player leaves out the tag and shows its text",
+        f"warning: manifest.json: items[{IMAGE}].text: unknown text tag "
+        "'{/shake}': the player leaves out the tag and shows its text",
+        f"warning: manifest.json: items[{TEXT}].text: '{{/i}}' closes "
+        "'{i}' while '{b}', opened after it, is still open",
+        "warning: manifest.json: branches[1].prompt: '{u}' is never closed",
+        "warning: manifest.json: branches[1].routes[0].label: '{/s}' closes "
+        "a tag that is not open: the player leaves it out",
+        "warning: manifest.json: branches[1].routes[0].label: '{oops' "
+        "starts a text tag that never ends: the player shows it as text",
+    ]
+    assert proc.stderr.endswith(f"{folder}: 6 text tag warnings\n")
+
+
+def test_well_formed_tags_do_not_warn(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    manifest["items"][IMAGE]["text"] = (
+        "{i}a{/i} {b}b{/b} {u}u{/u} {s}s{/s}{w} {w=1}{nw}{fast}{p}"
+        "{cps=10}c{/cps} {size=+2}big{/size} {{literal} }} {#note}")
+    write_manifest(folder, manifest)
+    assert tag_warnings(folder) == []
+
+
+def test_tags_in_language_files_warn_only(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    data = files["de"]
+    data["items"]["text-speech"]["text"] = "Gesprochen, {i}kursiv."
+    data["decisions"]["outer"]["prompt"]["text"] = "Welche {foo}Route?"
+    data["decisions"]["outer"]["routes"]["route2"]["text"] = "Ende{/b}"
+    write_language(folder, data)
+    assert problems_of(folder) == []
+    assert tag_warnings(folder) == [
+        "warning: lang/de.json: items.text-speech.text: '{i}' is never "
+        "closed",
+        "warning: lang/de.json: decisions.outer.prompt.text: unknown text "
+        "tag '{foo}': the player leaves out the tag and shows its text",
+        "warning: lang/de.json: decisions.outer.routes.route2.text: '{/b}' "
+        "closes a tag that is not open: the player leaves it out",
+    ]
+
+
+def test_tag_warnings_are_listed_up_to_the_cap(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    texts = [item for item in manifest["items"] if item.get("text")]
+    for item in texts:
+        item["text"] += " {glow}"
+    write_manifest(folder, manifest)
+    warnings = tag_warnings(folder)
+    assert len(warnings) == validate_content.LIST_MAX + 1
+    assert warnings[-1] == (
+        f"warning: manifest.json: <root>: and "
+        f"{len(texts) - validate_content.LIST_MAX} more text tag warnings")
+
+
+def test_tag_warnings_survive_malformed_input(tmp_path: Path) -> None:
+    assert validate_content.text_tag_warnings(None, tmp_path) == []
+    assert validate_content.text_tag_warnings({
+        "items": [None, {"text": 7}], "branches": [
+            None, {"prompt": 3, "routes": [None, {"label": None}]}]},
+        tmp_path) == []

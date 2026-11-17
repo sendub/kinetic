@@ -1,0 +1,332 @@
+{
+  "description": "Shared cases for the two text tag parsers, converter/kinetic_extract/text_tags.py and the player's (docs/content-format.md, Text tags). Each case gives a text, the runs the player draws (each run's style is the letters of the honoured tags in effect, in the order i, b, u, s; adjacent runs differ in style and none is empty), the shown text's length in Unicode code points, and the problems the validator warns about, in text order with unclosed tags last. A problem's tag is the tag as written; an unterminated one is the '{' and at most 19 code points after it; a crossed closer names the tag it leaves open as other.",
+  "cases": [
+    {
+      "name": "plain text",
+      "text": "Hello there.",
+      "runs": [{"text": "Hello there.", "style": ""}],
+      "length": 12,
+      "problems": []
+    },
+    {
+      "name": "empty text",
+      "text": "",
+      "runs": [],
+      "length": 0,
+      "problems": []
+    },
+    {
+      "name": "italic",
+      "text": "a {i}b{/i} c",
+      "runs": [
+        {"text": "a ", "style": ""},
+        {"text": "b", "style": "i"},
+        {"text": " c", "style": ""}
+      ],
+      "length": 5,
+      "problems": []
+    },
+    {
+      "name": "bold, underline and strike",
+      "text": "{b}B{/b}{u}U{/u}{s}S{/s}",
+      "runs": [
+        {"text": "B", "style": "b"},
+        {"text": "U", "style": "u"},
+        {"text": "S", "style": "s"}
+      ],
+      "length": 3,
+      "problems": []
+    },
+    {
+      "name": "nesting",
+      "text": "{i}a{b}b{u}c{s}d{/s}{/u}{/b}e{/i}",
+      "runs": [
+        {"text": "a", "style": "i"},
+        {"text": "b", "style": "ib"},
+        {"text": "c", "style": "ibu"},
+        {"text": "d", "style": "ibus"},
+        {"text": "e", "style": "i"}
+      ],
+      "length": 5,
+      "problems": []
+    },
+    {
+      "name": "the same tag nested counts",
+      "text": "{i}a{i}b{/i}c{/i}d",
+      "runs": [
+        {"text": "abc", "style": "i"},
+        {"text": "d", "style": ""}
+      ],
+      "length": 4,
+      "problems": []
+    },
+    {
+      "name": "a crossed closer draws as written",
+      "text": "{i}a{b}b{/i}c{/b}",
+      "runs": [
+        {"text": "a", "style": "i"},
+        {"text": "b", "style": "ib"},
+        {"text": "c", "style": "b"}
+      ],
+      "length": 3,
+      "problems": [{"kind": "crossed", "tag": "{/i}", "other": "{b}"}]
+    },
+    {
+      "name": "an unclosed tag styles the rest",
+      "text": "plain {b}bold to the end",
+      "runs": [
+        {"text": "plain ", "style": ""},
+        {"text": "bold to the end", "style": "b"}
+      ],
+      "length": 21,
+      "problems": [{"kind": "unclosed", "tag": "{b}"}]
+    },
+    {
+      "name": "unclosed tags are reported in the order opened",
+      "text": "{u}a{i}b",
+      "runs": [
+        {"text": "a", "style": "u"},
+        {"text": "b", "style": "iu"}
+      ],
+      "length": 2,
+      "problems": [
+        {"kind": "unclosed", "tag": "{u}"},
+        {"kind": "unclosed", "tag": "{i}"}
+      ]
+    },
+    {
+      "name": "a closer with nothing open is left out",
+      "text": "a{/u}b",
+      "runs": [{"text": "ab", "style": ""}],
+      "length": 2,
+      "problems": [{"kind": "not-open", "tag": "{/u}"}]
+    },
+    {
+      "name": "timing tags go",
+      "text": "Wait{w} for{w=0.5} it{nw}{fast}",
+      "runs": [{"text": "Wait for it", "style": ""}],
+      "length": 11,
+      "problems": []
+    },
+    {
+      "name": "cps goes and keeps its text",
+      "text": "{cps=20}slow{/cps} and {cps=*2}fast{/cps}",
+      "runs": [{"text": "slow and fast", "style": ""}],
+      "length": 13,
+      "problems": []
+    },
+    {
+      "name": "p is a line break",
+      "text": "One.{p}Two.{p=1.5}Three.",
+      "runs": [{"text": "One.\nTwo.\nThree.", "style": ""}],
+      "length": 16,
+      "problems": []
+    },
+    {
+      "name": "a line break keeps the style",
+      "text": "{i}a{p}b{/i}",
+      "runs": [{"text": "a\nb", "style": "i"}],
+      "length": 3,
+      "problems": []
+    },
+    {
+      "name": "other tags keep their text",
+      "text": "{size=+10}big{/size} {color=#f00}red{/color} {font=x.ttf}f{/font} {a=https://example.com}link{/a} {alpha=0.5}dim{/alpha} {k=2}wide{/k} {plain}p{/plain} {outlinecolor=#000}o{/outlinecolor}",
+      "runs": [{"text": "big red f link dim wide p o", "style": ""}],
+      "length": 27,
+      "problems": []
+    },
+    {
+      "name": "other tags inside emphasis",
+      "text": "{b}{color=#ff0}gold{/color}{/b}",
+      "runs": [{"text": "gold", "style": "b"}],
+      "length": 4,
+      "problems": []
+    },
+    {
+      "name": "ruby text shows inline",
+      "text": "{rb}kanji{/rb}{rt}reading{/rt}",
+      "runs": [{"text": "kanjireading", "style": ""}],
+      "length": 12,
+      "problems": []
+    },
+    {
+      "name": "nothing after done is shown",
+      "text": "Shown.{done} Not shown.",
+      "runs": [{"text": "Shown.", "style": ""}],
+      "length": 6,
+      "problems": []
+    },
+    {
+      "name": "tags after done are still read",
+      "text": "{i}a{done}b{/i}c{shake}",
+      "runs": [{"text": "a", "style": "i"}],
+      "length": 1,
+      "problems": [{"kind": "unknown", "tag": "{shake}"}]
+    },
+    {
+      "name": "alt text is not shown",
+      "text": "Look{alt} (a picture of the sea){/alt} here.",
+      "runs": [{"text": "Look here.", "style": ""}],
+      "length": 10,
+      "problems": []
+    },
+    {
+      "name": "alt inside emphasis",
+      "text": "{b}x{alt}y{p}{{{/alt}z{/b}",
+      "runs": [{"text": "xz", "style": "b"}],
+      "length": 2,
+      "problems": []
+    },
+    {
+      "name": "an unclosed alt hides the rest",
+      "text": "a{alt}b{i}c",
+      "runs": [{"text": "a", "style": ""}],
+      "length": 1,
+      "problems": [
+        {"kind": "unclosed", "tag": "{alt}"},
+        {"kind": "unclosed", "tag": "{i}"}
+      ]
+    },
+    {
+      "name": "an alt closer with nothing open is left out",
+      "text": "a{/alt}b",
+      "runs": [{"text": "ab", "style": ""}],
+      "length": 2,
+      "problems": [{"kind": "not-open", "tag": "{/alt}"}]
+    },
+    {
+      "name": "noalt text is shown, never as markup",
+      "text": "{noalt}<3{/noalt}",
+      "runs": [{"text": "<3", "style": ""}],
+      "length": 2,
+      "problems": []
+    },
+    {
+      "name": "self-closing tags leave nothing",
+      "text": "A{image=icon.png}B{space=10}C{vspace=5}D{clear}E",
+      "runs": [{"text": "ABCDE", "style": ""}],
+      "length": 5,
+      "problems": []
+    },
+    {
+      "name": "a comment is left out",
+      "text": "a{#note to self}b",
+      "runs": [{"text": "ab", "style": ""}],
+      "length": 2,
+      "problems": []
+    },
+    {
+      "name": "a style tag keeps its text",
+      "text": "{=big}x{/=big}",
+      "runs": [{"text": "x", "style": ""}],
+      "length": 1,
+      "problems": []
+    },
+    {
+      "name": "a doubled brace is one literal brace",
+      "text": "{{not a tag}",
+      "runs": [{"text": "{not a tag}", "style": ""}],
+      "length": 11,
+      "problems": []
+    },
+    {
+      "name": "a doubled brace before a tag name",
+      "text": "{{i}}",
+      "runs": [{"text": "{i}}", "style": ""}],
+      "length": 4,
+      "problems": []
+    },
+    {
+      "name": "closing braces outside a tag show as written",
+      "text": "a } b }} c",
+      "runs": [{"text": "a } b }} c", "style": ""}],
+      "length": 10,
+      "problems": []
+    },
+    {
+      "name": "an unterminated tag shows as text",
+      "text": "a {i b",
+      "runs": [{"text": "a {i b", "style": ""}],
+      "length": 6,
+      "problems": [{"kind": "unterminated", "tag": "{i b"}]
+    },
+    {
+      "name": "an unterminated tag is cut to 20 code points",
+      "text": "x{this tag runs on and on",
+      "runs": [{"text": "x{this tag runs on and on", "style": ""}],
+      "length": 25,
+      "problems": [{"kind": "unterminated", "tag": "{this tag runs on an"}]
+    },
+    {
+      "name": "an unknown tag goes and keeps its text",
+      "text": "x{shake}y{/shake}z",
+      "runs": [{"text": "xyz", "style": ""}],
+      "length": 3,
+      "problems": [
+        {"kind": "unknown", "tag": "{shake}"},
+        {"kind": "unknown", "tag": "{/shake}"}
+      ]
+    },
+    {
+      "name": "tag names are case-sensitive",
+      "text": "{I}x{/I}",
+      "runs": [{"text": "x", "style": ""}],
+      "length": 1,
+      "problems": [
+        {"kind": "unknown", "tag": "{I}"},
+        {"kind": "unknown", "tag": "{/I}"}
+      ]
+    },
+    {
+      "name": "spaces make a name unknown",
+      "text": "{ i }x",
+      "runs": [{"text": "x", "style": ""}],
+      "length": 1,
+      "problems": [{"kind": "unknown", "tag": "{ i }"}]
+    },
+    {
+      "name": "an empty tag",
+      "text": "a{}b",
+      "runs": [{"text": "ab", "style": ""}],
+      "length": 2,
+      "problems": [{"kind": "unknown", "tag": "{}"}]
+    },
+    {
+      "name": "a tag runs to the first closing brace",
+      "text": "{a{b}c",
+      "runs": [{"text": "c", "style": ""}],
+      "length": 1,
+      "problems": [{"kind": "unknown", "tag": "{a{b}"}]
+    },
+    {
+      "name": "an empty pair leaves no run",
+      "text": "{b}{/b}",
+      "runs": [],
+      "length": 0,
+      "problems": []
+    },
+    {
+      "name": "right-to-left text",
+      "text": "مرحبا {i}بالعالم{/i}!",
+      "runs": [
+        {"text": "مرحبا ", "style": ""},
+        {"text": "بالعالم", "style": "i"},
+        {"text": "!", "style": ""}
+      ],
+      "length": 14,
+      "problems": []
+    },
+    {
+      "name": "lengths count code points",
+      "text": "😀{b}😀{/b}é",
+      "runs": [
+        {"text": "😀", "style": ""},
+        {"text": "😀", "style": "b"},
+        {"text": "é", "style": ""}
+      ],
+      "length": 3,
+      "problems": []
+    }
+  ]
+}

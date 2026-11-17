@@ -152,14 +152,18 @@ my-novel/
 - `branches`, `audio`, `voices`, `narrator` (optional): the branch
   decisions over the items (Branches), the sound (Audio) and the
   characters' voices for spoken lines (Voices).
+- `characters` (optional): the colours each speaker's name and lines are
+  drawn in (Characters).
 
 ### Schema version
 
 A new optional field, at the top level or on an item, never changes
 `schemaVersion`: a folder without it means what it meant before. That
 is how `audio`, video `segments`, the game's `version`, `$schema`,
-`voices`, `narrator`, `language` and `languages` arrived after Kinetic
-1.0.0 with `schemaVersion` still 1.
+`voices`, `narrator`, `language`, `languages`, `characters` and an
+item's `transition` arrived after Kinetic 1.0.0 with `schemaVersion`
+still 1. Text tags (Text tags) needed no field at all: an older player
+shows them as written.
 `schemaVersion` changes only when a folder that was valid stops being
 valid or plays differently, and that comes with a major Kinetic
 release.
@@ -181,9 +185,11 @@ Every item carries `id`, `type`, and optional overlay fields:
   filenames parse unambiguously. Array position remains the only
   ordering the player reads.
 - `type`: `image`, `animation`, `video`, or `text`.
-- `speaker`: optional name drawn above the text.
+- `speaker`: optional name drawn above the text, in its `characters`
+  colour when it has one (Characters).
 - `text`: optional line drawn below the speaker. Empty or absent `text`
-  means a bare visual: nothing is drawn and `speaker` is ignored.
+  means a bare visual: nothing is drawn and `speaker` is ignored. It may
+  hold Ren'Py's text tags, such as `{i}` (Text tags).
 - `thought`: optional boolean, default `false`, on every item type
   above, since all four can carry text. `thought: true` marks `text`
   as `speaker`'s unspoken thought rather than spoken dialogue, so the
@@ -242,8 +248,12 @@ Per type:
   re-encoding, and transcodes every other codec to H.264 MP4
   (docs/extracting.md, Video policy), so no video ships that either
   browser cannot play.
+- `image`, `animation` and `video` items take an optional `transition`,
+  how the item's picture replaces the one before it (Transitions below).
 - `text` takes no media fields. `id` and `type` are required, `speaker`,
-  `text`, and `thought` are optional, and no other fields are accepted.
+  `text`, `thought` and `audio` are optional, and no other fields are
+  accepted, `transition` included: a `text` item shows the picture
+  already on screen.
   On a `text` item `thought` behaves as elsewhere: a thought line in a
   dialogue chain. See Text items below.
 
@@ -468,6 +478,45 @@ the video is already in its last view).
 }
 ```
 
+### Transitions
+
+An `image`, `animation` or `video` item may set `transition`: how its
+picture replaces the picture on screen before it. Without one the
+picture cuts, as it always has. There are two kinds:
+
+```jsonc
+{ "id": "harbour-012", "type": "image", "file": "harbour-012.jpg",
+  "transition": { "kind": "dissolve", "seconds": 1 } }
+{ "id": "night-013", "type": "image", "file": "night-013.jpg",
+  "transition": { "kind": "fade", "out": 0.5, "hold": 0.25, "in": 0.5 } }
+```
+
+- `dissolve`: the new picture fades in over the old one over `seconds`,
+  a number above 0 and at most 5.
+- `fade`: the old picture goes to black over `out`, the black holds for
+  `hold`, and the new picture comes in from black over `in`. All three
+  are required, each a number of seconds from 0 to 5, and `out` or `in`
+  is above 0.
+
+Any other `kind`, a missing time, a time out of range or any other key
+is an error, and so is a `transition` on a `text` item.
+
+Transitions never delay navigation or text:
+
+- The item's text and speaker show at once; only the picture under them
+  changes over time.
+- Skip, the wheel, going back, jumps (the branch map, a bookmark,
+  `#start`) and the reader's reduced-motion setting
+  (`prefers-reduced-motion`) cut: the new picture shows at once.
+- A key pressed during a transition ends it at once and does what it
+  does anyway, so Space moves on.
+- Auto-forward's hold starts when the item shows, as without a
+  transition, so a transition never lengthens an item's time (Timing).
+- A video starts playing at once, under its transition.
+
+The player draws a transition with opacity alone, on the compositor. An
+older player ignores `transition` and cuts.
+
 ## Branches
 
 `branches` is an optional top-level array of decision objects laid over
@@ -681,8 +730,108 @@ docs/plan.md Phase 13):
   for after the answer; only its own keys and rows answer it. Skip set
   on a choice starts on the first item the answer shows when it has
   seen content to run through, and is off otherwise.
-- Author-written transitions need no schema mechanism: put a
-  `text`-only item or a title image at a route span's start or end.
+- Author-written interludes between routes need no schema mechanism:
+  put a `text`-only item or a title image at a route span's start or
+  end.
+
+## Characters
+
+`characters` (optional) is an object from speaker name to the colours
+that speaker is drawn in:
+
+```jsonc
+{
+  "characters": {
+    "Mei": { "nameColor": "#e6b566", "textColor": "#f6dca8" },
+    "Old Theo": { "nameColor": "#7FD6C2" }
+  }
+}
+```
+
+- A key is a speaker name exactly as items' `speaker` gives it, case and
+  spaces included, and is not empty, as in `voices`.
+- `nameColor` (optional): the colour of the speaker's name.
+- `textColor` (optional): the colour of the speaker's lines, thoughts
+  included; the thought style (Items, `thought`) still sets a thought
+  apart from speech.
+- Each colour is `#` and six hex digits, in either case: `#7fd6c2` and
+  `#7FD6C2` are one colour. There is no alpha and no short `#rgb` form.
+  An absent colour is the player's own: the gold name and the light
+  ink of the text band. An entry has no other keys.
+- A language file's `speakers` table changes only the name drawn
+  (Translations), so a translated name keeps its colours.
+- Lines with no speaker, narration, are never coloured.
+
+An older player ignores `characters` and draws every speaker alike.
+
+The validator warns, without failing, about a key no item's `speaker`
+names, and about a colour whose contrast with the text band is below
+4.5:1, the WCAG level for body text. The contrast is computed by WCAG
+2's formula against `#292929`: the band's black at its densest, 84%
+(`.overlay` in `player/index.html`), over a white picture, the lightest
+the band gets behind its lines. It is a floor, not a promise: near the
+top of the band, where its black fades out, a bright picture shows
+through more, and the text's shadow helps there.
+
+## Text tags
+
+Item `text`, decision `prompt`s, route `label`s, and their translations
+in language files may hold Ren'Py's text tags, as the lines of a
+converted game already do: the converter keeps them as written. A tag
+is `{name}`, `{name=value}`, or `{/name}` to close one. The player reads
+them as it draws the text; an older player shows them as written.
+Speaker names, `title` and `version` are drawn as written, with no tags
+read.
+
+| Written | What the player does |
+| --- | --- |
+| `{i}` ... `{/i}` | italic |
+| `{b}` ... `{/b}` | bold |
+| `{u}` ... `{/u}` | underlined |
+| `{s}` ... `{/s}` | struck through |
+| `{w}`, `{w=N}` | left out (Ren'Py waits for a click, or N seconds) |
+| `{nw}` | left out (Ren'Py moves on without a click) |
+| `{fast}` | left out (Ren'Py shows the text before it at once) |
+| `{cps=N}` ... `{/cps}` | left out, its text kept (Ren'Py's typing speed) |
+| `{p}`, `{p=N}` | a line break (Ren'Py waits, then starts a new line) |
+| `{alt}` ... `{/alt}` | left out with its text, as in Ren'Py (screen readers) |
+| `{done}` | left out with all the text after it, as in Ren'Py |
+| `{#...}` | left out: a comment |
+| Ren'Py's other tags | left out, their text kept |
+| an unknown tag | left out, its text kept, and a validator warning |
+| `{{` | one literal `{` |
+| `}` or `}}` outside a tag | shown as written, as in Ren'Py |
+
+- Ren'Py's other tags are `a`, `alpha`, `axis`, `clear`, `color`,
+  `feature`, `font`, `image`, `instance`, `k`, `noalt`, `outlinecolor`,
+  `plain`, `rb`, `rt`, `shader`, `size`, `space` and `vspace`, and the
+  style tag `{=name}`. A self-closing one, such as `{image=...}` or
+  `{space=10}`, leaves nothing, and ruby text (`{rt}`) shows inline
+  after its base.
+- Tags inside `{alt}` and after `{done}` are still read, so a closer
+  after `{done}` still closes; their text is not shown, and an `{alt}`
+  never closed hides the rest of the text.
+- A tag runs from `{` to the next `}`; its name runs to the first `=`
+  and is case-sensitive, so `{I}` is unknown. A `{` with no `}` after it
+  starts no tag: it and the rest of the text show as written.
+- Emphasis counts. Each `{i}` turns italic on and each `{/i}` turns one
+  off, so `{i}` inside `{i}` needs two closers, and a crossed pair such
+  as `{i}a{b}b{/i}c{/b}` draws `a` italic, `b` bold italic and `c` bold.
+  A closer with nothing open is left out, and a tag still open at the
+  end of the text styles the rest of it.
+- Emphasis is drawn as elements built from the parsed tags, never as
+  HTML, so a `<` in the text shows as `<`.
+- Reading time counts what is shown (Timing): tags read, `{p}` counts
+  one code point and `{{` one.
+
+The validator warns, and never fails, about an unknown tag, an `{i}`,
+`{b}`, `{u}`, `{s}` or `{alt}` never closed, a closer with nothing
+open, a closer that closes a tag while one opened after it is still
+open, and a `{` that starts no tag. A tag never makes a text invalid.
+
+`converter/kinetic_extract/text_tags.py` is the Python reading of these
+rules, which the validator and the converter use, and the player has
+its own. Both pass the shared cases in `docs/text-tags.json`.
 
 ## Timing
 
@@ -693,7 +842,9 @@ content:
 
 - Text hold time, in milliseconds, is `textHoldMs = max(minHoldMs,
   codepoints(text) * msPerChar / readingSpeed)`. `codepoints` counts
-  Unicode code points, excluding the speaker; `readingSpeed` is the
+  the Unicode code points of the text as shown, after its text tags are
+  read (Text tags), so a tag counts nothing, `{p}` one and `{{` one; it
+  excludes the speaker; `readingSpeed` is the
   player setting (default 1.0); `minHoldMs` and `msPerChar` are
   millisecond-denominated player settings whose defaults are
   `minHoldMs = 1500` and `msPerChar = 60`. An item with no `text`
@@ -1174,8 +1325,9 @@ A language file:
 - `speakers` (optional): a speaker name exactly as the manifest's items
   give it, case and spaces included, to the name drawn in this
   language, which holds a non-space character. The manifest's `speaker`
-  stays the speaker's identity, the key of `voices` and of this table;
-  the table changes only what is drawn.
+  stays the speaker's identity, the key of `voices`, `characters` and
+  this table; the table changes only what is drawn, so a translated name
+  keeps its colours (Characters).
 - `decisions` (optional): a decision id to an object with an optional
   `prompt`, the translation of the decision's `prompt`, and optional
   `routes`, a route id of that decision to the translation of its
@@ -1210,8 +1362,10 @@ A language file:
 A translation is an object with:
 
 - `text` (required): the translated string, plain text with at least
-  one non-space character. It is set as text, so markup shows
-  literally.
+  one non-space character. It is set as text, so HTML markup shows
+  literally; in an item's text, a prompt or a label the player reads
+  text tags as in the manifest (Text tags), so a translation keeps the
+  base's emphasis by writing its own `{i}` and `{b}`.
 - `from` (optional): the first 8 lowercase hex digits of the SHA-256
   of the base string's UTF-8 bytes, exactly as the manifest has it,
   with no normalisation. It records which base text the translation was
@@ -1472,6 +1626,16 @@ The validator checks the schema plus these invariants:
     `decisions` key is a decision id, and each of its `routes` keys a
     route of that decision. A translated prompt is shorter than 200
     characters and a translated label shorter than 120, as in 13.
+23. `characters` (Characters): each key is a non-empty string; each
+    entry is an object with an optional `nameColor` and `textColor`,
+    each `#` and six hex digits in either case, and no other keys. The
+    schema enforces all of these.
+24. `transition` (Transitions) is only on image, animation and video
+    items; its `kind` is `"dissolve"` or `"fade"`; a dissolve has
+    `seconds` above 0 and at most 5 and no other keys; a fade has `out`,
+    `hold` and `in`, each from 0 to 5, and no other keys. The schema
+    enforces these. A fade's `out` or `in` is above 0, which the
+    validator reports.
 
 The validator also warns about three things that are not problems: an
 Ogg track file (Audio says why), a looping track in a format that is
@@ -1508,8 +1672,33 @@ stdout and the exit status alone, and a manifest without branches
 prints none. `check-game` finds the same items by walking (exit 3,
 "never shown").
 
-After the voice warnings it warns about translations, in the same form
-with the language file's path in place of `manifest.json`:
+After the voice warnings it warns about characters (Characters): a key
+in `characters` no item's `speaker` names (`no item's speaker is
+'<name>'`), and a colour whose contrast with the text band is below
+4.5:1 (`'<colour>' has a contrast ratio of <r>:1 with the text band
+(#292929), below 4.5:1, so it may be hard to read`, the ratio cut, not
+rounded, to two decimals), followed by a count (`N character
+warnings`).
+
+Then it warns about text tags (Text tags), in item texts, prompts and
+labels, then in those of each listed language file with the file's
+path in place of `manifest.json`: one line per problem, at most 20 per
+file and then one counting the rest, followed by a count (`N text tag
+warnings`). The reasons read:
+
+- `unknown text tag '{shake}': the player leaves out the tag and shows
+  its text` (`empty text tag '{}': ...` for `{}`);
+- `'{i}' is never closed`;
+- `'{/b}' closes a tag that is not open: the player leaves it out`;
+- `'{/i}' closes '{i}' while '{b}', opened after it, is still open`;
+- `'{oops' starts a text tag that never ends: the player shows it as
+  text` (the `{` and at most 19 characters after it).
+
+Neither changes stdout or the exit status, and a manifest without
+`characters` or tags prints none.
+
+After the text tag warnings it warns about translations, in the same
+form with the language file's path in place of `manifest.json`:
 
 - a `lang/*.json` file the manifest's `languages` does not list
   (`not listed in manifest.json languages, so the player never loads

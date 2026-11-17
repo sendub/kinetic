@@ -7,6 +7,11 @@ export type ItemType = "image" | "animation" | "video" | "text";
 /** Shared overlay fields. Empty or absent `text` means a bare visual. */
 interface OverlayFields {
   speaker?: string;
+  /**
+   * The line. It may hold Ren'Py text tags (docs/content-format.md, "Text
+   * tags"); the same rule applies to decision prompts, route labels and
+   * their translations.
+   */
   text?: string;
   /**
    * `true` marks `text` as `speaker`'s unspoken thought rather than spoken
@@ -98,17 +103,44 @@ export interface VideoItemAudio extends ItemAudio {
   videoSound?: VideoSound;
 }
 
+/**
+ * How a visual item's picture replaces the one before it
+ * (docs/content-format.md, "Transitions"): `dissolve` fades the new
+ * picture in over the old over `seconds` (above 0, at most 5); `fade`
+ * takes the old to black over `out`, holds black for `hold`, and brings the
+ * new in over `in` (each 0 to 5, `out` or `in` above 0). Only the picture
+ * changes over time: the item's text and speaker show at once, and skip,
+ * the wheel, back, jumps and reduced motion cut. The content validator
+ * enforces the ranges, which the player trusts.
+ */
+export type Transition =
+  | { kind: "dissolve"; seconds: number }
+  | { kind: "fade"; out: number; hold: number; in: number };
+
+/**
+ * The colours one speaker is drawn in (docs/content-format.md,
+ * "Characters"), each `#rrggbb` in either case; absent, the player's own.
+ */
+export interface CharacterStyle {
+  /** The speaker's name. */
+  nameColor?: string;
+  /** The speaker's lines. */
+  textColor?: string;
+}
+
 export interface ImageItem extends OverlayFields {
   id: string;
   type: "image";
   file: string;
   audio?: ItemAudio;
+  transition?: Transition;
 }
 
 export interface AnimationItem extends OverlayFields {
   id: string;
   type: "animation";
   audio?: ItemAudio;
+  transition?: Transition;
   /** Ordered frames, at least two. */
   frames: readonly string[];
   fps: number;
@@ -123,6 +155,7 @@ export interface VideoItem extends OverlayFields {
   poster: string;
   durationSeconds: number;
   audio?: VideoItemAudio;
+  transition?: Transition;
   /**
    * Times the video plays before auto-advance, integer at least 1, default 1
    * (docs/content-format.md, "Items"). The gate is the later of the
@@ -313,6 +346,13 @@ export interface Manifest {
   voices?: Readonly<Record<string, ManifestVoice>>;
   /** Optional voice for items with text and no speaker. */
   narrator?: ManifestVoice;
+  /**
+   * Optional speaker name, exactly as items' `speaker` gives it, to the
+   * colours that speaker's name and lines are drawn in
+   * (docs/content-format.md, "Characters"). A language file's `speakers`
+   * table changes only the name drawn, so a translated name keeps them.
+   */
+  characters?: Readonly<Record<string, CharacterStyle>>;
 }
 
 /**

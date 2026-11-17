@@ -29,8 +29,9 @@ The output is deterministic: two runs produce byte-identical files.
 
 After generating, the script checks the folder with
 tools/validate_content.py and that every image is WIDTH x HEIGHT, as
-the demo builder does, and fails on any unreachable item, audio or
-voice warning, and on any translation warning but the two above. It
+the demo builder does, and fails on any unreachable item, audio,
+voice, character or text tag warning, and on any translation warning
+but the two above. It
 exits 1 with one line per problem.
 """
 
@@ -69,9 +70,9 @@ META = {
 }
 
 SPEAKERS = {
-    "de": {"Mei": "Mei", "Theo": "Theo"},
-    "ja": {"Mei": "メイ", "Theo": "テオ"},
-    "ar": {"Mei": "مي", "Theo": "ثيو"},
+    "de": {"Mei": "Mei", "Theo": "Theo", "Ines": "Ines"},
+    "ja": {"Mei": "メイ", "Theo": "テオ", "Ines": "イネス"},
+    "ar": {"Mei": "مي", "Theo": "ثيو", "Ines": "إينيس"},
 }
 
 # Decision id -> (prompt, route id -> label), per language.
@@ -141,6 +142,18 @@ ITEMS = {
             "Dieselbe Datei, Sekunde 1 bis 2, zweimal gezeigt. Die "
             "Wiederholung beginnt bei 1,5 s und überspringt so den "
             "rostroten Teil.",
+        "look-dissolve":
+            "Dieses Bild wurde in einer Sekunde über das vorige "
+            "eingeblendet. Ein Übergang hält den Text nie auf.",
+        "look-speaker":
+            "Ines hat eigene Farben: eine für ihren Namen, eine für ihre "
+            "Zeilen.",
+        "look-tags":
+            "Auch Ren'Py-Text-Tags funktionieren: {i}kursiv{/i} und "
+            "{b}fett{/b}.",
+        "look-fade":
+            "Eine Abblende: Das letzte Bild wurde schwarz, das Schwarz "
+            "hielt kurz, dann kam dieses.",
         "floor-title":
             "Als Nächstes: ein Clip mit 4,5 s Mindestspielzeit. Im "
             "Automodus laufen seine drei kurzen Zeilen schnell, dann "
@@ -206,6 +219,16 @@ ITEMS = {
         "range-b":
             "同じファイルの 1 秒から 2 秒を 2 回表示します。繰り返しは 1.5 秒"
             "から始まるので、さび色の部分は飛ばされます。",
+        "look-dissolve":
+            "この画像は1秒かけて前の画像に重なって現れました。切り替えが"
+            "文章を待たせることはありません。",
+        "look-speaker":
+            "イネスには自分の色があります。名前に一色、台詞に一色。",
+        "look-tags":
+            "Ren'Py のテキストタグも使えます：{i}斜体{/i}と{b}太字{/b}。",
+        "look-fade":
+            "フェード：前の画像が黒くなり、黒が少し続いてから、この画像が"
+            "現れました。",
         "floor-title":
             "次は最低再生時間 4.5 秒の動画です。自動モードでは短い 3 行がすぐ"
             "に進み、最後の行は動画の終わりを待ちます。Space と Tab は待ちま"
@@ -269,6 +292,16 @@ ITEMS = {
         "range-b":
             "الملف نفسه، من الثانية 1 إلى 2، يُعرض مرتين. يبدأ التكرار من "
             "1.5 ثانية، فيتخطى الجزء الصدئ اللون.",
+        "look-dissolve":
+            "ظهرت هذه الصورة فوق السابقة تدريجيًا خلال ثانية واحدة. "
+            "الانتقال لا يؤخر النص أبدًا.",
+        "look-speaker":
+            "لإينيس ألوانها الخاصة: لون لاسمها ولون لسطورها.",
+        "look-tags":
+            "وسوم نص Ren'Py تعمل أيضًا: {i}مائل{/i} و{b}عريض{/b}.",
+        "look-fade":
+            "تلاشٍ: اسودّت الصورة السابقة، وبقي السواد لحظة، ثم ظهرت "
+            "هذه.",
         "floor-title":
             "التالي: مقطع بحد أدنى للعرض قدره 4.5 ثانية. في الوضع التلقائي "
             "تمر أسطره القصيرة الثلاثة بسرعة، ثم ينتظر الأخير انتهاء "
@@ -356,7 +389,9 @@ def warning_problems(manifest: dict, out: Path) -> list[str]:
     and any expected one that is absent."""
     problems = (validate_content.reach_warnings(manifest)
                 + validate_content.audio_warnings(manifest, out)
-                + validate_content.voice_warnings(manifest))
+                + validate_content.voice_warnings(manifest)
+                + validate_content.character_warnings(manifest)
+                + validate_content.text_tag_warnings(manifest, out))
     translated_warnings, _coverage = validate_content.language_warnings(
         manifest, out)
     found: set[str] = set()

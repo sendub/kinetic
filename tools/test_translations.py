@@ -220,7 +220,7 @@ def test_export_default_path_and_overwrite(
     target = work / f"{STORY}.ja.po"
     assert target.is_file()
     assert capsys.readouterr().out == (
-        f"wrote {target}: 39 strings, 39 translated, 0 fuzzy, 0 obsolete\n")
+        f"wrote {target}: 44 strings, 44 translated, 0 fuzzy, 0 obsolete\n")
     target.write_text("translator's unimported work")
     assert run("export", game, "ja") == 1
     assert target.read_text() == "translator's unimported work"
@@ -232,7 +232,7 @@ def test_export_default_path_and_overwrite(
     assert run("export", game, "ja", "--out", "-") == 0
     out = capsys.readouterr()
     assert po.parse(out.out).header["Language"] == "ja"
-    assert "39 strings" in out.err
+    assert "44 strings" in out.err
 
 
 def test_export_without_story_id_names_the_folder(
@@ -288,11 +288,11 @@ def test_a_translated_file_imports_and_validates(
     capsys.readouterr()
     assert run("import", game, write_po(catalog, tmp_path / "fr.po")) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == ("wrote lang/fr.json and lang/fr.js: 39 translations "
+    assert out[0] == ("wrote lang/fr.json and lang/fr.js: 44 translations "
                       "from fr.po")
     assert out[1] == ("added fr to manifest.json languages and rewrote "
                       "manifest.js")
-    assert out[-1] == (f"{game}: fr: 39 of 39 strings (100%), 0 stale, "
+    assert out[-1] == (f"{game}: fr: 44 of 44 strings (100%), 0 stale, "
                        "0 unchecked")
     assert validate_content.validate_folder(game) == []
     manifest = manifest_of(game)
@@ -304,7 +304,8 @@ def test_a_translated_file_imports_and_validates(
     french = lang_of(game, "fr")
     assert list(french) == ["language", "title", "version", "speakers",
                             "items", "decisions"]
-    assert french["speakers"] == {"Mei": "Mei", "Theo": "FR Theo"}
+    assert french["speakers"] == {"Mei": "Mei", "Theo": "FR Theo",
+                                  "Ines": "FR Ines"}
     texts = {i["id"]: i["text"] for i in manifest["items"] if i.get("text")}
     for item_id, entry in french["items"].items():
         assert entry == {"text": f"FR {texts[item_id]}"[:110],
@@ -619,10 +620,10 @@ def test_status_prints_each_language(
         game: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert run("status", game) == 0
     assert capsys.readouterr().out.splitlines() == [
-        f"{game}: base language en, 39 strings to translate",
-        "de: 38 of 39 strings (97.4%), 1 stale, 0 unchecked, 1 missing",
-        "ja: 39 of 39 strings (100%), 0 stale, 0 unchecked, 0 missing",
-        "ar: 39 of 39 strings (100%), 0 stale, 0 unchecked, 0 missing",
+        f"{game}: base language en, 44 strings to translate",
+        "de: 43 of 44 strings (97.7%), 1 stale, 0 unchecked, 1 missing",
+        "ja: 44 of 44 strings (100%), 0 stale, 0 unchecked, 0 missing",
+        "ar: 44 of 44 strings (100%), 0 stale, 0 unchecked, 0 missing",
     ]
 
 
@@ -634,7 +635,7 @@ def test_status_counts_unchecked_and_reports_problems(
     language_file.write_language_file(game, arabic)
     assert run("status", game) == 1
     out = capsys.readouterr()
-    assert "ar: 39 of 39 strings (100%), 0 stale, 1 unchecked, 0 missing" \
+    assert "ar: 44 of 44 strings (100%), 0 stale, 1 unchecked, 0 missing" \
         in out.out.splitlines()
     assert "1 translation problem" in out.err
 

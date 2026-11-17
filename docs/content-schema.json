@@ -92,6 +92,12 @@
     "narrator": {
       "$ref": "#/$defs/voice",
       "description": "optional voice for items that have text but no speaker; see docs/content-format.md § Voices"
+    },
+    "characters": {
+      "type": "object",
+      "description": "optional speaker name -> the colours that speaker's name and lines are drawn in; keys are speaker names exactly as items' `speaker` gives them; the validator warns about a key no item's speaker uses and about a colour hard to read on the text band; see docs/content-format.md, Characters",
+      "propertyNames": { "type": "string", "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/character" }
     }
   },
   "$defs": {
@@ -155,6 +161,85 @@
           "type": "string",
           "pattern": "\\S",
           "description": "optional description the voice was designed from"
+        }
+      }
+    },
+    "character": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nameColor": {
+          "$ref": "#/$defs/color",
+          "description": "optional colour of the speaker's name (absent: the player's own)"
+        },
+        "textColor": {
+          "$ref": "#/$defs/color",
+          "description": "optional colour of the speaker's lines (absent: the player's own)"
+        }
+      }
+    },
+    "color": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$",
+      "description": "a colour as #rrggbb, six hex digits in either case"
+    },
+    "transition": {
+      "type": "object",
+      "required": ["kind"],
+      "description": "optional way this item's picture replaces the one before; the item's text shows at once, and skip, the wheel, back, jumps and reduced motion cut; see docs/content-format.md, Transitions",
+      "properties": {
+        "kind": { "enum": ["dissolve", "fade"] }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "dissolve" } } },
+          "then": { "$ref": "#/$defs/dissolve" }
+        },
+        {
+          "if": { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "fade" } } },
+          "then": { "$ref": "#/$defs/fade" }
+        }
+      ]
+    },
+    "dissolve": {
+      "type": "object",
+      "required": ["kind", "seconds"],
+      "additionalProperties": false,
+      "description": "the new picture fades in over the old",
+      "properties": {
+        "kind": { "const": "dissolve" },
+        "seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 5,
+          "description": "how long the dissolve takes"
+        }
+      }
+    },
+    "fade": {
+      "type": "object",
+      "required": ["kind", "out", "hold", "in"],
+      "additionalProperties": false,
+      "description": "the old picture goes to black, black holds, then the new picture comes in; out or in is above 0, which the validator enforces",
+      "properties": {
+        "kind": { "const": "fade" },
+        "out": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 5,
+          "description": "seconds the old picture takes to go to black"
+        },
+        "hold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 5,
+          "description": "seconds of black"
+        },
+        "in": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 5,
+          "description": "seconds the new picture takes to come in from black"
         }
       }
     },
@@ -250,7 +335,7 @@
         "prompt": {
           "type": "string",
           "minLength": 1,
-          "description": "question shown above the route list; the validator caps its length"
+          "description": "question shown above the route list; the validator caps its length; Ren'Py text tags apply (docs/content-format.md, Text tags)"
         },
         "routes": {
           "type": "array",
@@ -279,7 +364,7 @@
         "label": {
           "type": "string",
           "minLength": 1,
-          "description": "text shown in the route list; the validator caps its length"
+          "description": "text shown in the route list; the validator caps its length; Ren'Py text tags apply (docs/content-format.md, Text tags)"
         },
         "start": {
           "$ref": "#/$defs/id",
@@ -329,11 +414,12 @@
         "type": { "const": "image" },
         "file": { "$ref": "#/$defs/imagePath" },
         "speaker": { "type": "string" },
-        "text": { "type": "string" },
+        "text": { "type": "string", "description": "the line; Ren'Py text tags apply (docs/content-format.md, Text tags)" },
         "thought": {
           "type": "boolean",
           "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
         },
+        "transition": { "$ref": "#/$defs/transition" },
         "audio": { "$ref": "#/$defs/itemAudio" }
       }
     },
@@ -358,11 +444,12 @@
           "minimum": 1
         },
         "speaker": { "type": "string" },
-        "text": { "type": "string" },
+        "text": { "type": "string", "description": "the line; Ren'Py text tags apply (docs/content-format.md, Text tags)" },
         "thought": {
           "type": "boolean",
           "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
         },
+        "transition": { "$ref": "#/$defs/transition" },
         "audio": { "$ref": "#/$defs/itemAudio" }
       }
     },
@@ -416,11 +503,12 @@
           "description": "floor for chain-exit timing: in auto mode the player waits at the end of the video's dialogue chain until minPlaySeconds have elapsed since the chain's video item became current; manual advance and skip stay immediate; outside chains it has no effect beyond the media gate (docs/content-format.md, Timing)"
         },
         "speaker": { "type": "string" },
-        "text": { "type": "string" },
+        "text": { "type": "string", "description": "the line; Ren'Py text tags apply (docs/content-format.md, Text tags)" },
         "thought": {
           "type": "boolean",
           "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"
         },
+        "transition": { "$ref": "#/$defs/transition" },
         "audio": { "$ref": "#/$defs/videoItemAudio" }
       }
     },
@@ -455,7 +543,7 @@
         "id": { "$ref": "#/$defs/id" },
         "type": { "const": "text" },
         "speaker": { "type": "string" },
-        "text": { "type": "string" },
+        "text": { "type": "string", "description": "the line; Ren'Py text tags apply (docs/content-format.md, Text tags)" },
         "thought": {
           "type": "boolean",
           "description": "true marks text as the speaker's unspoken thought rather than spoken dialogue; requires a non-empty text, which the validator enforces"

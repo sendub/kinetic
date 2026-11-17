@@ -14,7 +14,9 @@ and every line of text explains what is on screen (docs/plan.md Phase 18).
 Sections, in order: intro card; speech / thought / narration / a bare
 picture; an animation; a video under a text chain and a chain over a
 still; loopCount (MP4) and holdSeconds (WebM); two ranges of one file with
-a loop restart point; a minimum-play-time clip; branches (an outer
+a loop restart point; presentation (a dissolve, a speaker with her own
+colours in `characters`, a line with the `{i}` and `{b}` text tags, a
+fade); a minimum-play-time clip; branches (an outer
 decision with a continuing route that holds a nested continuing/return
 pair, an ending route, shared aftermath).
 
@@ -28,8 +30,8 @@ or timestamps are written.
 After generating, the script checks the folder with
 tools/validate_content.py (the same rules as any content folder: the
 schema, media files, ids, text items, video ranges, branches and the
-manifest.js shim) and checks that every image is WIDTH x HEIGHT. It exits 1
-with one line per problem.
+manifest.js shim) and checks that every image is WIDTH x HEIGHT, and fails
+on any validator warning. It exits 1 with one line per problem.
 """
 
 from __future__ import annotations
@@ -377,6 +379,40 @@ def section_ranges(out: Path) -> list[dict]:
     ]
 
 
+# The demo's coloured speaker (docs/content-format.md, Characters): both
+# colours read well on the text band, so the validator does not warn.
+CHARACTERS = {"Ines": {"nameColor": "#7fd6c2", "textColor": "#f6dca8"}}
+
+
+def section_presentation(out: Path) -> list[dict]:
+    """A dissolve, a speaker with her own colours, a line with {i} and
+    {b}, and a fade (docs/plan.md Phase 57). The first item is a picture,
+    so range-b before it stays a standalone video and not a chain."""
+    scene(out, "look-dissolve", (24, 46, 58), (120, 168, 170),
+          ("c", (300, 250, 110), (236, 220, 170)),
+          ("r", (0, 400, WIDTH, HEIGHT), (40, 70, 66)))
+    scene(out, "look-fade", (60, 28, 44), (176, 112, 96),
+          ("r", (560, 150, 820, 400), (240, 206, 160)),
+          ("c", (690, 275, 60), (150, 70, 70)))
+    return [
+        {"id": "look-dissolve", "type": "image", "file": "look-dissolve.jpg",
+         "transition": {"kind": "dissolve", "seconds": 1},
+         "text": "This picture dissolved in over the one before, in one "
+                 "second. A transition never holds up the text."},
+        {"id": "look-speaker", "type": "text", "speaker": "Ines",
+         "text": "Ines has colours of her own: one for her name, one for "
+                 "her lines."},
+        {"id": "look-tags", "type": "text", "speaker": "Ines",
+         "text": "Ren'Py text tags work too: {i}italic{/i} and "
+                 "{b}bold{/b}."},
+        {"id": "look-fade", "type": "image", "file": "look-fade.jpg",
+         "transition": {"kind": "fade", "out": 0.5, "hold": 0.25,
+                        "in": 0.5},
+         "text": "A fade: the last picture went to black, the black held a "
+                 "moment, then this one came in."},
+    ]
+
+
 FLOOR_SECONDS_COLORS = [
     ((14, 38, 30), (66, 106, 78)),
     ((38, 20, 48), (88, 52, 102)),
@@ -572,6 +608,17 @@ def folder_problems(out: Path, items: list[dict]) -> list[str]:
             + image_size_problems(out, items))
 
 
+def warning_problems(manifest: dict, out: Path) -> list[str]:
+    """The validator's warnings but the translation ones (the demo has no
+    language files; build_lang_demo checks its own): the demo means to
+    raise none."""
+    return (validate_content.reach_warnings(manifest)
+            + validate_content.audio_warnings(manifest, out)
+            + validate_content.voice_warnings(manifest)
+            + validate_content.character_warnings(manifest)
+            + validate_content.text_tag_warnings(manifest, out))
+
+
 def report(out: Path, problems: list[str]) -> None:
     """Exit 1 with one line per problem, else say what was written."""
     if problems:
@@ -594,6 +641,7 @@ def demo_manifest(out: Path) -> dict:
     items += section_video_chain(out)
     items += section_loops(out)
     items += section_ranges(out)
+    items += section_presentation(out)
     items += section_floor(out)
     branch_items, branches = section_branches(out)
     items += branch_items
@@ -607,6 +655,7 @@ def demo_manifest(out: Path) -> dict:
         "title": "Kinetic demo",
         "width": WIDTH,
         "height": HEIGHT,
+        "characters": CHARACTERS,
         "items": items,
         "branches": branches,
     }
@@ -623,7 +672,8 @@ def main() -> None:
     reset_dir(out)
     manifest = demo_manifest(out)
     write_manifest(out, manifest)
-    report(out, folder_problems(out, manifest["items"]))
+    report(out, folder_problems(out, manifest["items"])
+           + warning_problems(manifest, out))
 
 
 if __name__ == "__main__":

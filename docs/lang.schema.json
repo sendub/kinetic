@@ -153,7 +153,7 @@
         "text": {
           "type": "string",
           "pattern": "\\S",
-          "description": "the translated string; plain text, never HTML"
+          "description": "the translated string; plain text, never HTML; Ren'Py text tags apply in item text, prompts and labels, as in the manifest (docs/content-format.md, Text tags)"
         },
         "from": {
           "type": "string",

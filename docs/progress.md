@@ -5260,9 +5260,33 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 57: An installable toolchain, and checks for agent conversions (2026-11-17, user)
 
-- [ ] The format (docs/plan.md Phase 57, item 1). `characters` with
+- [x] The format (docs/plan.md Phase 57, item 1). `characters` with
       speaker colours, per-item `transition`, text tags in
       content-format.md and the validator; the demo uses each.
+      (2026-11-17: content-schema `characters` (`#rrggbb`, either case)
+      and `transition` on image, animation and video (`dissolve` 0<s<=5;
+      `fade` out, hold and in all required, each 0-5, out or in above
+      0; a text item's transition is a schema error). One Python tag
+      parser, `converter/kinetic_extract/text_tags.py`, with 40 shared
+      cases in `docs/text-tags.json` for item 2's TS parser; `{done}`
+      and `{alt}` hide their text as Ren'Py does (orchestrator's call,
+      for the user's review). content-format.md gains "Transitions",
+      "Characters", "Text tags", Timing's count of shown text and rules
+      23-24. Validator warnings: a `characters` key no speaker uses,
+      contrast below 4.5:1 against the band's densest stop `#292929`
+      (a test reads the 0.84 alpha from index.html), and unknown,
+      unclosed, stray or crossed tags in text, prompts, labels and
+      language files; a tag never makes a text invalid. Demo: speaker
+      Ines coloured, items look-dissolve, look-speaker, look-tags,
+      look-fade between range-b and floor-title, the lang demo's three
+      languages translating them; the demo builders fail on any
+      validator warning. media.scenario's floor-chain step wheels back
+      to the item before floor-title. Subagent: the touched pytest
+      files 574 then 512 + 70 passed; npm test 1743; verify media,
+      navigation, checkgame, languages, creator, reading 5600/5600.
+      Orchestrator: the same pytest files 574 and 512 passed; npm test
+      1743, check clean; smoke 6/6; the five files 5582/5583 with the
+      floor-chain check failing alone too (fixed), then media 22/22.)
 - [ ] The player draws tags and colours (item 2). Emphasis as DOM
       elements, timing tags dropped, speaker colours, reading time
       counting shown characters.

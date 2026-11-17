@@ -43,6 +43,16 @@ when no item has text without a speaker, then a count, printed between
 the audio and poster warnings. They never change the exit status, and a
 manifest without voices prints none.
 
+Character warnings, `character_warnings`, follow the voice warnings: one
+such line per `characters` key no item's `speaker` names and per colour
+whose WCAG contrast ratio with the text band (`BAND_BACKGROUND`) is below
+4.5:1, then a count. Text tag warnings, `text_tag_warnings`, come next:
+one line per unknown tag, unclosed or crossed `{i}`, `{b}`, `{u}`, `{s}` or
+`{alt}`, closer with nothing open, and `{` that never ends, in item texts,
+prompts and labels and in those of each listed language file, at most 20
+per file, then a count. Neither changes the exit status
+(docs/content-format.md, Characters and Text tags).
+
 Translation warnings, `language_warnings`, need no flag and follow the
 voice warnings: one such line per lang/*.json the manifest's
 `languages` does not list, then, per listed language, one per base
@@ -72,7 +82,8 @@ invariants:
    `startSeconds` and no greater than `durationSeconds`); its optional
    `segments` are sound (each inside the file, with length and a loop
    point before its end, none starting before the one before ends,
-   compared exactly; docs/content-format.md § Video segments); the optional
+   compared exactly; docs/content-format.md § Video segments); a fade
+   `transition` has `out` or `in` above 0; the optional
    `branches` table obeys its reference, span, continuingRoute/
    continueAt, and `"continue"` result rules (docs/content-format.md
    § Branches); the optional audio obeys its track range, id, ambience
@@ -111,6 +122,7 @@ if str(REPO_ROOT / "converter") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "converter"))
 from kinetic_extract import audio_format  # noqa: E402
 from kinetic_extract import language_file  # noqa: E402
+from kinetic_extract import text_tags  # noqa: E402
 from kinetic_extract.version import add_version_option  # noqa: E402
 
 MANIFEST_NAME = "manifest.json"
@@ -122,6 +134,8 @@ SHIM_PREFIX = "window.KINETIC_MANIFEST = "
 # `_path_rule` re-derives the same rules one clause at a time so a failure can
 # name the clause it broke.
 _SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# $defs/color in docs/content-schema.json: a #rrggbb colour.
+COLOR_PATTERN = "^#[0-9A-Fa-f]{6}$"
 _BASENAME = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}"
     r"(?:\.(?:f[0-9]{3}|poster|thumb))?\.[A-Za-z0-9]+",
@@ -222,6 +236,9 @@ def _decorate(error: jsonschema.ValidationError,
         return f"must be at most {error.validator_value} (found {value!r})"
     if kind == "minItems" and isinstance(value, list):
         return f"must have at least {error.validator_value} entries (found {len(value)})"
+    if kind == "pattern" and error.validator_value == COLOR_PATTERN \
+            and isinstance(value, str):
+        return f"must be a colour written #rrggbb (found {value!r})"
     if kind == "pattern" and error.validator_value == \
             language_file.TAG_PATTERN and isinstance(value, str):
         return _tag_rule(value)
@@ -1417,6 +1434,177 @@ def voice_warnings(manifest: Any) -> list[str]:
     return warnings
 
 
+# ---------------------------------------------------------------------------
+# Presentation: transitions, characters and text tags (docs/content-format.md,
+# Transitions, Characters and Text tags)
+# ---------------------------------------------------------------------------
+
+def transition_problems(manifest: Any) -> list[str]:
+    """A fade's `out` or `in` is above 0: with both 0 nothing would
+    change over time. The schema keeps `transition` to image, animation
+    and video items, its kind to dissolve or fade, and each time in its
+    range; a non-numeric time is the schema's problem, not this one."""
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    problems: list[str] = []
+    for i, item in enumerate(items if isinstance(items, list) else []):
+        transition = item.get("transition") if isinstance(item, dict) \
+            else None
+        if not isinstance(transition, dict) \
+                or transition.get("kind") != "fade":
+            continue
+        out = _numeric_field(transition, "out")
+        fade_in = _numeric_field(transition, "in")
+        if out == 0 and fade_in == 0:
+            problems.append(_line(f"items[{i}].transition",
+                                  'a fade needs "out" or "in" above 0'))
+    return problems
+
+
+# The text band's background where a line is drawn, for the contrast
+# warning: the band's 84% black (player/index.html, `.overlay`) over a
+# white picture, the lightest it gets behind text.
+BAND_BACKGROUND = "#292929"
+MIN_CONTRAST = 4.5
+
+
+def _luminance(color: str) -> float:
+    """WCAG 2 relative luminance of a #rrggbb colour."""
+    def channel(hex2: str) -> float:
+        c = int(hex2, 16) / 255
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (channel(color[k:k + 2]) for k in (1, 3, 5))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast_ratio(a: str, b: str) -> float:
+    """WCAG 2 contrast ratio of two #rrggbb colours, 1 to 21."""
+    la, lb = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
+
+
+def character_warnings(manifest: Any) -> list[str]:
+    """One warning line per `characters` key no item's `speaker` names,
+    and one per colour whose contrast with the text band
+    (BAND_BACKGROUND) is below 4.5:1. Neither is a problem: an unused
+    entry only weighs the folder, and a pale colour is the author's
+    call. Malformed values are the schema's to report."""
+    if not isinstance(manifest, dict):
+        return []
+    characters = manifest.get("characters")
+    if not isinstance(characters, dict):
+        return []
+    items = manifest.get("items")
+    speakers = {item["speaker"]
+                for item in (items if isinstance(items, list) else [])
+                if isinstance(item, dict)
+                and isinstance(item.get("speaker"), str)}
+    warnings: list[str] = []
+    for speaker, entry in characters.items():
+        loc = f"characters.{speaker}"
+        if speaker not in speakers:
+            warnings.append(WARNING_PREFIX + _line(
+                loc, f"no item's speaker is {speaker!r}"))
+        if not isinstance(entry, dict):
+            continue
+        for key in ("nameColor", "textColor"):
+            color = entry.get(key)
+            if not isinstance(color, str) or not _COLOR.fullmatch(color):
+                continue
+            ratio = contrast_ratio(color, BAND_BACKGROUND)
+            if ratio < MIN_CONTRAST:
+                shown = int(ratio * 100) / 100
+                warnings.append(WARNING_PREFIX + _line(
+                    f"{loc}.{key}",
+                    f"{color!r} has a contrast ratio of {shown:.2f}:1 with "
+                    f"the text band ({BAND_BACKGROUND}), below "
+                    f"{MIN_CONTRAST:g}:1, so it may be hard to read"))
+    return warnings
+
+
+def _tagged_manifest_texts(manifest: Any) -> Iterator[tuple[str, str]]:
+    """(location, text) for every manifest string the player reads text
+    tags in: item `text`, decision `prompt`, route `label`."""
+    if not isinstance(manifest, dict):
+        return
+    items = manifest.get("items")
+    for i, item in enumerate(items if isinstance(items, list) else []):
+        if isinstance(item, dict) and isinstance(item.get("text"), str):
+            yield f"items[{i}].text", item["text"]
+    branches = manifest.get("branches")
+    for b, branch in enumerate(branches if isinstance(branches, list)
+                               else []):
+        if not isinstance(branch, dict):
+            continue
+        if isinstance(branch.get("prompt"), str):
+            yield f"branches[{b}].prompt", branch["prompt"]
+        routes = branch.get("routes")
+        for r, route in enumerate(routes if isinstance(routes, list)
+                                  else []):
+            if isinstance(route, dict) and isinstance(route.get("label"),
+                                                      str):
+                yield f"branches[{b}].routes[{r}].label", route["label"]
+
+
+def _tagged_language_texts(data: Any) -> Iterator[tuple[str, str]]:
+    """(location, text) for every language file string the player reads
+    text tags in: item texts, prompts and route labels."""
+    if not isinstance(data, dict):
+        return
+    items = data.get("items")
+    for item_id, entry in (items.items() if isinstance(items, dict) else ()):
+        text = _entry_text(entry)
+        if text is not None:
+            yield f"items.{item_id}.text", text
+    decisions = data.get("decisions")
+    for decision_id, entry in (decisions.items()
+                               if isinstance(decisions, dict) else ()):
+        if not isinstance(entry, dict):
+            continue
+        loc = f"decisions.{decision_id}"
+        prompt = _entry_text(entry.get("prompt"))
+        if prompt is not None:
+            yield f"{loc}.prompt.text", prompt
+        routes = entry.get("routes")
+        for route_id, route in (routes.items()
+                                if isinstance(routes, dict) else ()):
+            label = _entry_text(route)
+            if label is not None:
+                yield f"{loc}.routes.{route_id}.text", label
+
+
+def _tag_lines(texts: Iterator[tuple[str, str]], file: str) -> list[str]:
+    lines: list[str] = []
+    for loc, text in texts:
+        for problem in text_tags.parse(text).problems:
+            lines.append(WARNING_PREFIX + _line(loc, problem.message(), file))
+    return _capped(lines, file, "text tag warnings")
+
+
+def text_tag_warnings(manifest: Any, content_dir: Path) -> list[str]:
+    """One warning line per unknown tag, unclosed or crossed honoured
+    or `{alt}` tag, closer with nothing open, and `{` that starts no
+    tag, in the manifest's item texts, prompts and labels, then in those
+    of each listed language file that loads; at most LIST_MAX lines per file,
+    then one counting the rest. A tag never makes a text invalid
+    (docs/content-format.md, Text tags)."""
+    warnings = _tag_lines(_tagged_manifest_texts(manifest), MANIFEST_NAME)
+    base_tag, listed = _languages(manifest)
+    names = _lang_names(content_dir)
+    for _i, tag in listed:
+        file = language_file.json_path(tag)
+        if tag == base_tag or f"{tag}.json" not in names:
+            continue
+        try:
+            data = json.loads((content_dir / file).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue  # language_problems reports it
+        warnings += _tag_lines(_tagged_language_texts(data), file)
+    return warnings
+
+
 def _first_difference(a: Any, b: Any, path: str = "") -> str | None:
     """Manifest location of the first structural difference, or None if equal."""
     where = path or "<root>"
@@ -2023,6 +2211,7 @@ def _validate(content_dir: Path, schema_path: Path,
         problems += thought_problems(manifest)
         problems += video_range_problems(manifest, schema_locs)
         problems += video_segment_problems(manifest, schema_locs)
+        problems += transition_problems(manifest)
         problems += branches_problems(manifest)
         problems += audio_problems(manifest)
         problems += audio_script_problems(content_dir, manifest, schema_locs)
@@ -2212,6 +2401,18 @@ def main(argv: list[str] | None = None) -> int:
     if spoken:
         print(f"{args.content_dir}: {len(spoken)} voice warning"
               f"{'s' if len(spoken) != 1 else ''}", file=sys.stderr)
+    looks = character_warnings(manifest)
+    for warning in looks:
+        print(warning, file=sys.stderr)
+    if looks:
+        print(f"{args.content_dir}: {len(looks)} character warning"
+              f"{'s' if len(looks) != 1 else ''}", file=sys.stderr)
+    tags = text_tag_warnings(manifest, args.content_dir)
+    for warning in tags:
+        print(warning, file=sys.stderr)
+    if tags:
+        print(f"{args.content_dir}: {len(tags)} text tag warning"
+              f"{'s' if len(tags) != 1 else ''}", file=sys.stderr)
     translated, coverage = language_warnings(manifest, args.content_dir)
     for warning in translated:
         print(warning, file=sys.stderr)

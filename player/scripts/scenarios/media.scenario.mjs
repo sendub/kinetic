@@ -13,6 +13,7 @@ import {
   FIT_STATE,
   item,
   judgeFit,
+  manifest,
   ON_TEXT,
   openSettings,
   PAGE_STATE,
@@ -759,7 +760,8 @@ async function floor({ check, open }) {
   );
 
   // 44. Skip through the (now seen) floor chain stays immediate: wheel back
-  // before it, one tab shows the clip's poster for one dwell, never playing,
+  // to the item just before its title card (whatever the demo puts there),
+  // one tab shows the clip's poster for one dwell, never playing,
   // walks its lines in zero time with the caption hidden (docs/plan.md
   // Phase 18, skip paces by pictures), and stops on the last seen item —
   // its caption drawn again — without waiting on the floor.
@@ -768,7 +770,7 @@ async function floor({ check, open }) {
     cdp,
     true,
     ON_TEXT,
-    item("range-b").text,
+    manifest.items[item("floor-title").index - 1].text,
   );
   const tabAt = Date.now();
   await pressTab(cdp);
