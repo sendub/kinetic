@@ -840,6 +840,12 @@ read.
   HTML, so a `<` in the text shows as `<`.
 - Reading time counts what is shown (Timing): tags read, `{p}` counts
   one code point and `{{` one.
+- A spoken line (Voices) says what is shown: tags read, so no tag is
+  spoken, nor the text inside `{alt}` or after `{done}`, and a `{p}` is a
+  newline, which the voice engine reads as a space; the pause there comes
+  from the punctuation before it. Spoken lines are a voice reading the
+  line, not a screen reader, so `{alt}` text is never what is said. A
+  line whose tags leave nothing shown is not spoken.
 
 The validator warns, and never fails, about an unknown tag, an `{i}`,
 `{b}`, `{u}`, `{s}` or `{alt}` never closed, a closer with nothing
@@ -1254,10 +1260,13 @@ writes such recordings of every line that would be generated, so a game
 whose lines are all recorded needs no voice engine; it names its tracks
 `rec-` and 32 hex digits and keeps them in `lines/` (CREATE.md,
 "Recording the lines"), spoken in the manifest's `language`. Speaker names are not spoken, only the text.
-Lines are spoken as written: the format has no direction markup. A line is
-spoken in the engine's language for the manifest's `language`; with a
-translation shown, the shown text in that language's (Translations,
-"Spoken lines per language").
+Lines are spoken as shown, their text tags read (Text tags), and a text
+with no tag as written: the format has no direction markup. The words
+spoken are what a generated line is cached by and a recorded one is made
+from, so a line and its twin that differs only in its tags are one line.
+A line is spoken in the engine's language for the manifest's `language`;
+with a translation shown, the shown text in that language's
+(Translations, "Spoken lines per language").
 
 The validator warns, without failing, about a voice no item's `speaker`
 names and about a `narrator` when no item has text without a speaker.
@@ -1422,9 +1431,10 @@ text shown comes from the language file:
 1. the file's own recording for the item (`voice.items`), if any;
 2. else, with `keepOriginalVoice`, the item's base recording
    (`audio.voice`), if it has one;
-3. else a line generated live (Voices) from the translated text, in the
-   speaker's voice (or the narrator's), in the voice engine's language
-   for the file's tag, when the engine speaks it;
+3. else a line generated live (Voices) from the translated text as
+   shown, its tags read, in the speaker's voice (or the narrator's), in
+   the voice engine's language for the file's tag, when the engine
+   speaks it and the text shows something;
 4. else silence. A base recording never plays under a translation
    without `keepOriginalVoice`.
 

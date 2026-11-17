@@ -1508,6 +1508,11 @@ Nothing is lost if you stop it: press Ctrl-C, or let it die, and run the
 same command again. It keeps every file it finished and carries on. A
 run keeps the manifest saved to within a minute.
 
+Each line says its text as shown, its text tags read
+(docs/content-format.md, "Text tags"), as the apps speak it live. A
+game recorded with an older Kinetic, whose lines said their tags, plays
+as it did; run the tool again and it records only the lines with tags.
+
 After you edit the game, run it again. It records only the lines whose
 words or voice changed, points the items at them, and deletes the
 tracks and files it made that no item uses any more. It never touches a

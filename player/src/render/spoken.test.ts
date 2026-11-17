@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Item } from "../machine/types";
 import {
@@ -12,6 +13,7 @@ import {
   type SpokenLine,
   spokenLine,
   spokenOn,
+  spokenText,
   TOP_PRIORITY,
 } from "./spoken";
 import { STREAM_MORE_MS } from "./spokenstream";
@@ -87,6 +89,69 @@ describe("spokenLine: what is spoken, and in which voice", () => {
     const blank: Item = { id: "b", type: "text", speaker: "Mei", text: "  " };
     expect(spokenLine(blank, CAST, true)).toBeNull();
     expect(spokenLine(ITEMS[5], CAST, true)).toBeNull();
+  });
+
+  it("speaks the text as shown: tags read, {p} a newline, {alt} and {done} text left out", () => {
+    const tagged: Item = {
+      id: "t",
+      type: "text",
+      speaker: "Mei",
+      text: "{i}Wait{/i},{w=0.5} {b}{color=#f00}please{/color}{/b}.{p}Now.{alt}hidden{/alt}{done} Gone.",
+    };
+    expect(spokenLine(tagged, CAST, true)).toEqual({
+      voice: "speaker:Mei",
+      text: "Wait, please.\nNow.",
+      lang: "en",
+      key: "speaker:Mei\nen\nWait, please.\nNow.",
+    });
+    expect(spokenText("{{braces} stay")).toBe("{braces} stay");
+    // Two lines that differ only in their tags are one line.
+    expect(
+      spokenLine({ ...tagged, text: "{i}Two.{/i}{nw}" }, CAST, true)?.key,
+    ).toBe(spokenLine(ITEMS[1], CAST, true)?.key);
+  });
+
+  it("speaks a line without tags exactly as written, its key unchanged", () => {
+    for (const text of [
+      "Two.",
+      "  Well, then.  ",
+      "One line,\nand a second.",
+      "A } alone",
+    ]) {
+      expect(spokenText(text)).toBe(text);
+      expect(makeSpokenLine("narrator", text, "en").key).toBe(
+        `narrator\nen\n${text}`,
+      );
+    }
+  });
+
+  it("speaks nothing for a line whose tags leave nothing shown", () => {
+    for (const text of [
+      "{w}",
+      "{alt}Only for screen readers.{/alt}",
+      " {p} ",
+      "{done}All hidden.",
+    ]) {
+      const item: Item = { id: "t", type: "text", speaker: "Mei", text };
+      expect(spokenText(text)).toBeNull();
+      expect(spokenLine(item, CAST, true)).toBeNull();
+    }
+  });
+
+  it("speaks the shown text of every shared case (docs/text-tags.json), as tools/record_lines.py does", () => {
+    const shared = JSON.parse(
+      readFileSync(
+        new URL("../../../docs/text-tags.json", import.meta.url),
+        "utf8",
+      ),
+    ) as { cases: { name: string; text: string; runs: { text: string }[] }[] };
+    expect(shared.cases.length).toBeGreaterThanOrEqual(40);
+    for (const c of shared.cases) {
+      const shown = c.runs.map((r) => r.text).join("");
+      expect(spokenText(c.text), c.name).toBe(
+        shown.trim() === "" ? null : shown,
+      );
+    }
   });
 
   it("speaks nothing while spoken lines are off or the engine is not ready", () => {
@@ -295,11 +360,14 @@ async function flush(): Promise<void> {
 }
 
 function setup({
+  items = ITEMS,
   on = true,
   capBytes,
   decodeMs = {},
   failDecode = [],
 }: {
+  /** The story (default `ITEMS`). */
+  items?: Item[];
   on?: boolean;
   capBytes?: number;
   /** How long decoding a WAV takes, by its text (ms; default 0). */
@@ -316,7 +384,7 @@ function setup({
   const chunks: [number, Buffer, boolean][] = [];
   const ends: number[] = [];
   const lines = createSpokenLines<Buffer>({
-    items: ITEMS,
+    items,
     cast: CAST,
     client,
     on,
@@ -386,6 +454,34 @@ describe("createSpokenLines: asking, playing and holding", () => {
     });
     expect(t.client.line("Two.").voiceId).toBe("voice:b64:voices/mei.flac");
     expect(t.holds).toEqual([[0, 1000 + SPOKEN_WAIT_MS]]);
+  });
+
+  it("asks for the words shown, never the tags, and plays a tagged line from its untagged twin's cache", async () => {
+    const items: Item[] = [
+      { id: "n0", type: "image", file: "a.jpg", text: "One." },
+      {
+        id: "m1",
+        type: "text",
+        speaker: "Mei",
+        text: "{i}Two{/i}.{w=1}{p}Again.",
+      },
+      { id: "n2", type: "text", text: "{cps=20}One.{/cps}" },
+    ];
+    const t = setup({ items });
+    t.lines.arrive(0);
+    await flush();
+    // The narrator's tagged "One." is the line already asked for.
+    expect(t.client.live()).toEqual(["One.", "Two.\nAgain."]);
+    t.answer("One.");
+    await flush();
+    const asked = t.client.asked.length;
+    t.lines.arrive(2);
+    expect(t.played.map(([i, b]) => [i, b.from])).toEqual([
+      [0, "One.:2.5"],
+      [2, "One.:2.5"],
+    ]);
+    await flush();
+    expect(t.client.asked).toHaveLength(asked);
   });
 
   it("plays a line that arrives while the reader is still there, and holds for its length from its start", async () => {

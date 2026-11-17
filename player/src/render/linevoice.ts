@@ -8,9 +8,11 @@
 // 1. the file's own recorded line for the item (`voice.items`), if any;
 // 2. else, with the file's `keepOriginalVoice` and a manifest `audio.voice`,
 //    that base recording, like subtitles;
-// 3. else a live line of the translated text, in the engine's language for
-//    the file's tag, when the speaker has a voice (or, with no speaker, the
-//    game has a narrator) and the engine speaks that language;
+// 3. else a live line of the translated text as shown (render/spoken.ts
+//    `spokenText`: its tags read), in the engine's language for the file's
+//    tag, when the speaker has a voice (or, with no speaker, the game has a
+//    narrator), the engine speaks that language and the text shows
+//    something;
 // 4. else nothing. A base recording never plays under a translation
 //    without `keepOriginalVoice`.
 // When the text shown is the base's (no language file in use, or this
@@ -40,6 +42,7 @@ import {
   makeSpokenLine,
   type SpokenLine,
   spokenLine,
+  spokenText,
   voiceKeyOf,
 } from "./spoken.ts";
 
@@ -168,7 +171,9 @@ export function lineVoice(
   const lang = engineLanguage(file.language);
   const voice = voiceKeyOf(item);
   if (lang === null || castVoice(cast, voice) === undefined) return null;
-  return { kind: "live", line: makeSpokenLine(voice, text, lang) };
+  const words = spokenText(text);
+  if (words === null) return null; // the translation shows nothing
+  return { kind: "live", line: makeSpokenLine(voice, words, lang) };
 }
 
 /** The voices of a game's items in one shown language. */

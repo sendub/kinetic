@@ -6,18 +6,22 @@
 //
 // What is spoken (`spokenLine`): with the Voice volume up (`spokenOn`) and
 // the engine ready,
-// an item with text that is not blank, no recorded `audio.voice` (a
+// an item with text that shows something, no recorded `audio.voice` (a
 // recorded line always wins), and a voice: its speaker's in `voices`, or,
 // with no speaker (absent or empty), the `narrator`. A thought is spoken in
-// its speaker's voice. The text goes as written; the speaker's name is not
-// spoken. Each line carries the engine's language it is spoken in, and is
-// asked for in it (Phase 56 item 6). With a game's language shown, the line
-// of each item is the one render/linevoice.ts `lineVoice` gives: the text
-// shown and its language, or none (a recording plays, or the engine lacks
-// the language); the options' `line` gives it, and `setLines` changes it on
-// a language switch: the item on show is asked for again in the new
-// language, a line playing in the old one stops, and every request for
-// lines no longer wanted (the old language's) is dropped.
+// its speaker's voice. The words spoken are the text as shown
+// (`spokenText`, docs/plan.md Phase 57 item 2b): its text tags read as the
+// overlay reads them, so no tag is spoken, nor the text inside `{alt}` or
+// after `{done}`, and a `{p}` is a newline, which the engine reads as a
+// space. The speaker's name is not spoken. Each line carries the engine's
+// language it is spoken in, and is asked for in it (Phase 56 item 6).
+// With a game's language shown, the line of each item is the one
+// render/linevoice.ts `lineVoice` gives: the text shown and its language,
+// or none (a recording plays, or the engine lacks the language); the
+// options' `line` gives it, and `setLines` changes it on a language
+// switch: the item on show is asked for again in the new language, a line
+// playing in the old one stops, and every request for lines no longer
+// wanted (the old language's) is dropped.
 //
 // What is asked for (`createSpokenLines`): on each arrival the director
 // applies with its voice (render/audiorules.ts: a read at once, a walk or a
@@ -29,7 +33,8 @@
 // registered once while the engine is ready, from its reference clip's
 // bytes, the first time one of its lines is asked for. Generated lines are
 // decoded and kept, least recently used first, under `SPOKEN_CAP_BYTES`,
-// keyed by voice and text, so a line met again plays at once.
+// keyed by voice, language and the words spoken, so a line met again plays
+// at once, and two lines that differ only in their tags are one line.
 //
 // How it plays: a line ready on arrival plays then; one that comes later
 // plays when it comes if the reader is still on its item. Auto-forward
@@ -58,6 +63,7 @@
 // stops the line and drops every request. Turned on again, or ready again,
 // the item on show is asked for as on an arrival.
 
+import { shownText } from "../machine/texttags";
 import type { Item, Manifest, ManifestVoice } from "../machine/types";
 import { type Decoded, decodedBytes } from "./audiocache";
 import { STREAM_MORE_MS } from "./spokenstream";
@@ -73,7 +79,7 @@ const NARRATOR = "narrator";
 export interface SpokenLine {
   /** The voice: `speaker:<name>` or `narrator`. */
   readonly voice: string;
-  /** The text shown, as written. */
+  /** The words spoken: the text as shown (`spokenText`). */
   readonly text: string;
   /** The engine's language id it is spoken in (render/linevoice.ts). */
   readonly lang: string;
@@ -87,6 +93,18 @@ export function voiceKeyOf(item: Pick<Item, "speaker">): string {
   return speaker === undefined || speaker === ""
     ? NARRATOR
     : `speaker:${speaker}`;
+}
+
+/**
+ * Pure: the words a line with text `text` speaks: the text as shown, its
+ * tags read (machine/texttags.ts `shownText`), or null when that is blank.
+ * A text with no tag is spoken exactly as written. The shown text, not the
+ * text written, is what the engine is asked for and what a line is cached
+ * by, as tools/record_lines.py records it.
+ */
+export function spokenText(text: string): string | null {
+  const shown = shownText(text);
+  return shown.trim() === "" ? null : shown;
 }
 
 /** The line `text` in `voice`, spoken in the engine's language `lang`. */
@@ -164,8 +182,8 @@ export function spokenLine(
   lang = "en",
 ): SpokenLine | null {
   if (!active || item === undefined) return null;
-  const text = item.text;
-  if (text === undefined || text.trim() === "") return null;
+  const text = item.text === undefined ? null : spokenText(item.text);
+  if (text === null) return null;
   if (item.audio?.voice !== undefined) return null;
   const speaker = item.speaker;
   const voice =

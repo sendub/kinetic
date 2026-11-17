@@ -5312,9 +5312,26 @@ truthful: an unchecked box means nothing was accepted.
       languages, creator: WebKit 5520 pass + 1 fullscreen partial;
       Chrome 5513 + one runner "scripts completed" fail at load 40,
       then creator 33/33 alone and the other four 5488/5488.)
-- [ ] Spoken lines say the shown text (item 2b). The voice engine,
+- [x] Spoken lines say the shown text (item 2b). The voice engine,
       the live cache key and tools/record_lines.py use the text with
       tags read, together.
+      (2026-11-17: `spokenText` in player/src/render/spoken.ts
+      (`shownText`, null when blank) feeds `spokenLine` and translated
+      lines in linevoice.ts; tools/record_lines.py's `spoken_text` uses
+      `text_tags.plain_text`, and translations check the translated
+      text. The keys keep their shape with the shown text in them; an
+      untagged line's text and keys are byte-identical (pinned both
+      sides). Items reach recordings by track id, so older folders play
+      as before and a rerun re-records only tagged lines. `{p}` stays a
+      newline (both engines read whitespace as a space; punctuation
+      gives the pause), `{alt}` and text after `{done}` are not spoken,
+      a line showing nothing is silent. The hosts and helper pass text
+      through, unchanged. content-format, apps/README.md, CREATE.md
+      "Recording the lines". Subagent: npm test 1850; record_lines and
+      apps/voice 150; spoken 77/77 Chrome; spoken and machost 132/132
+      WebKit. Orchestrator: the same pytest 150, spoken and linevoice
+      tests 76, check clean, spoken 77/77 Chrome, spoken and machost
+      132/132 WebKit.)
 - [x] The player's transitions (item 3). `dissolve` and `fade` that
       never delay navigation or text; navigation p95 within noise.
       (2026-11-17: `player/src/render/transition.ts` holds the rules

@@ -215,11 +215,34 @@ def test_the_rule_matches_the_players(tmp_path):
     source = (REPO_ROOT / "player/src/render/spoken.ts").read_text()
     body = source[source.index("export function spokenLine"):]
     body = body[:body.index("\n}\n")]
-    for clause in ('text === undefined || text.trim() === ""',
+    for clause in ("item.text === undefined ? null : spokenText(item.text)",
                    "item.audio?.voice !== undefined",
                    'speaker === undefined || speaker === "" ? NARRATOR',
                    "castVoice(cast, voice) === undefined"):
         assert clause in body, f"spoken.ts changed: {clause!r} is gone"
+    # The words spoken: the text as shown, or nothing when that is blank.
+    words = source[source.index("export function spokenText"):]
+    words = words[:words.index("\n}\n")]
+    for clause in ("shownText(text)", 'shown.trim() === "" ? null : shown'):
+        assert clause in words, f"spoken.ts changed: {clause!r} is gone"
+
+
+def test_the_words_spoken_on_the_shared_cases():
+    """`spoken_text` is the text as shown (docs/text-tags.json, the cases
+    the player's parser shares), or None when that is blank, as the
+    player's `spokenText` is (player/src/render/spoken.test.ts runs the
+    same cases)."""
+    cases = json.loads((REPO_ROOT / "docs/text-tags.json").read_text(
+        "utf-8"))["cases"]
+    assert len(cases) >= 40
+    for case in cases:
+        shown = "".join(run["text"] for run in case["runs"])
+        expected = shown if shown.strip() else None
+        assert record_lines.spoken_text(case["text"]) == expected, \
+            case["name"]
+    for text in ("Hello.", "  Well, then.  ", "Two lines,\nas written.",
+                 "A } alone"):
+        assert record_lines.spoken_text(text) == text  # no tag: as written
 
 
 def test_the_language_rule_matches_the_players():
@@ -234,10 +257,84 @@ def test_the_language_rule_matches_the_players():
                    "fileRecording(file, item.id)",
                    "file.keepOriginalVoice === true && base !== undefined",
                    "engineLanguage(file.language)",
-                   "castVoice(cast, voice) === undefined"):
+                   "castVoice(cast, voice) === undefined",
+                   "spokenText(text)"):
         found = body.find(clause, at)
         assert found >= 0, f"linevoice.ts changed: {clause!r} is gone"
         at = found
+
+
+TAGGED = [
+    {"id": "first", "type": "image", "file": "first.png"},
+    {"id": "line-5", "type": "text", "speaker": "Mei",
+     "text": "The author's own {i}recording{/i}.", "audio": {"voice": "mine"}},
+    {"id": "tag-1", "type": "text", "speaker": "Mei",
+     "text": "{i}You're{/i} early{w=0.5} today.{alt}unseen{/alt}"},
+    {"id": "tag-2", "type": "text", "speaker": "Mei",
+     "text": "You're early today."},
+    {"id": "tag-3", "type": "text",
+     "text": "The {b}tide{/b} turned.{p}{cps=10}Slowly.{/cps}{done} Gone."},
+    {"id": "tag-4", "type": "text", "speaker": "Mei",
+     "text": "{alt}Only for screen readers.{/alt}{w}"},
+    {"id": "tag-5", "type": "text", "speaker": "Old Theo",
+     "text": "No tags here."},
+]
+
+
+def test_tagged_lines_say_the_text_shown(tmp_path, lock_file, helper_cmd,
+                                         speak_calls):
+    """A line says its text as shown (docs/plan.md Phase 57 item 2b): its
+    tags read, `{p}` a newline, the text in `{alt}` and after `{done}`
+    left out, as the player asks for it live."""
+    game = make_game(tmp_path, items=TAGGED)
+    assert record(game, lock_file, helper_cmd) == 0
+    assert sorted(speak_calls) == sorted([
+        "You're early today.", "The tide turned.\nSlowly.",
+        "No tags here."])
+    manifest = load(game)
+    # A tagged line and its untagged twin are one line.
+    assert voice_of(manifest, "tag-1") == voice_of(manifest, "tag-2")
+    assert voice_of(manifest, "tag-3")
+    assert voice_of(manifest, "tag-4") is None  # shows nothing
+    assert len(owned(manifest)) == 3
+    assert validate_content.validate_folder(game) == []
+
+
+def test_a_folder_recorded_before_keeps_working(tmp_path, lock_file,
+                                                helper_cmd, speak_calls,
+                                                monkeypatch):
+    """A folder recorded when lines said their tags plays as it did (each
+    item names its track); a rerun records again only the lines with
+    tags, keeping every untagged line's track and file."""
+    game = make_game(tmp_path, items=TAGGED)
+    with monkeypatch.context() as m:
+        # The rule before: the text as written, when not blank.
+        m.setattr(record_lines, "spoken_text",
+                  lambda t: t if isinstance(t, str) and t.strip() else None)
+        assert record(game, lock_file, helper_cmd) == 0
+    before = load(game)
+    assert len(owned(before)) == 5
+    assert validate_content.validate_folder(game) == []
+    untagged = {i: voice_of(before, i) for i in ("tag-2", "tag-5")}
+    files = {tid: (game / owned(before)[tid]["file"]).read_bytes()
+             for tid in untagged.values()}
+    tagged_files = [owned(before)[voice_of(before, i)]["file"]
+                    for i in ("tag-1", "tag-3", "tag-4")]
+
+    speak_calls.clear()
+    assert record(game, lock_file, helper_cmd) == 0
+    # tag-1 now shares tag-2's file, so only tag-3 is new.
+    assert speak_calls == ["The tide turned.\nSlowly."]
+    after = load(game)
+    for item_id, tid in untagged.items():
+        assert voice_of(after, item_id) == tid
+        assert (game / owned(after)[tid]["file"]).read_bytes() == files[tid]
+    assert voice_of(after, "tag-1") == untagged["tag-2"]
+    assert voice_of(after, "tag-4") is None
+    assert len(owned(after)) == 3
+    for file in tagged_files:
+        assert not (game / file).exists()
+    assert validate_content.validate_folder(game) == []
 
 
 def test_identical_lines_share_one_file(tmp_path, lock_file, helper_cmd):
@@ -612,6 +709,21 @@ def test_lang_records_the_translated_lines(tmp_path, lock_file, helper_cmd,
     text = (game / "lang/de.json").read_text("utf-8")
     assert (game / "lang/de.js").read_text("utf-8") == \
         language_file.script_text("de", text)
+    assert validate_content.validate_folder(game) == []
+
+
+def test_lang_says_the_translation_as_shown(tmp_path, lock_file, helper_cmd,
+                                           speak_calls):
+    game = make_game(tmp_path)
+    add_language(game, "de", {
+        "line-1": "{i}Du{/i} bist heute früh dran.{w}",
+        "line-7": "Du bist heute früh dran.",
+        "line-2": "{alt}Nur für Bildschirmleser.{/alt}"})
+    assert record(game, lock_file, helper_cmd, "--lang", "de") == 0
+    assert speak_calls.langs == [("Du bist heute früh dran.", "de")]
+    data = load_lang(game, "de")
+    assert lang_voice(data, "line-1") == lang_voice(data, "line-7")
+    assert lang_voice(data, "line-2") is None  # shows nothing
     assert validate_content.validate_folder(game) == []
 
 

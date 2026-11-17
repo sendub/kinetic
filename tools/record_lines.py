@@ -8,11 +8,13 @@ Usage:
         [--bitrate KBPS] [--lang TAG] [--dry-run]
 
 The lines are those the player speaks with spoken lines on
-(player/src/render/spoken.ts, `spokenLine`): an item with text that is not
-blank, no `audio.voice` of its own, and a voice: its speaker's in `voices`,
-or the `narrator` when it has no speaker. A thought is spoken in its
-speaker's voice. Items with an `audio.voice` the author recorded are left
-alone.
+(player/src/render/spoken.ts, `spokenLine`): an item with text that shows
+something, no `audio.voice` of its own, and a voice: its speaker's in
+`voices`, or the `narrator` when it has no speaker. A thought is spoken in
+its speaker's voice. Items with an `audio.voice` the author recorded are
+left alone. Each line says its text as shown, its text tags read
+(docs/content-format.md, "Text tags"), as the player asks for it live; a
+text with no tag is spoken as written.
 
 Each line is made by the same `kinetic_voice` helper and engine the game
 apps run (apps/voice/README.md), from a voice install folder (default: the
@@ -23,17 +25,21 @@ the live one would. The helper seeds each line's randomness from its text,
 so a line made twice is the same audio. Quit game apps that use the voice
 folder first: the helper is not made for two users at once.
 
-Each distinct (voice, text) becomes one mono Opus file in WebM at KBPS
-(default 16), `lines/<xx>/<key>.webm`, written with the converter's pinned
-ffmpeg, with its `.js` script beside it as every audio file has. Each file
-is a track in `audio.tracks` whose id is `rec-` and 32 hex digits of the
-key, and every item that speaks it gets `audio.voice` set to that track.
-The key is the sha256 of the engine lock's id and engine settings, the
-voice clip's sha256 and transcript, the line's text and the bitrate. That
-makes the tracks the tool's own: a rerun records only lines whose key is
-new, re-points items whose text or voice changed, and deletes the tracks
-and the files under `lines/` that no item uses any more. A track whose id
-or file does not have that shape is never touched.
+Each distinct (voice, text as shown) becomes one mono Opus file in WebM at
+KBPS (default 16), `lines/<xx>/<key>.webm`, written with the converter's
+pinned ffmpeg, with its `.js` script beside it as every audio file has.
+Each file is a track in `audio.tracks` whose id is `rec-` and 32 hex
+digits of the key, and every item that speaks it gets `audio.voice` set to
+that track. The key is the sha256 of the engine lock's id and engine
+settings, the voice clip's sha256 and transcript, the line's text as shown
+and the bitrate. That makes the tracks the tool's own: a rerun records
+only lines whose key is new, re-points items whose text or voice changed,
+and deletes the tracks and the files under `lines/` that no item uses any
+more. A track whose id or file does not have that shape is never touched.
+A folder recorded before the tool read text tags (Kinetic 1.12) plays as
+it did, each item naming its track; a rerun records again only the lines
+with tags, whose key is now their text as shown, and two lines that differ
+only in their tags then share one file.
 
 An interrupted run loses at most about a minute: each file is written
 whole as it finishes, the manifest is saved every 60 seconds, at the end
@@ -96,7 +102,12 @@ for _path in (REPO_ROOT / "converter", REPO_ROOT / "apps" / "voice",
         sys.path.insert(0, str(_path))
 import cast_voices  # noqa: E402
 from cast_voices import Refusal  # noqa: E402
-from kinetic_extract import audio_format, language_file, media_tools  # noqa: E402
+from kinetic_extract import (  # noqa: E402
+    audio_format,
+    language_file,
+    media_tools,
+    text_tags,
+)
 from kinetic_extract.version import add_version_option  # noqa: E402
 from kinetic_voice import install as voice_install  # noqa: E402
 from kinetic_voice.engine import LANGUAGES, engine_language  # noqa: E402
@@ -131,20 +142,31 @@ def file_name(lines: str) -> re.Pattern[str]:
 
 # --- the player's rule ---------------------------------------------------------
 
+def spoken_text(text: Any) -> str | None:
+    """The words a line with text `text` speaks: the text as shown, its
+    tags read (`text_tags.plain_text`), or None when that is blank.
+    Mirrors player/src/render/spoken.ts, `spokenText`; a text with no tag
+    is spoken, and keyed, exactly as written."""
+    if not isinstance(text, str):
+        return None
+    shown = text_tags.plain_text(text)
+    return None if shown.strip() == "" else shown
+
+
 def line_voice(manifest: dict[str, Any],
                item: dict[str, Any]) -> tuple[str | None, str] | None:
-    """(the speaker's name, None for the narrator; the text) when the
-    player would speak this item live, not counting the item's own
+    """(the speaker's name, None for the narrator; the words spoken) when
+    the player would speak this item live, not counting the item's own
     `audio.voice` (`plan` handles that), else None.
 
-    Mirrors player/src/render/spoken.ts, `spokenLine`: text that is not
-    blank, and a voice: the speaker's in `voices`, named exactly as the
-    item gives it, or the `narrator` for an item with no speaker (absent or
-    empty). tools/test_record_lines.py checks that spoken.ts still holds
-    each clause.
+    Mirrors player/src/render/spoken.ts, `spokenLine`: text that shows
+    something (`spoken_text`), and a voice: the speaker's in `voices`,
+    named exactly as the item gives it, or the `narrator` for an item with
+    no speaker (absent or empty). tools/test_record_lines.py checks that
+    spoken.ts still holds each clause.
     """
-    text = item.get("text")
-    if not isinstance(text, str) or text.strip() == "":
+    text = spoken_text(item.get("text"))
+    if text is None:
         return None
     speaker = item.get("speaker")
     if speaker is None or speaker == "":
@@ -188,14 +210,16 @@ def translated_text(data: dict[str, Any], item_id: str) -> str | None:
 def language_lines(manifest: dict[str, Any], data: dict[str, Any],
                    own: dict[str, Any]
                    ) -> list[tuple[int, str | None, str]]:
-    """(item index, speaker or None for the narrator, translated text) of
-    each item the player would speak live with the language file `data`
-    shown, not counting the file's recordings the recorder made itself.
+    """(item index, speaker or None for the narrator, translated text as
+    shown) of each item the player would speak live with the language file
+    `data` shown, not counting the file's recordings the recorder made
+    itself.
 
     Mirrors player/src/render/linevoice.ts, `lineVoice`, for translated
     text: the file's own recording wins, then the base recording under
     `keepOriginalVoice`, else the line is spoken live in its speaker's
-    voice (or the narrator's) in the file's language."""
+    voice (or the narrator's) in the file's language, when the translation
+    shows something."""
     voice = data.get("voice")
     recorded = voice.get("items") if isinstance(voice, dict) else None
     recorded = recorded if isinstance(recorded, dict) else {}
@@ -213,10 +237,11 @@ def language_lines(manifest: dict[str, Any], data: dict[str, Any],
         audio = item.get("audio")
         if keep and isinstance(audio, dict) and "voice" in audio:
             continue  # the base recording plays under the translation
-        spoken = line_voice(manifest, item)
+        # The translated item: its voice, and its text as shown.
+        spoken = line_voice(manifest, {**item, "text": text})
         if spoken is None:
             continue
-        found.append((index, spoken[0], text))
+        found.append((index, spoken[0], spoken[1]))
     return found
 
 
@@ -306,9 +331,9 @@ def on_disk(game: Path, key: str, lines: str = LINES_DIR) -> bool:
 
 def manifest_lines(manifest: dict[str, Any], own: dict[str, Any]
                    ) -> list[tuple[int, str | None, str]]:
-    """(item index, speaker or None for the narrator, text) of each item
-    the player would speak live, not counting recordings the recorder
-    made itself."""
+    """(item index, speaker or None for the narrator, text as shown) of
+    each item the player would speak live, not counting recordings the
+    recorder made itself."""
     found = []
     for index, item in enumerate(manifest.get("items") or []):
         if not isinstance(item, dict):

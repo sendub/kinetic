@@ -300,6 +300,12 @@ an error, a greyed button for `unsupported`, or the slider once `ready`).
 | `error` | `id`, `code` (the helper's codes, apps/voice/README.md, plus `not-installed` before the install, `helper-crashed` and `helper-stopped`), `message`. |
 | anything else | A helper event that names a request (`target`), such as a streamed line's chunks, passed on as `{ event, id: <the page's id>, ...the rest }`. |
 
+`text` is the line as the reader sees it, its text tags read
+(docs/content-format.md, "Text tags"): never a tag, nor the text inside
+`{alt}` or after `{done}`, with a `{p}` as a newline. Neither host
+changes it, and the helper's line cache keys on it, so two lines that
+differ only in their tags share one cached line.
+
 `lang` is the engine's language for the text (docs/plan.md Phase 56 item
 6): the player sends the language the line is shown in, as the engine
 names it (`de`, `ja`, `ar`, `pt` for `pt-BR`, `no` for `nb`), and the base

@@ -25,7 +25,8 @@
 // - lines asked for in order: each voice registered once from its clip
 //   (format and bytes), the current line at the top priority and the next
 //   three below it, each in its speaker's voice (a thought in Mei's, a line
-//   without a speaker in the narrator's), as written; a jump drops every
+//   without a speaker in the narrator's), as shown (a line with text tags
+//   is asked for without them, Phase 57 item 2b); a jump drops every
 //   line it leaves behind and asks for those ahead of where it lands;
 // - a generated line plays through the voice sound at the Voice volume,
 //   heard in the mix, held under the Esc screen and played on after it, in
@@ -134,7 +135,9 @@ function toneWav(seconds, hz) {
  * A copy of the demo with voices and a narrator (their clips shipped as
  * scripts alone, as an assembled folder ships them); `recorded` also gives
  * Theo's line `chain-still-2` a recorded voice, and `allRecorded` every line
- * with a voice. One folder per session, as parts run side by side.
+ * with a voice; `tagged` gives Mei's line `text-speech` text tags that show
+ * the same words, which `spokenAs` maps it to. One folder per session, as
+ * parts run side by side.
  */
 export function buildFolder(
   name,
@@ -143,6 +146,7 @@ export function buildFolder(
     allRecorded = false,
     languages = null,
     music = false,
+    tagged = false,
   } = {},
 ) {
   const dir = join(scenarioRoot, `spoken-${name}`);
@@ -183,6 +187,13 @@ export function buildFolder(
     for (const it of manifest.items) {
       if (voiceFor(it) !== null) it.audio = { ...it.audio, voice: "line" };
     }
+  }
+  const spokenAs = {};
+  if (tagged) {
+    // Emphasis, a wait and screen-reader text: none of them is spoken.
+    const item = manifest.items.find((it) => it.id === "text-speech");
+    spokenAs[item.id] = item.text;
+    item.text = `{i}${item.text.replace("Mei", "{b}Mei{/b}")}{/i}{w=0.3}{alt} Unseen.{/alt}`;
   }
   if (music) {
     // A tune on the first item: a sound every language has.
@@ -230,7 +241,7 @@ export function buildFolder(
     join(dir, "manifest.js"),
     `window.KINETIC_MANIFEST = ${json};\n`,
   );
-  return { dir, manifest };
+  return { dir, manifest, spokenAs };
 }
 
 const READY = { state: "ready" };
@@ -698,7 +709,7 @@ async function download({ check, open }) {
 
 /** Lines asked for in order, in the right voices; a jump drops the rest. */
 async function asking({ check, open }) {
-  const { dir, manifest } = buildFolder("asking");
+  const { dir, manifest, spokenAs } = buildFolder("asking", { tagged: true });
   const items = manifest.items;
   const { page, cdp } = await open("asking", {
     folder: dir,
@@ -707,7 +718,10 @@ async function asking({ check, open }) {
     voiceHost: { ...READY, delayMs: 30000 },
   });
   const expected = (indexes) =>
-    indexes.map((i) => ({ voice: voiceFor(items[i]), text: items[i].text }));
+    indexes.map((i) => ({
+      voice: voiceFor(items[i]),
+      text: spokenAs[items[i].id] ?? items[i].text,
+    }));
   const linesFrom = (index) => {
     const out = [index];
     for (let i = index + 1; i < items.length && out.length < 4; i += 1) {
@@ -743,9 +757,12 @@ async function asking({ check, open }) {
     })),
   );
   check(
-    "it asks for the item's line at the top priority, then the next three below it in order: a thought in Mei's voice, lines without a speaker in the narrator's, each as written",
+    "it asks for the item's line at the top priority, then the next three below it in order: a thought in Mei's voice, lines without a speaker in the narrator's, each as shown (Mei's tagged line without its tags)",
     JSON.stringify(r.live.map(({ voice, text }) => ({ voice, text }))) ===
-      JSON.stringify(expected(linesFrom(0))) && strictlyDown(r.live),
+      JSON.stringify(expected(linesFrom(0))) &&
+      linesFrom(0).some((i) => items[i].id === "text-speech") &&
+      r.live.every((x) => !x.text.includes("{")) &&
+      strictlyDown(r.live),
     r.live,
   );
 

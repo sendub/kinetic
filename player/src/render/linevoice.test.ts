@@ -237,6 +237,41 @@ describe("lineVoice with a translation shown", () => {
     ).toBeNull();
   });
 
+  it("speaks the translation as shown, its tags read, and nothing when it shows nothing", () => {
+    const tagged = file("de", {
+      items: {
+        mei: { text: "{i}Du{/i} bist früh.{w}{p}{alt}Zeigt nichts.{/alt}" },
+        pic: { text: "{alt}Nur für Bildschirmleser.{/alt}" },
+      },
+    });
+    expect(lineVoice(item("mei"), CAST, shown(tagged))).toEqual({
+      kind: "live",
+      line: {
+        voice: "speaker:Mei",
+        text: "Du bist früh.\n",
+        lang: "de",
+        key: "speaker:Mei\nde\nDu bist früh.\n",
+      },
+    });
+    // The file's text is shown (it is not blank as written), so the base
+    // line is not spoken either.
+    expect(lineVoice(item("pic"), CAST, shown(tagged))).toBeNull();
+  });
+
+  it("speaks the base text as shown, its tags read", () => {
+    const tagged: Item = {
+      id: "t",
+      type: "text",
+      speaker: "Mei",
+      text: "{b}You're{/b} early.{nw}",
+    };
+    const voice = lineVoice(tagged, CAST, base("de"));
+    expect(voice?.kind === "live" && voice.line.text).toBe("You're early.");
+    expect(
+      lineVoice({ ...tagged, text: "{fast}" }, CAST, base("de")),
+    ).toBeNull();
+  });
+
   it("is silent in a language the engine lacks, unless a recording plays", () => {
     const vi = file("vi");
     expect(lineVoice(item("mei"), CAST, shown(vi))).toBeNull();
