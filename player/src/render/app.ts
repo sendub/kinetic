@@ -433,9 +433,15 @@ export function mountShell({
   function render(state: MachineState): void {
     // The visual is the machine's, so a `text` item keeps the earlier media
     // on screen; the caption is the cursor's own line. Playback mode
-    // (still / loop-once / loop-forever) derives from the same state.
+    // (still / loop-once / loop-forever) derives from the same state, and
+    // the arrival says whether the picture comes in through its transition
+    // (reading on) or cuts (render/transition.ts).
     const shown = manifest.items[state.cursor];
-    visuals.update(manifest.items[machine.visualIndex()], state);
+    visuals.update(
+      manifest.items[machine.visualIndex()],
+      state,
+      machine.arrival(),
+    );
     captions.update(shown, words);
     // The item whose screen this is, for tests (docs/plan.md Phase 46): the
     // cursor's, whose line and picture were just applied, so no painted

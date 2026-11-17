@@ -7,6 +7,15 @@
 // makes her line a thought (her colour, still italic, dimmed), and
 // another puts tags in a decision's prompt and label: the choice screen
 // draws them as elements, the route pill as plain text.
+//
+// Transitions (item 3): Space from `range-b` brings `look-dissolve` in
+// over the video, whose element stays painted beneath at full opacity
+// while the new picture's computed opacity climbs to 1, with the line
+// shown at once; Space from `look-tags` fades `look-dissolve`'s picture to
+// black, holds, and brings `look-fade` in; a wheel step back onto
+// `look-fade` shows it whole at once; Space mid-dissolve lands on the next
+// item at once with the picture whole; and with reduced motion the
+// dissolve is a cut.
 
 import { cpSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -20,6 +29,7 @@ import {
   pressSpace,
   scenarioRoot,
   sleep,
+  wheelUntil,
 } from "./harness.mjs";
 import {
   HINT as LANG_DEMO_HINT,
@@ -290,4 +300,264 @@ async function choiceText({ check, open }) {
   );
 }
 
-export const parts = [tagsAndColours, colouredThought, translated, choiceText];
+/**
+ * The stage's pictures as drawn now: the incoming `<img>`, the outgoing
+ * element a transition keeps beneath it, their computed opacity, and the
+ * band's line, timed by the page's clock.
+ */
+const PICTURES = () => {
+  const stage = document.getElementById("stage");
+  const incoming = document.getElementById("visual-image");
+  const outgoing = document.getElementById("visual-outgoing");
+  const opacity = (el) => Number(getComputedStyle(el).opacity);
+  const top = document.elementFromPoint(innerWidth / 2, innerHeight / 3);
+  return {
+    t: performance.now(),
+    item: stage?.getAttribute("data-item") ?? null,
+    line: document.getElementById("overlay-text")?.textContent ?? "",
+    in:
+      incoming === null
+        ? null
+        : {
+            src: incoming.getAttribute("src"),
+            opacity: opacity(incoming),
+            onTop: top === incoming,
+          },
+    out:
+      outgoing === null
+        ? null
+        : {
+            tag: outgoing.tagName.toLowerCase(),
+            opacity: opacity(outgoing),
+            position: getComputedStyle(outgoing).position,
+            beneath:
+              incoming !== null &&
+              (outgoing.compareDocumentPosition(incoming) &
+                Node.DOCUMENT_POSITION_FOLLOWING) !==
+                0,
+          },
+  };
+};
+
+/** Polls PICTURES from the driver for `ms` (each poll a fresh read). */
+async function samplePictures(page, ms, gapMs = 30) {
+  const samples = [];
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    samples.push(await page.evaluate(PICTURES));
+    await sleep(gapMs);
+  }
+  return samples;
+}
+
+/** The samples from the first on `id` on, timed from that first one. */
+function onItem(samples, id) {
+  const first = samples.findIndex((sample) => sample.item === id);
+  if (first < 0) return [];
+  const t0 = samples[first].t;
+  return samples
+    .slice(first)
+    .map((sample) => ({ ...sample, t: sample.t - t0 }));
+}
+
+/** A short form of samples for evidence. */
+const brief = (samples) =>
+  samples.map((s) => [
+    Math.round(s.t),
+    s.item,
+    s.in?.opacity ?? null,
+    s.out === null ? null : `${s.out.tag}:${s.out.opacity}`,
+  ]);
+
+/** Space from range-b: look-dissolve dissolves in over the video. */
+async function dissolve({ check, open }) {
+  const { page, cdp } = await open("dissolve", {
+    closeHelp: true,
+    hash: "#start=range-b",
+  });
+  await until(page, ON_ITEM, 4000, "range-b");
+  await sleep(300);
+  await pressSpace(cdp);
+  const samples = onItem(await samplePictures(page, 1700), "look-dissolve");
+  const want = item("look-dissolve");
+  const ramping = samples.filter((s) => s.out !== null);
+  const first = samples[0];
+  check(
+    "the dissolve's line and speaker show at once: the first frame on the item has its line",
+    first !== undefined && first.line === want.text,
+    first ?? "never on look-dissolve",
+  );
+  check(
+    "the new picture's opacity climbs from below 1 to 1 over about a second",
+    ramping.length >= 3 &&
+      ramping.some((s) => s.in !== null && s.in.opacity < 0.6) &&
+      ramping.every(
+        (s, i) => i === 0 || s.in.opacity >= ramping[i - 1].in.opacity - 1e-6,
+      ) &&
+      samples.at(-1)?.in?.opacity === 1 &&
+      samples.at(-1)?.in?.src === want.file,
+    brief(samples),
+  );
+  check(
+    "under the dissolve the old video stays painted beneath at full opacity, the new picture on top",
+    ramping.length >= 3 &&
+      ramping.every(
+        (s) =>
+          s.out.tag === "video" &&
+          s.out.opacity === 1 &&
+          s.out.position === "absolute" &&
+          s.out.beneath &&
+          s.in.onTop,
+      ),
+    ramping.slice(0, 3),
+  );
+  const done = samples.filter((s) => s.t > 1150);
+  check(
+    "after its second the dissolve is over: the old video is gone, the new picture whole",
+    done.length > 0 &&
+      done.every((s) => s.out === null && s.in?.opacity === 1) &&
+      ramping.every((s) => s.t < 1150),
+    brief(samples),
+  );
+}
+
+/** Space from look-tags: out to black, hold, then look-fade comes in. */
+async function fade({ check, open }) {
+  const { page, cdp } = await open("fade", {
+    closeHelp: true,
+    hash: "#start=look-tags",
+  });
+  await until(page, ON_ITEM, 4000, "look-tags");
+  await sleep(300);
+  await pressSpace(cdp);
+  const samples = onItem(await samplePictures(page, 1800, 25), "look-fade");
+  const want = item("look-fade");
+  const ramping = samples.filter((s) => s.out !== null);
+  const black = ramping.filter(
+    (s) => s.out.opacity < 0.02 && s.in !== null && s.in.opacity < 0.02,
+  );
+  check(
+    "the fade's line shows at once",
+    samples[0]?.line === want.text,
+    samples[0] ?? "never on look-fade",
+  );
+  check(
+    "the old picture goes to black first: its opacity falls while the new one stays at 0",
+    ramping.some((s) => s.out.opacity > 0.05 && s.out.opacity < 0.95) &&
+      ramping.every(
+        (s) => s.out.opacity < 0.02 || (s.in !== null && s.in.opacity < 0.02),
+      ) &&
+      ramping.every((s) => s.out.tag === "img"),
+    brief(samples),
+  );
+  check(
+    "black holds between them: both pictures at 0 for a while",
+    black.length >= 2 && black.at(-1).t - black[0].t >= 100,
+    brief(black),
+  );
+  check(
+    "then the new picture comes in to full opacity and the old one goes",
+    ramping.some((s) => s.in.opacity > 0.05 && s.in.opacity < 0.95) &&
+      samples.at(-1)?.out === null &&
+      samples.at(-1)?.in?.opacity === 1 &&
+      samples.at(-1)?.in?.src === want.file,
+    brief(samples),
+  );
+}
+
+/** A wheel step back onto a transition's item cuts: whole at once. */
+async function wheelBack({ check, open }) {
+  const { page, cdp } = await open("wheel", {
+    closeHelp: true,
+    hash: "#start=look-tags",
+  });
+  await until(page, ON_ITEM, 4000, "look-tags");
+  await pressSpace(cdp);
+  await until(page, ON_ITEM, 4000, "look-fade");
+  await sleep(1600); // the fade has run
+  await pressSpace(cdp);
+  const onNext = await until(page, ON_ITEM, 4000, "floor-title");
+  await sleep(200);
+  const back = await wheelUntil(page, cdp, true, ON_ITEM, "look-fade", 3);
+  const first = await page.evaluate(PICTURES);
+  const later = onItem(await samplePictures(page, 400), "look-fade");
+  check(
+    "a wheel step back onto look-fade shows its picture at full opacity at once, nothing beneath",
+    onNext &&
+      back &&
+      first.item === "look-fade" &&
+      first.in?.src === item("look-fade").file &&
+      first.in.opacity === 1 &&
+      first.out === null &&
+      later.every((s) => s.in?.opacity === 1 && s.out === null),
+    { first, later: brief(later) },
+  );
+}
+
+/** Space mid-dissolve lands on the next item at once, the picture whole. */
+async function spaceMidway({ check, open }) {
+  const { page, cdp } = await open("midway", {
+    closeHelp: true,
+    hash: "#start=range-b",
+  });
+  await until(page, ON_ITEM, 4000, "range-b");
+  await sleep(300);
+  await pressSpace(cdp);
+  await until(page, ON_ITEM, 4000, "look-dissolve");
+  await sleep(250);
+  const mid = await page.evaluate(PICTURES);
+  const pressed = await page.evaluate(() => performance.now());
+  await pressSpace(cdp);
+  const landed = await until(page, ON_ITEM, 1000, "look-speaker");
+  const after = await page.evaluate(PICTURES);
+  check(
+    "Space during the dissolve lands on the next item at once and ends the dissolve: the picture whole, nothing beneath",
+    mid.item === "look-dissolve" &&
+      mid.out !== null &&
+      mid.in !== null &&
+      mid.in.opacity < 1 &&
+      landed &&
+      after.item === "look-speaker" &&
+      after.line === item("look-speaker").text &&
+      after.t - pressed < 300 &&
+      after.in?.opacity === 1 &&
+      after.out === null,
+    { mid, after, ms: Math.round(after.t - pressed) },
+  );
+}
+
+/** With the reader's reduced-motion setting the dissolve cuts. */
+async function reducedMotion({ check, open }) {
+  const { page, cdp } = await open("reduced", {
+    closeHelp: true,
+    hash: "#start=range-b",
+    reducedMotion: true,
+  });
+  await until(page, ON_ITEM, 4000, "range-b");
+  await sleep(300);
+  await pressSpace(cdp);
+  const samples = onItem(await samplePictures(page, 500), "look-dissolve");
+  check(
+    "with prefers-reduced-motion: reduce the dissolve is a cut: whole at once, nothing beneath",
+    samples.length > 0 &&
+      samples.every(
+        (s) =>
+          s.in?.opacity === 1 &&
+          s.out === null &&
+          s.in.src === item("look-dissolve").file,
+      ),
+    brief(samples),
+  );
+}
+
+export const parts = [
+  tagsAndColours,
+  colouredThought,
+  translated,
+  choiceText,
+  dissolve,
+  fade,
+  wheelBack,
+  spaceMidway,
+  reducedMotion,
+];

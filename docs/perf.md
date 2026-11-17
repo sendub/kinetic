@@ -759,3 +759,29 @@ three 3-minute stereo tracks) stays. A dropped track met again now costs
 and the memory is what item 18 measured. While WebKit decodes at twice the
 rate, it holds a buffer twice the kept one's size (138 MB for that track)
 outside the cap, until the samples are kept.
+
+## Transitions (Phase 57)
+
+docs/plan.md Phase 57 item 3: `dissolve` and `fade` (docs/content-format.md,
+"Transitions") hand the picture on screen out of the visual layer as the
+outgoing element and draw the new item on fresh elements, as a cut does,
+then ramp opacity with the Web Animations API. The first paint therefore
+does what a cut's does, plus a new element and one or two animations.
+The demo's walk reads on through `look-dissolve` and `look-fade`, so its
+presses land on both transitions, many in the middle of one.
+
+| build (2026-11-17) | folder | n | p95 ms over 10 runs | median p95 | p95 < 41 |
+| --- | --- | --- | --- | --- | --- |
+| develop before item 3 (cuts) | fixtures/demo | 16 | 25.6-34.8 | 33.5 | MET |
+| item 3 (transitions) | fixtures/demo | 16 | 32.6-38.0 | 34.0 | MET |
+
+The two builds ran alternately in headless Chrome 157 on an Apple M2 (8
+cores, 16 GB), macOS 27.2.1, at load average 4.4-6.9. The p95 ranges
+overlap; the 38.0 ms run was one sample at load 6.5. The first paint of
+the transition items themselves, keypress to the first frame with the
+new picture decoded, took 22.8-34.6 ms for `look-dissolve` and
+25.8-38.0 ms for `look-fade` over six runs, against 19.0-32.1 and
+18.9-32.3 ms over five runs when they cut: one or two frames either
+way. The last navigation figures before Phase 57 are those under "With
+Web Audio" above, fixtures/demo p95 32.8-34.3 ms with 14 samples,
+before the demo gained the presentation items.

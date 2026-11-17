@@ -68,13 +68,16 @@
 import { t } from "../i18n/catalogue.ts";
 import type {
   AnimationItem,
+  Arrival,
   Item,
   MachineState,
   Manifest,
+  Transition,
   TransitionKind,
   VideoItem,
   VideoSegment,
 } from "../machine/types";
+import { transitionFor, transitionPlan } from "./transition";
 
 /** How the current visual plays, per docs/content-format.md "Timing". */
 export type PlaybackMode = "still" | "loop-once" | "loop-forever";
@@ -297,9 +300,12 @@ export interface VisualLayer {
    * Draw the item under `machine.visualIndex()` with the playback mode that
    * `state` implies. `skipping` holds media to stills, and so does a nav
    * arrival with the cursor below the frontier; an advance arriving there
-   * replays the media (docs/content-format.md, "Timing").
+   * replays the media (docs/content-format.md, "Timing"). `arrival`, the
+   * machine's (`Machine.arrival`), lets a `read` arrival at an item with a
+   * `transition` bring its picture in through it (render/transition.ts);
+   * without one every change cuts.
    */
-  update(item: Item | undefined, state: MachineState): void;
+  update(item: Item | undefined, state: MachineState, arrival?: Arrival): void;
   /**
    * Warm the decode path for the next media items (see
    * `upcomingVisualFiles`): fetch + decode behind a hidden `Image` per
@@ -317,7 +323,7 @@ export interface VisualLayer {
    * Hold (true) or release (false) a playing video in place — the Esc
    * screen and the branch map pause the timeline (docs/plan.md Phase 18). While held a video
    * never starts; release resumes it from where it stopped, if its mode
-   * still plays. Idempotent.
+   * still plays. A hold ends a transition under way. Idempotent.
    */
   setPaused(paused: boolean): void;
   /**
@@ -1164,38 +1170,258 @@ export function createVisualLayer(
     videoGeneration += 1; // retire any pending autoplay fallback
   }
 
+  // --- transitions (docs/content-format.md "Transitions") -----------------
+  //
+  // A transition hands the picture on screen (its `<img>` or `<video>`,
+  // never a copy) out of the layer as the OUTGOING element and draws the
+  // new item on fresh elements as always, so the new item's first paint
+  // costs what a cut's does. The outgoing element is taken out of the
+  // stage's flex flow (absolute, in the same box) under the incoming one
+  // (positioned, later in the stage), and both ramp their opacity with the
+  // Web Animations API, which the compositor runs: a dissolve ramps the
+  // incoming from 0 to 1 over the outgoing, which stays at 1; a fade ramps
+  // the outgoing to 0 over the black stage, holds, then ramps the incoming
+  // in. The outgoing video pauses on its frame, a video's poster as
+  // background included; an incoming video plays at once under its ramp.
+  // At the end, or when a key, a pointer press, a wheel notch, an arrival
+  // that is not reading on, skip or a menu's hold ends it early, the
+  // ramps are cancelled (the incoming is at full opacity) and the outgoing
+  // element goes: a video released as `retireVideo` does, an image dropped
+  // so its decoded bitmap is no longer held by it.
+
+  // The ramps end within a frame or two of their timer; this much later
+  // the outgoing element goes, so the timer never cuts a ramp short.
+  const TRANSITION_END_SLACK_MS = 50;
+
+  interface TransitionRun {
+    /** The visual item the transition brings in. */
+    itemId: string;
+    incoming: HTMLElement;
+    outgoing: { element: HTMLElement; video: boolean } | null;
+    animations: Animation[];
+    timer: ReturnType<typeof setTimeout>;
+    /** `performance.now()` at its start, to tell its own key from a later one. */
+    startedAt: number;
+  }
+
+  let run: TransitionRun | null = null;
+  // The visual item last drawn and the arrival it was drawn for.
+  let shownVisualId: string | null = null;
+  let lastArrival = 0;
+  let reducedMotionQuery: MediaQueryList | null | undefined;
+
+  function reducedMotion(): boolean {
+    if (reducedMotionQuery === undefined) {
+      reducedMotionQuery =
+        doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)") ??
+        null;
+    }
+    return reducedMotionQuery?.matches === true;
+  }
+
+  /**
+   * Hands the visible `<img>` or `<video>` out of the layer, still in the
+   * stage, for a transition to draw under the incoming picture; the next
+   * draw makes fresh elements. A hidden `<img>` behind a video goes too,
+   * so the incoming element is always the newest in the stage.
+   */
+  function takeOutgoing(): TransitionRun["outgoing"] {
+    stopAnimation();
+    if (video !== null && drawnVideoSrc !== null) {
+      const element = video;
+      tellVideo(null);
+      stopRangeWatch();
+      startToken += 1;
+      element.pause();
+      element.removeEventListener("ended", onVideoEnded);
+      element.removeEventListener("timeupdate", onTimeUpdate);
+      video = null;
+      drawnVideoSrc = null;
+      drawnVideoItem = null;
+      videoMode = null;
+      videoSegment = null;
+      videoPlan = null;
+      videoEndedCount = 0;
+      videoGeneration += 1; // retire any pending autoplay fallback
+      dropImage();
+      return { element, video: true };
+    }
+    if (
+      image !== null &&
+      drawnFile !== null &&
+      image.style.display !== "none"
+    ) {
+      const element = image;
+      image = null;
+      drawnFile = null;
+      return { element, video: false };
+    }
+    return null;
+  }
+
+  function releaseOutgoing(outgoing: TransitionRun["outgoing"]): void {
+    if (outgoing === null) return;
+    const { element } = outgoing;
+    if (outgoing.video) {
+      const v = element as HTMLVideoElement;
+      v.pause();
+      v.removeAttribute("src");
+      v.load();
+    }
+    element.remove();
+  }
+
+  function onTransitionInput(event: Event): void {
+    // The key that started the transition (its arrival came in its own
+    // dispatch, after this listener or before it) does not end it.
+    if (run === null) return;
+    if (typeof event.timeStamp === "number" && event.timeStamp < run.startedAt)
+      return;
+    endTransition();
+  }
+
+  const INPUT_EVENTS = ["keydown", "pointerdown", "wheel"] as const;
+
+  function startTransition(
+    itemId: string,
+    transition: Transition,
+    outgoing: TransitionRun["outgoing"],
+  ): void {
+    const incoming: HTMLElement | null =
+      video !== null && drawnVideoSrc !== null
+        ? video
+        : image !== null && drawnFile !== null
+          ? image
+          : null;
+    if (incoming === null || typeof incoming.animate !== "function") {
+      releaseOutgoing(outgoing); // a notice, or no animation: a cut
+      return;
+    }
+    const plan = transitionPlan(transition);
+    if (outgoing !== null) {
+      const { element } = outgoing;
+      element.id = "visual-outgoing";
+      element.style.position = "absolute";
+      element.style.top = "0";
+      element.style.left = "0";
+    }
+    incoming.style.position = "relative";
+    const animations = [
+      incoming.animate([{ opacity: 0 }, { opacity: 1 }], {
+        delay: plan.incoming.delayMs,
+        duration: plan.incoming.durationMs,
+        fill: "both",
+        easing: "linear",
+      }),
+    ];
+    if (outgoing !== null && plan.outgoing !== null) {
+      animations.push(
+        outgoing.element.animate([{ opacity: 1 }, { opacity: 0 }], {
+          delay: plan.outgoing.delayMs,
+          duration: plan.outgoing.durationMs,
+          fill: "forwards",
+          easing: "linear",
+        }),
+      );
+    }
+    run = {
+      itemId,
+      incoming,
+      outgoing,
+      animations,
+      timer: setTimeout(endTransition, plan.totalMs + TRANSITION_END_SLACK_MS),
+      startedAt: now(),
+    };
+    for (const type of INPUT_EVENTS) {
+      doc.addEventListener(type, onTransitionInput, {
+        capture: true,
+        passive: true,
+      });
+    }
+  }
+
+  /** Ends the transition under way, if any: the new picture shows whole. */
+  function endTransition(): void {
+    if (run === null) return;
+    const ending = run;
+    run = null;
+    clearTimeout(ending.timer);
+    for (const type of INPUT_EVENTS) {
+      doc.removeEventListener(type, onTransitionInput, { capture: true });
+    }
+    for (const animation of ending.animations) animation.cancel();
+    ending.incoming.style.position = "";
+    releaseOutgoing(ending.outgoing);
+  }
+
+  function draw(item: Item, state: MachineState): void {
+    const mode = playbackModeFor(
+      manifest.items[state.cursor],
+      manifest.items[state.cursor + 1],
+      state.skipping,
+      state.transition,
+      state.cursor,
+      state.frontier,
+      state.skipVideo === true,
+    );
+    switch (item.type) {
+      case "image":
+        showImage(item.file);
+        return;
+      case "animation":
+        showAnimation(item, mode);
+        return;
+      case "video":
+        showVideo(item, mode, state.segment?.index ?? null);
+        return;
+      case "text":
+        // Unreachable for a valid manifest: visualIndex() resolves a `text`
+        // item to its earlier media. Guard so a bad folder shows a label
+        // rather than a blank screen.
+        showNotice("placeholder", t("visual.placeholder", { id: item.id }));
+        return;
+    }
+  }
+
   return {
-    update(item, state) {
+    update(item, state, arrival) {
+      const fresh = arrival !== undefined && arrival.number !== lastArrival;
+      // A transition under way ends on any other picture, on skip, and on
+      // an arrival that is not reading on; reading on over the same
+      // picture (a line of its text chain) leaves it running.
+      if (
+        run !== null &&
+        (item?.id !== run.itemId ||
+          state.skipping ||
+          (fresh && arrival.kind !== "read"))
+      ) {
+        endTransition();
+      }
+      const transition = transitionFor({
+        visual: item,
+        cursorItem: manifest.items[state.cursor],
+        shownId: shownVisualId,
+        arrival,
+        lastArrival,
+        skipping: state.skipping,
+        reducedMotion: reducedMotion(),
+        held,
+      });
+      if (arrival !== undefined) lastArrival = arrival.number;
       if (item === undefined) {
+        shownVisualId = null;
         showNotice("empty-state", emptyStateNoticeText(manifest.items.length));
         return;
       }
-      const mode = playbackModeFor(
-        manifest.items[state.cursor],
-        manifest.items[state.cursor + 1],
-        state.skipping,
-        state.transition,
-        state.cursor,
-        state.frontier,
-        state.skipVideo === true,
-      );
-      switch (item.type) {
-        case "image":
-          showImage(item.file);
-          return;
-        case "animation":
-          showAnimation(item, mode);
-          return;
-        case "video":
-          showVideo(item, mode, state.segment?.index ?? null);
-          return;
-        case "text":
-          // Unreachable for a valid manifest: visualIndex() resolves a `text`
-          // item to its earlier media. Guard so a bad folder shows a label
-          // rather than a blank screen.
-          showNotice("placeholder", t("visual.placeholder", { id: item.id }));
-          return;
+      if (transition === null) {
+        draw(item, state);
+        shownVisualId = item.type === "text" ? null : item.id;
+        return;
       }
+      const outgoing = takeOutgoing();
+      draw(item, state);
+      shownVisualId = item.id;
+      startTransition(item.id, transition, outgoing);
     },
 
     preloadUpcoming(cursor) {
@@ -1228,6 +1454,7 @@ export function createVisualLayer(
     setPaused(paused) {
       if (held === paused) return;
       held = paused;
+      if (paused) endTransition();
       if (video === null || videoPlan === null || videoMode === "still") {
         return;
       }
@@ -1271,6 +1498,7 @@ export function createVisualLayer(
     },
 
     destroy() {
+      endTransition();
       stopAnimation();
       stopRangeWatch();
       if (video !== null) {

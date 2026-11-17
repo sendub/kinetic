@@ -1263,6 +1263,29 @@ async function installRecordingHost(page, { kind, display }) {
   };
 }
 
+// The reader's reduced-motion setting where the driver cannot emulate it
+// (the WebKit driver): `matchMedia` answers the query as matching.
+const REDUCED_MOTION = () => {
+  const query = "(prefers-reduced-motion: reduce)";
+  const own = window.matchMedia.bind(window);
+  window.matchMedia = (media) => {
+    const list = own(media);
+    if (media.replace(/\s+/g, " ").trim() !== query) return list;
+    // The real list's methods, bound to it; only `matches` is answered.
+    const bound = (name) => list[name].bind(list);
+    return {
+      matches: true,
+      media,
+      onchange: null,
+      addEventListener: bound("addEventListener"),
+      removeEventListener: bound("removeEventListener"),
+      addListener: bound("addListener"),
+      removeListener: bound("removeListener"),
+      dispatchEvent: bound("dispatchEvent"),
+    };
+  };
+};
+
 /**
  * One scenario's browser: a FRESH profile (first-ever load), console and
  * page errors captured, the INSTRUMENT shim installed, and the demo opened
@@ -1286,6 +1309,9 @@ async function installRecordingHost(page, { kind, display }) {
  * `languages` (BCP 47 tags, most wanted first) sets the browser's own
  * languages, `navigator.languages` (launchBrowser; the WebKit driver shows
  * the page only the first, with a region added).
+ * `reducedMotion: true` gives the page `prefers-reduced-motion: reduce`:
+ * Chrome's own media emulation, and on WebKit, whose driver has none, a
+ * `matchMedia` that answers that query so before the player starts.
  * `consoleLines` is every console line from the first load on, any type,
  * as `{ type, text }` (Chrome types `console.warn` "warn" and WebKit
  * "warning"); `errors` (collectErrors) keeps the errors and warnings of
@@ -1326,6 +1352,14 @@ export async function openScenario(name, options = {}) {
     await page.evaluateOnNewDocument(testLocaleScript(options.locale));
   }
   const cdp = await page.createCDPSession();
+  if (options.reducedMotion === true) {
+    if (onWebKit) await page.evaluateOnNewDocument(REDUCED_MOTION);
+    else {
+      await cdp.send("Emulation.setEmulatedMedia", {
+        features: [{ name: "prefers-reduced-motion", value: "reduce" }],
+      });
+    }
+  }
   const folder = options.folder ?? demoDir;
   await page.goto(
     pathToFileURL(join(folder, "index.html")).href + (options.hash ?? ""),

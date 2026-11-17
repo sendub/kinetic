@@ -505,17 +505,32 @@ Transitions never delay navigation or text:
 
 - The item's text and speaker show at once; only the picture under them
   changes over time.
-- Skip, the wheel, going back, jumps (the branch map, a bookmark,
-  `#start`) and the reader's reduced-motion setting
-  (`prefers-reduced-motion`) cut: the new picture shows at once.
-- A key pressed during a transition ends it at once and does what it
-  does anyway, so Space moves on.
+- Only reading on runs a transition: Space, auto-forward, and a pick on
+  a choice screen entering the route it leads to. Skip (every skip
+  mode), the wheel either way, going back, jumps (the branch map, a
+  route entered from the map, a bookmark, `e`, `u`, `#start`, and the
+  load, so a reload or a resume) and the reader's reduced-motion
+  setting (`prefers-reduced-motion`) cut: the new picture shows at once.
+- A key, a click or a wheel notch during a transition ends it at once
+  (the new picture shows whole) and does what it does anyway, so Space
+  moves on. An item reached that way runs its own transition, if it has
+  one, from the picture now whole. Skip starting, or the Esc screen or
+  the branch map opening, also ends it.
+- Reading on to a `text` item over the same picture leaves a transition
+  under way running.
+- An item whose picture is the same file as the one before still runs
+  its transition: a dissolve between them shows nothing, and a fade dips
+  to black and back.
 - Auto-forward's hold starts when the item shows, as without a
   transition, so a transition never lengthens an item's time (Timing).
-- A video starts playing at once, under its transition.
+- A video starts playing at once, under its transition. A video going
+  out stops on its frame.
 
-The player draws a transition with opacity alone, on the compositor. An
-older player ignores `transition` and cuts.
+The player draws a transition with opacity alone, on the compositor:
+during a dissolve the old picture stays whole under the new one, so
+where the two differ in shape the old one's edges show beside the new
+one until the dissolve ends. An older player ignores `transition` and
+cuts.
 
 ## Branches
 
