@@ -5172,8 +5172,19 @@ truthful: an unchecked box means nothing was accepted.
       the orchestrator: full `pytest converter/ tools/` 1552 passed; the
       demo extracts and validates, `talk-020` joined, no "extend"
       speaker.)
-- [ ] Archive script pairs and concatenated names (item 9c, leads
-      from item 9b).
+- [x] Archive script pairs and concatenated names (item 9c, leads
+      from item 9b). (Evidence: `rpa.script_members`/`script_entries`
+      walk each script path from one source: loose over archive, an
+      earlier archive over a later one, `.rpy` over `.rpyc` in every mix;
+      skipped members listed in the ledger. `character_name` takes the
+      leading literal again (`"Ana" + x` gives "Ana") with 9b's wrapped
+      and multi-line names kept. On a converted corpus game whose 68
+      scripts are archived as pairs, the walk went from 619 s and 35,964
+      items to 322 s and 17,982 (one per line). Verified by the
+      orchestrator: full `pytest converter/ tools/` 1567 passed; the demo
+      extracts and validates.)
+- [ ] Asset lookup speed and walk-scope consistency (item 9d, leads
+      from item 9c).
 - [ ] Tools and docs around it (item 10): `check-game --lang`,
       assemble and upgrade carry `lang/`, CREATE.md "Translating a
       game".

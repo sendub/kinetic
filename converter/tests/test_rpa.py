@@ -169,6 +169,103 @@ def test_cli_records_archive_scripts_in_ledger(tmp_path: Path) -> None:
     assert ledger["rpaScriptSources"]  # provenance recorded
 
 
+# --- .rpy/.rpyc pairs: one source per path (item 9c) ---------------------------
+
+# The .rpy of a pair; its .rpyc twin is the credits fixture, whose lines
+# differ, so a walked twin shows as extra dialogue.
+_PAIR_RPY = b'label credits:\n    nr "From the source."\n'
+
+
+def _dialogue(parses) -> list[str]:
+    return [e.text for _, p in parses for e in p.events
+            if e.kind == "dialogue"]
+
+
+def test_archive_pair_walks_only_the_rpy(tmp_path: Path) -> None:
+    game = tmp_path / "proj" / "game"
+    game.mkdir(parents=True)
+    write_rpa(game / "scripts.rpa", {
+        "credits.rpy": _PAIR_RPY,
+        "credits.rpyc": FIXTURE_RPYC.read_bytes(),
+    })
+    parses, _d, _c, sources = parse_project(game)
+    assert [r for r, _ in parses] == ["game/scripts.rpa!credits.rpy"]
+    assert _dialogue(parses) == ["From the source."]
+    assert sources["decompiled"] == []      # the twin cost no decompile
+    assert sources["rpaIgnoredTwins"] == [{
+        "member": "credits.rpyc", "archive": "game/scripts.rpa",
+        "reason": "a .rpy with the same path",
+        "kept": "game/scripts.rpa!credits.rpy"}]
+
+
+def test_pair_split_across_archives_walks_only_the_rpy(
+        tmp_path: Path) -> None:
+    game = tmp_path / "proj" / "game"
+    game.mkdir(parents=True)
+    # The .rpyc's archive sorts first; the .rpy still wins.
+    write_rpa(game / "a.rpa", {
+        "scripts/credits.rpyc": FIXTURE_RPYC.read_bytes()})
+    write_rpa(game / "b.rpa", {"scripts/credits.rpy": _PAIR_RPY})
+    parses, _d, _c, sources = parse_project(game)
+    assert [r for r, _ in parses] == ["game/b.rpa!scripts/credits.rpy"]
+    assert sources["decompiled"] == []
+    [skipped] = sources["rpaIgnoredTwins"]
+    assert (skipped["member"], skipped["kept"]) == (
+        "scripts/credits.rpyc", "game/b.rpa!scripts/credits.rpy")
+
+
+def test_loose_rpy_beats_archived_rpyc(tmp_path: Path) -> None:
+    game = tmp_path / "proj" / "game"
+    game.mkdir(parents=True)
+    (game / "credits.rpy").write_bytes(_PAIR_RPY)
+    write_rpa(game / "scripts.rpa", {
+        "credits.rpyc": FIXTURE_RPYC.read_bytes()})
+    parses, _d, _c, sources = parse_project(game)
+    assert [r for r, _ in parses] == ["game/credits.rpy"]
+    assert sources["decompiled"] == []
+    assert sources["rpaIgnoredTwins"][0]["kept"] == "game/credits.rpy"
+
+
+def test_archived_rpy_beats_loose_rpyc(tmp_path: Path) -> None:
+    game = tmp_path / "proj" / "game"
+    game.mkdir(parents=True)
+    (game / "credits.rpyc").write_bytes(FIXTURE_RPYC.read_bytes())
+    write_rpa(game / "scripts.rpa", {"credits.rpy": _PAIR_RPY})
+    parses, _d, _c, sources = parse_project(game)
+    assert [r for r, _ in parses] == ["game/scripts.rpa!credits.rpy"]
+    assert sources["decompiled"] == []
+    assert sources["ignoredTwins"] == [{
+        "rpyc": "game/credits.rpyc", "kept": "game/scripts.rpa!credits.rpy"}]
+
+
+def test_loose_file_beats_archived_file_with_the_same_path(
+        tmp_path: Path) -> None:
+    """A loose pair beats the same pair archived: only the loose .rpy is
+    walked, and both members are reported as skipped."""
+    game = tmp_path / "proj" / "game"
+    game.mkdir(parents=True)
+    (game / "credits.rpy").write_text(
+        'label credits:\n    nr "Loose."\n', encoding="utf-8")
+    (game / "credits.rpyc").write_bytes(FIXTURE_RPYC.read_bytes())
+    write_rpa(game / "scripts.rpa", {
+        "credits.rpy": _PAIR_RPY,
+        "credits.rpyc": FIXTURE_RPYC.read_bytes()})
+    parses, _d, _c, sources = parse_project(game)
+    assert [r for r, _ in parses] == ["game/credits.rpy"]
+    assert _dialogue(parses) == ["Loose."]
+    assert sources["decompiled"] == []
+    assert [(s["member"], s["reason"]) for s in sources["rpaIgnoredTwins"]
+            ] == [("credits.rpy", "loose file with the same key"),
+                  ("credits.rpyc", "loose file with the same key")]
+
+
+def test_unpaired_archived_rpyc_is_still_decompiled(tmp_path: Path) -> None:
+    game = _mp_like_game(tmp_path)   # a.rpy and an unrelated z.rpyc
+    _parses, _d, _c, sources = parse_project(game)
+    assert sources["decompiled"] == ["game/scripts.rpa!scripts/z.rpyc"]
+    assert sources["rpaIgnoredTwins"] == []
+
+
 # --- asset fallback ------------------------------------------------------------
 
 def _archive_asset_game(tmp_path: Path) -> Path:

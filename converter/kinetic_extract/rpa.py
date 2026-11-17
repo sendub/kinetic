@@ -267,21 +267,47 @@ def extract_cached(archive: RpaArchive, name: str,
 # --- script sources inside archives -----------------------------------------
 
 
+def _is_script(key: str) -> bool:
+    # tl/ members are Ren'Py translations, not story flow.
+    return key.endswith((".rpy", ".rpyc")) and not key.startswith("tl/")
+
+
+def script_members(game_dir: Path) -> dict[str, RpaArchive]:
+    """Every script key outside ``tl/`` across game_dir/*.rpa, with the
+    first archive (in name order) holding it; unreadable archives are
+    left out (script_entries reports them)."""
+    members: dict[str, RpaArchive] = {}
+    for arc in archives_in(Path(game_dir)):
+        try:
+            names = arc.names()
+        except RpaError:
+            continue
+        for key in names:
+            if _is_script(key):
+                members.setdefault(key, arc)
+    return members
+
+
 def script_entries(game_dir: Path, files_glob: str | None = None,
                    ) -> tuple[list[tuple[RpaArchive, str, str]], list, list]:
     """Script members across game_dir/*.rpa: ``[(archive, key, kind)]``.
 
     kind is "rpy" or "rpyc"; ``files_glob`` (a kinetic-extract ``--files``
     pattern, matched against the key and its basename) restricts entries the
-    same way loose files are restricted. Also returns the archives that
-    failed to index and the entries skipped because a loose file or an
-    earlier archive owns the same key.
+    same way loose files are restricted. One source is walked per script
+    path, as for loose files: a loose file beats an archive member with the
+    same key, an earlier archive (in name order) beats a later one, and a
+    ``.rpy`` (loose or archived) beats a ``.rpyc`` with the same path, which
+    may be stale and would otherwise walk the story twice. Also returns the
+    archives that failed to index and the members skipped, each
+    ``{"member", "reason"}`` (plus ``"archive"`` and, for a ``.rpyc``
+    skipped for its ``.rpy``, ``"kept"``, the source walked instead).
     """
     entries: list[tuple[RpaArchive, str, str]] = []
     failed: list[dict] = []
     ignored: list[dict] = []
-    seen: set[str] = set()
     game_dir = Path(game_dir)
+    owner: dict[str, RpaArchive] = {}
     for arc in archives_in(game_dir):
         try:
             names = arc.names()
@@ -289,19 +315,39 @@ def script_entries(game_dir: Path, files_glob: str | None = None,
             failed.append({"archive": arc.path.name, "error": str(exc)})
             continue
         for key in sorted(names):
-            if not key.endswith((".rpy", ".rpyc")) or key.startswith("tl/"):
-                # tl/ members are Ren'Py translations, not story flow.
+            if not _is_script(key):
                 continue
             if files_glob and not (fnmatch.fnmatch(key, files_glob)
                                    or fnmatch.fnmatch(
                                        Path(key).name, files_glob)):
                 continue
-            if (game_dir / key).exists() or key in seen:
-                ignored.append(key)
+            where = {"member": key, "archive": f"game/{arc.path.name}"}
+            if (game_dir / key).exists():
+                ignored.append({**where,
+                                "reason": "loose file with the same key"})
                 continue
-            seen.add(key)
-            entries.append((arc, key, "rpy" if key.endswith(".rpy")
-                            else "rpyc"))
+            if key in owner:
+                ignored.append({**where, "reason": "an earlier archive "
+                                "has the same key"})
+                continue
+            owner[key] = arc
+    # The .rpy twin is looked for whatever --files says, as for loose
+    # files (parser.parse_project).
+    members = script_members(game_dir)
+    for key, arc in owner.items():      # archive order, then key order
+        if key.endswith(".rpyc"):
+            twin = key[:-1]
+            kept = (f"game/{twin}" if (game_dir / twin).exists()
+                    else f"game/{members[twin].path.name}!{twin}"
+                    if twin in members else None)
+            if kept is not None:
+                ignored.append({"member": key,
+                                "archive": f"game/{arc.path.name}",
+                                "reason": "a .rpy with the same path",
+                                "kept": kept})
+                continue
+        entries.append((arc, key, "rpy" if key.endswith(".rpy")
+                        else "rpyc"))
     return entries, failed, ignored
 
 

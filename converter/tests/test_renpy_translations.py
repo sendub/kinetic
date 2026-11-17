@@ -712,7 +712,16 @@ def test_a_voice_before_an_extend_line_is_reported(tmp_path: Path) -> None:
     ('define p = Character("store.pn", dynamic=True)', ("p", "[store.pn]")),
     ('define x = Character(name_var)', None),
     ('define x = Character(None)', None),
-    ('define x = Character(_("A") + suffix)', None),
+    # An expression starting with a literal gives the literal, as
+    # before item 9b (item 9c).
+    ('define x = Character(_("A") + suffix)', ("x", "A")),
+    ('define a = Character("Ana" + x)', ("a", "Ana")),
+    ('define a = Character("Ana " + str(n), color="#fff")', ("a", "Ana ")),
+    ("define a = Character('Ana' + x)", ("a", "Ana")),
+    ('define a = Character(name="Ana" + x)', ("a", "Ana")),
+    ('define x = Character(prefix + "Ana")', None),
+    ('define x = Character(_("A" + suffix))', None),
+    ('define p = Character("pn" + x, dynamic=True)', None),
     ('define p = DynamicCharacter(_("povname"))', None),
     ('define x = Character("Unclosed"', None),
     ('define x = 3', None),
@@ -750,6 +759,21 @@ def test_wrapped_names_are_speakers_strings_blocks_translate(
     assert files == [{"language": "de",
                       "speakers": {"Crowd": "Menge", "Megan": "Megan"}}]
     assert stats["de"].strings_used == 2
+
+
+def test_names_starting_with_a_literal_are_speakers(tmp_path: Path) -> None:
+    """A name expression starting with a literal speaks as that literal
+    (item 9c), as before item 9b."""
+    game = tmp_path / "game"
+    write(game / "script.rpy",
+          'define a = Character("Ana" + suffix)\n'
+          'define c = Character(_("Crowd") + suffix)\n'
+          'label start:\n'
+          '    scene black\n'
+          '    a "Hi."\n'
+          '    c "Cheers."\n')
+    assert [(r.item.get("speaker"), r.item["text"]) for r in walk(game)] == [
+        ("Ana", "Hi."), ("Crowd", "Cheers.")]
 
 
 # --- item 9b (c): --base-language ---------------------------------------------
@@ -940,3 +964,35 @@ def test_tl_inside_archives_is_read_like_loose_files(tmp_path: Path) -> None:
     assert [r.translations.get("de") for r in records] == [
         "Archivierte Zeile.", "Lose Zeile."]
     assert project.stats["de"].matched == 2
+
+
+# --- item 9c: an archived .rpy/.rpyc pair -------------------------------------
+
+def test_archived_pair_gives_one_item_per_line_translated_once(
+        tmp_path: Path) -> None:
+    """An archive holding a script's .rpy and its .rpyc walks the .rpy
+    only, so each line is one item, and its translation matches it once."""
+    from test_rpa import FIXTURE_RPYC, write_rpa
+    rpa_mod.reset_cache()
+    game = tmp_path / "game"
+    game.mkdir()
+    # The .rpyc twin (the credits fixture) opens on `scene credits_1`:
+    # defined here, so a walked twin would make items of its lines.
+    Image.new("RGB", (32, 18), (40, 60, 80)).save(game / "bg.png")
+    line = ident("credits", 'nr "From the source."')
+    write_rpa(game / "scripts.rpa", {
+        "credits.rpy": b'define nr = Character(None)\n'
+                       b'image credits_1 = "bg.png"\n'
+                       b'label credits:\n    scene credits_1\n'
+                       b'    nr "From the source."\n',
+        "credits.rpyc": FIXTURE_RPYC.read_bytes(),
+        "tl/de/credits.rpy": f'translate de {line}:\n'
+                             '    nr "Aus der Quelle."\n'.encode(),
+    })
+    records = walk(game)
+    assert [(r.text_source, r.item["text"]) for r in records] == [
+        ("game/scripts.rpa!credits.rpy:5", "From the source.")]
+    project = tl.read_project(game, records)
+    assert records[0].translations == {"de": "Aus der Quelle."}
+    s = project.stats["de"]
+    assert (s.blocks, s.matched, s.duplicates) == (1, 1, 0)

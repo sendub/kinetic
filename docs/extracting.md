@@ -1504,9 +1504,11 @@ What is read, per language:
   dynamic=True)`, names a variable whose value Ren'Py shows: its name
   reads `[var]`, as `Character("[var]")` does. A name that is only an
   interpolation, `[var]`, is kept literal like any interpolation, and no
-  `strings` block translates it (Ren'Py shows the variable's value). A
-  name the converter cannot read (an expression, `None`) leaves the
-  speaker as the variable's name, as before.
+  `strings` block translates it (Ren'Py shows the variable's value). An
+  expression starting with such a literal, `Character("Ana" + x)` or
+  `Character(_("Ana") + x)`, gives the literal, `Ana`, as before item
+  9b. A name the converter cannot read (any other expression, `None`)
+  leaves the speaker as the variable's name, as before.
 - **Ignored and counted**: `translate <language> style` blocks (fonts:
   Kinetic draws with system fonts), `translate <language> python`
   blocks, and every other file under `tl/<language>/` (Ren'Py's

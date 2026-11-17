@@ -3977,6 +3977,17 @@ The orchestrator's choices, within those decisions:
    used to give "Ana": restore the leading literal for such
    expressions. Tests: synthetic converter cases; a read-only timing
    check of the corpus game whose walk did not finish in 10 minutes.
+9d. Asset lookup speed and walk-scope consistency (leads from item
+   9c). `AssetArchives.candidates` scans every key of every archive
+   twice per lookup (about 0.2 s a call; 84 of 85 s in a profiled
+   slice): build an index by stem and base name once. A loose script
+   in a subfolder of `game/` is never walked (the walk is top-level
+   only) yet shadows an archived script with the same key, and item 9's
+   translation identifiers read it: only walked scripts may shadow or
+   feed identifiers. `--files "*.rpy"` excludes archived `.rpyc`
+   members but maps to `*.rpyc` for loose ones: make archives follow
+   the loose rule. Tests: synthetic converter cases; the walk timing of
+   item 9c's corpus game again.
 10. Tools and docs around it. `check-game --lang TAG` walks with that
     language shown and reports fallbacks and stale lines met;
     `tools/assemble_folder.py` and `tools/upgrade_folder.py` carry

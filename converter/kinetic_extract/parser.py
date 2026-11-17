@@ -179,7 +179,9 @@ def character_name(line: str) -> tuple[str, str] | None:
     name is not a literal the converter can read. The name is the first
     positional argument or `name=`, a string literal, plain or wrapped in
     `_()` or `__()` (Ren'Py's translation markers, so the name is the
-    text a `translate ... strings` block translates). A dynamic
+    text a `translate ... strings` block translates); a longer
+    expression starting with such a literal (`"Ana" + x`) gives the
+    literal, the part the converter can read. A dynamic
     character (`DynamicCharacter("var")`, or `dynamic=True`) names a
     variable whose value Ren'Py shows: its name reads `[var]`, as
     `Character("[var]")` does, kept literal like any interpolation."""
@@ -202,7 +204,9 @@ def character_name(line: str) -> tuple[str, str] | None:
             dynamic = kw.group(2).strip() == "True"
     if name_arg is None:
         return None
-    lit = _NAME_ARG_RE.fullmatch(name_arg)
+    # An expression starting with a literal (`"Ana " + str(n)`) gives
+    # that literal, as the converter read names before item 9b.
+    lit = _NAME_ARG_RE.match(name_arg)
     if lit is None or bool(lit.group(1)) != bool(lit.group(3)):
         return None
     value = _literal_value(lit.group(2))
@@ -210,7 +214,8 @@ def character_name(line: str) -> tuple[str, str] | None:
         return None
     if dynamic:
         value = value.strip()
-        if lit.group(1) or not _DOTTED_NAME_RE.fullmatch(value):
+        if (lit.group(1) or lit.end() != len(name_arg)
+                or not _DOTTED_NAME_RE.fullmatch(value)):
             return None
         value = f"[{value}]"
     return m.group(1), value
@@ -917,8 +922,10 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     filename-ordered walk (an archive-only game like game E keeps
     its scripts in ``scripts.rpa``); a loose file always beats an
     archive member with the same key, and the ledger names the source
-    ``game/<archive>!<key>``. A ``.rpyc`` member decompiles through the
-    same rpyc.py path after being extracted to the shared cache dir.
+    ``game/<archive>!<key>``. A ``.rpy`` beats a ``.rpyc`` with the same
+    path wherever either is, loose or archived, so a pair is walked once.
+    A ``.rpyc`` member decompiles through the same rpyc.py path after
+    being extracted to the shared cache dir.
 
     ``files_glob`` restricts which files feed the walk (relative to
     ``game/``, filename order; default every ``.rpy`` and its ``.rpyc``).
@@ -927,10 +934,11 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     is the per-file parse list (the decompiled entries carry a
     ``.rpyc``-suffixed ``relname``) and ``sources`` records provenance for
     the ledger: ``decompiled`` (``.rpyc`` parsed via unrpyc),
-    ``ignoredTwins`` (``.rpyc`` skipped because a ``.rpy`` won),
+    ``ignoredTwins`` (loose ``.rpyc`` skipped because a ``.rpy`` won),
     ``failed`` (``.rpyc`` that could not be decompiled), ``rpaScripts``
     (script members read from ``.rpa`` archives), ``rpaIgnoredTwins``
-    (archive members skipped because the key exists loose), and
+    (archive members skipped, with the reason: the key exists loose or in
+    an earlier archive, or a ``.rpy`` has the same path), and
     ``rpaFailed`` (archives whose index could not be read). Concatenating
     the files in filename order is an MVP simplification.
     """
@@ -949,27 +957,33 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     sources: dict = {"decompiled": [], "ignoredTwins": [], "failed": [],
                      "rpaScripts": [], "rpaIgnoredTwins": [],
                      "rpaFailed": []}
-    for path in rpy_files:
-        plan.append((path.name, path, "rpy", None, ""))
-    for path in rpyc_files:
-        twin = path.with_suffix(".rpy")
-        if twin.exists():
-            sources["ignoredTwins"].append(
-                {"rpyc": _ledger_rel(path, game_dir),
-                 "kept": _ledger_rel(twin, game_dir)})
-            continue
-        plan.append((path.name, path, "rpyc", None, ""))
     from . import rpa as rpa_mod
     try:
         archive_entries, rpa_failed, rpa_ignored = rpa_mod.script_entries(
             game_dir, files_glob)
+        archived = rpa_mod.script_members(game_dir)
     except rpa_mod.RpaError as exc:  # index unreadable even while listing
         archive_entries, rpa_failed, rpa_ignored = [], [
             {"archive": str(game_dir), "error": str(exc)}], []
+        archived = {}
+    for path in rpy_files:
+        plan.append((path.name, path, "rpy", None, ""))
+    for path in rpyc_files:
+        twin = path.with_suffix(".rpy")
+        twin_key = _ledger_rel(twin, game_dir)[len("game/"):]
+        if twin.exists():
+            kept = _ledger_rel(twin, game_dir)
+        elif twin_key in archived:
+            # An archived .rpy beats a loose .rpyc as a loose one does.
+            kept = (f"{_ledger_rel(archived[twin_key].path, game_dir)}"
+                    f"!{twin_key}")
+        else:
+            plan.append((path.name, path, "rpyc", None, ""))
+            continue
+        sources["ignoredTwins"].append(
+            {"rpyc": _ledger_rel(path, game_dir), "kept": kept})
     sources["rpaFailed"].extend(rpa_failed)
-    for arc in rpa_ignored:
-        sources["rpaIgnoredTwins"].append(
-            {"member": arc, "reason": "loose file with the same key"})
+    sources["rpaIgnoredTwins"].extend(rpa_ignored)
     for arc, key, kind in archive_entries:
         plan.append((Path(key).name, None, kind, arc, key))
     plan.sort(key=lambda entry: entry[0])
