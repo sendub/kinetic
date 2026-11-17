@@ -4882,9 +4882,16 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 55: Reliable WebKit map checks, plain commit messages (2026-11-17, user)
 
-- [ ] Commit messages (docs/plan.md Phase 55, item 1). AGENTS.md's
+- [x] Commit messages (docs/plan.md Phase 55, item 1). AGENTS.md's
       Git section says a commit message describes the change in a short
       subject, with no test counts or run evidence.
+      (2026-11-17: an 18-line paragraph and examples after the
+      subagents' git rule: subject `area: what changed`, about 72
+      characters, the areas taken from the last 60 subjects; a body only
+      for the reason or shape; run evidence in this file's notes;
+      planning and closing commits alike, the closer's subject the
+      release; one good and one bad example; history kept. The Workflow
+      line already sends evidence to the note. No test reads AGENTS.md.)
 - [ ] WebKit map checks (docs/plan.md Phase 55, item 2). The cause of
       the intermittent `bookmarkmap` and `screens` failures on WebKit
       found and fixed; 10 runs in a row pass.

@@ -213,3 +213,21 @@ reads it).
 
 Subagents do not run git add/commit/push and never edit docs/progress.md;
 the orchestrator verifies each checklist item, commits and pushes.
+
+Commit messages describe the change. The subject is `area: what
+changed`, about 72 characters or fewer, naming the phase and item when
+there is one. The area is the part of the repo changed: player,
+converter, tools, format, fixtures, voice, macos, windows, tests or
+docs (two joined by a comma). Add a body only when the reason or the
+shape of the change needs saying, and describe the change there too.
+Test counts, verify results, load averages and other run evidence go
+in the item's evidence note in docs/progress.md. Planning and closing
+commits follow the same rule; the closer's subject is the release.
+
+- Planning: `docs: plan Phase 55, reliable WebKit map checks`
+- Closing: `release 1.10.1`
+- Good: `player: Phase 54 item 1, test-only item trace`
+- Bad: `docs: Phase 54 closed, release 1.10.0 (full pytest 1241, verify
+  794/794 Chrome, ...)`, which records the run, not the change.
+
+Earlier commits keep their messages; history is not rewritten.
