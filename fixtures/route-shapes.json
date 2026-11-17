@@ -1,0 +1,100 @@
+{
+  "about": "Branch shapes and what the branch map draws for each: decisions resolved, decisions drawn, route pills, stretches, end marks and join dots. player/src/render/routeshape.test.ts holds the map (mapmodel.ts layOutStrip) to these counts and converter/tests/test_routes.py holds kinetic routes to them. A case names a built fixture folder (skipped when it is not built) or lists item ids (text items) and branches.",
+  "cases": [
+    {
+      "name": "demo",
+      "folder": "fixtures/demo",
+      "expect": {"resolved": 2, "decisions": 2, "routes": 4, "stretches": 7,
+                 "endings": 2, "joins": 2}
+    },
+    {
+      "name": "lang-demo",
+      "folder": "fixtures/lang-demo",
+      "expect": {"resolved": 2, "decisions": 2, "routes": 4, "stretches": 7,
+                 "endings": 2, "joins": 2}
+    },
+    {
+      "name": "linear",
+      "items": ["a", "b", "c"],
+      "branches": [],
+      "expect": {"resolved": 0, "decisions": 0, "routes": 0, "stretches": 1,
+                 "endings": 1, "joins": 0}
+    },
+    {
+      "name": "nested decisions and rejoins",
+      "items": ["s0", "s1", "p0", "p1", "q1a", "q2a", "q2b", "q3a", "p2",
+                "m0", "m1", "e0", "gap0", "w0", "w1", "t0", "t1", "u1a",
+                "u2a", "u2b", "z0", "z1"],
+      "branches": [
+        {"id": "outer", "after": "s1", "prompt": "Which way?",
+         "continuingRoute": "r1", "continueAt": "t0",
+         "routes": [
+           {"id": "r1", "label": "The long way", "start": "p0", "end": "p2"},
+           {"id": "r2", "label": "The short cut", "start": "m0", "end": "m1",
+            "result": "continue"},
+           {"id": "r3", "label": "Give up", "start": "e0", "end": "e0"}
+         ]},
+        {"id": "inner", "after": "p1", "prompt": "And then?",
+         "continuingRoute": "q1", "continueAt": "p2",
+         "routes": [
+           {"id": "q1", "label": "Wait", "start": "q1a", "end": "q1a"},
+           {"id": "q2", "label": "Talk", "start": "q2a", "end": "q2b",
+            "result": "continue"},
+           {"id": "q3", "label": "Leave", "start": "q3a", "end": "q3a"}
+         ]},
+        {"id": "stray", "after": "gap0", "prompt": "Never asked",
+         "routes": [
+           {"id": "wa", "label": "One", "start": "w0", "end": "w0"},
+           {"id": "wb", "label": "Two", "start": "w1", "end": "w1"}
+         ]},
+        {"id": "pure", "after": "t1", "prompt": "Look at what?",
+         "routes": [
+           {"id": "u1", "label": "The sea", "start": "u1a", "end": "u1a"},
+           {"id": "u2", "label": "The sky", "start": "u2a", "end": "u2b",
+            "result": "return"}
+         ]},
+        {"id": "broken", "after": "nowhere", "prompt": "Dropped",
+         "routes": [
+           {"id": "x", "label": "X", "start": "z0", "end": "z0"},
+           {"id": "y", "label": "Y", "start": "z1", "end": "z1"}
+         ]}
+      ],
+      "expect": {"resolved": 4, "decisions": 3, "routes": 8, "stretches": 12,
+                 "endings": 4, "joins": 3}
+    },
+    {
+      "name": "a nested join past its route's end",
+      "items": ["a", "b", "c", "n1", "n2", "x0"],
+      "branches": [
+        {"id": "top", "after": "a", "prompt": "Which?",
+         "routes": [
+           {"id": "r1", "label": "One", "start": "b", "end": "n2"},
+           {"id": "r2", "label": "Two", "start": "x0", "end": "x0"}
+         ]},
+        {"id": "deep", "after": "c", "prompt": "Then?",
+         "continuingRoute": "k1", "continueAt": "x0",
+         "routes": [
+           {"id": "k1", "label": "Stay", "start": "n1", "end": "n1"},
+           {"id": "k2", "label": "Go", "start": "n2", "end": "n2",
+            "result": "continue"}
+         ]}
+      ],
+      "expect": {"resolved": 2, "decisions": 2, "routes": 4, "stretches": 5,
+                 "endings": 2, "joins": 2}
+    },
+    {
+      "name": "pure choice to the end",
+      "items": ["a", "b", "x0", "y0", "y1"],
+      "branches": [
+        {"id": "last", "after": "b", "prompt": "Which?",
+         "routes": [
+           {"id": "x", "label": "X", "start": "x0", "end": "x0"},
+           {"id": "y", "label": "Y", "start": "y0", "end": "y1",
+            "result": "return"}
+         ]}
+      ],
+      "expect": {"resolved": 1, "decisions": 1, "routes": 2, "stretches": 3,
+                 "endings": 1, "joins": 1}
+    }
+  ]
+}

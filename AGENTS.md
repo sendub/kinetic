@@ -115,8 +115,14 @@ are implementing and docs/stack.md for settled decisions.
   and transition counts, text tag problems, files nothing references,
   the 20 longest lines; exit 0 whenever it ran, 2 bad arguments or no
   readable manifest; CREATE.md, "Checking a conversion: kinetic
-  report"). `kinetic` is the one command later items extend with
-  subcommands (converter/kinetic_extract/kinetic_cli.py).
+  report"). `kinetic routes <folder> [--dot | --json]` prints the
+  branch structure as the branch map draws it (decisions, routes, where
+  each ends or rejoins); `fixtures/route-shapes.json` holds it and
+  mapmodel.ts to the same counts. `kinetic export <folder> [--lang TAG]
+  [--out DIR]` prints the story as Markdown, the main line and each
+  route, to lay beside the `.rpy` source. Both exit as report does.
+  `kinetic` is the one command later items extend with subcommands
+  (converter/kinetic_extract/kinetic_cli.py).
 - Automated browsers make no sound: Chrome starts only through
   `launchChrome` in `player/scripts/testing/core.mjs`
   (`--disable-audio-output`; biome blocks other `puppeteer-core`

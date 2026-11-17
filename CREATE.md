@@ -2473,6 +2473,56 @@ opens no browser and needs no media tools:
 0 whenever the report ran, whatever it found, and 2 for bad arguments or
 a folder without a readable manifest.
 
+#### kinetic routes
+
+`kinetic routes` prints the branch structure as the branch map draws
+it, as an indented outline: each stretch of items, each decision with
+its prompt and where its line carries on, and under it each route with
+its label, result, item count, first and last items, and where it ends
+or rejoins, nested decisions indented under their route. Decisions no
+line reaches, `branches` entries the player drops, and items no reading
+reaches are listed after it. `--dot` prints the same as Graphviz DOT,
+`--json` as one JSON object; the exit status is as for `report`.
+
+```text
+main line: 29 items
+  items intro-title..branch-decide (27 items)
+  decision outer after branch-decide, carries on at after-start: "Demo decision: which route?"
+    1. route route1 "Route 1: continues the story": continuing, 5 items, route1-start..route1-end; joins at after-start
+      items route1-start..route1-nest (2 items)
+      decision nested after route1-nest, carries on at route1-end: "Nested decision inside Route 1:"
+      ...
+    2. route route2 "Route 2: an ending": ending, 2 items, route2-start..route2-end; an ending (the choice is offered again)
+      items route2-start..route2-end (2 items)
+  items after-start..after-end (2 items)
+  the story ends at after-end
+```
+
+#### kinetic export
+
+`kinetic export` prints the story as Markdown, in the outline's order,
+to lay beside the `.rpy` source: each item as an anchor
+(`<a id="ITEM"></a>`), its media and audio as HTML comments, and its
+line as `Speaker: text`, `Speaker (thinks): text` or bare narration.
+Text tags are read to the shown text and emphasis is dropped, not
+written as Markdown asterisks, which are common in a game's own text.
+Each choice lists its route labels; each route follows under a
+`## Route DECISION/ROUTE` heading and ends in a comment saying where it
+leads. `--lang TAG` reads the texts, names, prompts and labels from that
+language file, marking `[base] ` each string it lacks. `--out DIR`
+writes `main.md` and one `DECISION.ROUTE.md` per route, each with the
+choices and routes nested in it, in place of stdout.
+
+```text
+<a id="route1-nest"></a>
+Theo: Route 1, second line: the nested decision hangs off this one.
+
+### Choice nested: Nested decision inside Route 1:
+
+1. 1a: carries on with Route 1 (nested/nest-a, continuing: joins at route1-end)
+2. 1b: comes back to this decision (nested/nest-b, return: returns to the choice)
+```
+
 ### A test script
 
 Write your test anywhere, as a Node script that imports

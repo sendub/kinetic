@@ -32,6 +32,8 @@ PROG = "kinetic"
 # The subcommands' modules, in the order `kinetic --help` lists them.
 COMMANDS = (
     "kinetic_extract.report",
+    "kinetic_extract.routes",
+    "kinetic_extract.export",
 )
 
 
