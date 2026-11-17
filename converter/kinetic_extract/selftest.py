@@ -4,8 +4,12 @@ Committed sample inputs (``converter/tests/data/selftest/``) go through
 every tool path the converter uses, by calling the converter's own
 functions, so a recipe and its self-test cannot drift apart. Each case
 yields a sha256; ``converter/media-tools.json`` stores the expected
-(golden) values under ``selftest.golden``. Case names are
-``<tool>.<step>`` so a mismatch names the tool.
+(golden) values under ``selftest.golden``, shared by every platform.
+A platform may hold its own golden for a case a CPU difference explains
+(``selftest.platformGolden.<platform>.<case>``, only for the cases listed
+in ``selftest.cpuDependent``): there that case uses its own golden, and
+every other case the shared one. Case names are ``<tool>.<step>`` so a
+mismatch names the tool.
 
 The setup script runs it after installing (and with ``--pin`` records
 the goldens); ``kinetic-extract`` runs it at start through
@@ -159,6 +163,64 @@ def _audio_cases(samples_dir: Path, tmp: Path) -> dict[str, str]:
     return out
 
 
+def cpu_dependent(pins: dict[str, Any]) -> list[str]:
+    """The cases a CPU difference explains (``selftest.cpuDependent``):
+    the only ones a platform may hold its own golden for."""
+    return list(pins["selftest"].get("cpuDependent") or [])
+
+
+def check_platform_goldens(pins: dict[str, Any]) -> None:
+    """Refuse (MediaToolsError) a ``selftest.platformGolden`` entry for a
+    platform the pin file does not list, or for a case that has no shared
+    golden or is not in ``selftest.cpuDependent``."""
+    shared = pins["selftest"].get("golden") or {}
+    allowed = cpu_dependent(pins)
+    unknown = [case for case in allowed if case not in shared]
+    if shared and unknown:
+        raise MediaToolsError(
+            "selftest.cpuDependent in converter/media-tools.json names "
+            f"unknown case(s): {', '.join(unknown)}")
+    table = pins["selftest"].get("platformGolden") or {}
+    if not isinstance(table, dict):
+        raise MediaToolsError("selftest.platformGolden in "
+                              "converter/media-tools.json is not a table")
+    for plat, own in sorted(table.items()):
+        where = f"selftest.platformGolden.{plat}"
+        if plat not in pins["ffmpeg"]["platforms"]:
+            raise MediaToolsError(
+                f"{where} in converter/media-tools.json: no such platform "
+                f"(platforms: {', '.join(pins['ffmpeg']['platforms'])})")
+        if not isinstance(own, dict):
+            raise MediaToolsError(f"{where} in converter/media-tools.json "
+                                  "is not a table")
+        for case, value in sorted(own.items()):
+            if case not in shared:
+                raise MediaToolsError(
+                    f"{where}.{case} in converter/media-tools.json: no "
+                    "such self-test case")
+            if case not in allowed:
+                raise MediaToolsError(
+                    f"{where}.{case} in converter/media-tools.json: not a "
+                    "CPU-dependent case (selftest.cpuDependent)")
+            if not isinstance(value, str) or not value:
+                raise MediaToolsError(f"{where}.{case} in "
+                                      "converter/media-tools.json is empty")
+
+
+def platform_golden(pins: dict[str, Any], plat: str) -> dict[str, str]:
+    """`plat`'s own goldens (checked first: check_platform_goldens)."""
+    check_platform_goldens(pins)
+    table = pins["selftest"].get("platformGolden") or {}
+    return dict(table.get(plat) or {})
+
+
+def golden_for(pins: dict[str, Any], plat: str) -> dict[str, str | None]:
+    """The goldens `plat` is checked against: the shared ones, with the
+    platform's own in place for its CPU-dependent cases."""
+    return {**(pins["selftest"].get("golden") or {}),
+            **platform_golden(pins, plat)}
+
+
 def unpinned_cases(golden: dict[str, str | None]) -> list[str]:
     """Cases listed with a null golden: a new case waiting for --pin, or
     one --repin cleared."""
@@ -177,8 +239,10 @@ def compare(golden: dict[str, str], actual: dict[str, str]) -> list[str]:
 
 
 def cache_key(pins: dict[str, Any], versions: dict[str, str],
-              binaries: dict[str, str], samples_dir: Path) -> str:
-    """What a cached pass depends on: change any of it and the test re-runs."""
+              binaries: dict[str, str], samples_dir: Path,
+              plat: str) -> str:
+    """What a cached pass depends on: change any of it and the test re-runs.
+    The goldens are the ones `plat` is checked against."""
     material = {
         "ffmpeg": pins["ffmpeg"]["version"],
         "binaries": binaries,
@@ -187,7 +251,7 @@ def cache_key(pins: dict[str, Any], versions: dict[str, str],
                     for name in SAMPLES},
         "recipe": {name: _file_hash(Path(__file__).parent / name)
                    for name in _RECIPE_SOURCES},
-        "golden": pins["selftest"]["golden"],
+        "golden": golden_for(pins, plat),
     }
     return _sha(json.dumps(material, sort_keys=True).encode())
 
@@ -218,8 +282,9 @@ def ensure_ready(*, pins: dict[str, Any] | None = None,
     """Refuse (MediaToolsError) unless the pinned tools pass the self-test.
 
     Checks, in order: Python codec versions, the installed ffmpeg/ffprobe
-    against the pins, goldens pinned, then the self-test (or its cached
-    pass for exactly these inputs).
+    against the pins, goldens pinned, then the self-test against this
+    platform's goldens (golden_for), or its cached pass for exactly these
+    inputs.
     """
     if media_tools.override_dir() is not None:
         media_tools.warn_test_override()
@@ -231,7 +296,7 @@ def ensure_ready(*, pins: dict[str, Any] | None = None,
     plat = plat or media_tools.platform_key()
     plat_dir = (root or media_tools.TOOLS_ROOT) / plat
     binaries = media_tools.check_installed(pins, plat_dir, plat)
-    golden = pins["selftest"]["golden"]
+    golden = golden_for(pins, plat)
     if not golden:
         raise MediaToolsError(
             "media self-test not pinned yet (selftest.golden is null in "
@@ -242,7 +307,7 @@ def ensure_ready(*, pins: dict[str, Any] | None = None,
             f"media self-test case(s) {', '.join(unpinned)} not pinned yet "
             "(null in converter/media-tools.json): run "
             f"{media_tools.SETUP_CMD} --pin")
-    key = cache_key(pins, versions, binaries, samples_dir)
+    key = cache_key(pins, versions, binaries, samples_dir, plat)
     if read_cache(plat_dir) == key:
         return
     lines = compare(golden, runner(samples_dir))

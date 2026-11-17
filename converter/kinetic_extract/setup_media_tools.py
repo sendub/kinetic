@@ -258,44 +258,106 @@ def version_matches(reported: str | None, pinned: str) -> bool:
 def run_selftest(pins: dict[str, Any], *, pin: bool, pin_path: Path,
                  plat_dir: Path, versions: dict[str, str],
                  binaries: dict[str, str], runner: selftest.Runner,
-                 log: Log, repin: tuple[str, ...] = ()) -> None:
+                 log: Log, repin: tuple[str, ...] = (),
+                 plat: str = "", new_platform: bool = False) -> None:
+    """Run the self-test against `plat`'s goldens (selftest.golden_for).
+
+    Null or missing goldens are recorded with `pin`; `repin` cases are
+    re-recorded (the platform's own golden when it has one, else the
+    shared one). With `new_platform` (this --pin is recording the
+    platform's archive checksums), cases that differ from the shared
+    golden become the platform's own goldens, but only when every one is
+    CPU-dependent (selftest.cpuDependent) and ran. Any refusal writes
+    nothing.
+    """
+    try:
+        own = selftest.platform_golden(pins, plat)
+    except MediaToolsError as exc:
+        raise SetupError(str(exc)) from None
     actual = runner(selftest.SAMPLES_DIR)
-    golden = pins["selftest"]["golden"] or {}
+    shared = dict(pins["selftest"]["golden"] or {})
+    allowed = set(selftest.cpu_dependent(pins))
     unknown = [case for case in repin if case not in actual]
     if unknown:
         raise SetupError(f"no self-test case {unknown[0]!r}; cases: "
                          + ", ".join(sorted(actual)))
-    old = {case: golden.get(case) for case in repin}
-    golden = {**golden, **{case: None for case in repin}}
+    old = {case: own.get(case, shared.get(case)) for case in repin}
+    for case in repin:
+        if case in own:
+            own[case] = None  # type: ignore[assignment]
+        else:
+            shared[case] = None
     # Cases to record: null or missing goldens (new, or cleared by --repin).
-    record = sorted(case for case in actual if golden.get(case) is None)
-    if record and not (pin or repin):
+    record_own = sorted(case for case, value in own.items() if value is None)
+    record = sorted(case for case in actual if shared.get(case) is None
+                    and case not in record_own)
+    if (record or record_own) and not (pin or repin):
         raise SetupError(
             f"media self-test case(s) {', '.join(record)} not pinned yet "
             f"(null in converter/media-tools.json): run "
             f"{media_tools.SETUP_CMD} --pin")
-    checked = {case: value for case, value in golden.items()
+    checked = {case: value for case, value in {**shared, **own}.items()
                if value is not None}
-    lines = selftest.compare(checked, {case: actual.get(case)
-                                       for case in actual
-                                       if case not in record})
+    compared = {case: actual.get(case) for case in actual
+                if case not in record and case not in record_own}
+    lines = selftest.compare(checked, compared)
+    differ = sorted(case for case in set(checked) | set(compared)
+                    if checked.get(case) != compared.get(case))
+    if lines and not (pin and new_platform):
+        message = str(selftest.mismatch_error(lines))
+        if pin:
+            message += ("\n(a platform's own goldens are recorded only by "
+                        "the --pin that first records its archive "
+                        "checksums)")
+        raise SetupError(message)
     if lines:
-        raise SetupError(str(selftest.mismatch_error(lines)))
-    if record:
-        failed = [case for case in record if actual[case] == selftest.FAILED]
+        outside = [case for case in differ
+                   if case not in allowed or case in own
+                   or compared.get(case) in (None, selftest.FAILED)]
+        if outside:
+            raise SetupError(
+                f"media self-test on {plat} differs from the pinned goldens "
+                "beyond the CPU-dependent cases (selftest.cpuDependent in "
+                "converter/media-tools.json), nothing pinned:\n  "
+                + "\n  ".join(selftest.compare(
+                    {case: checked.get(case) for case in outside},
+                    {case: compared.get(case) for case in outside}))
+                + "\nOnly the user may add a case to selftest.cpuDependent.")
+        record_own = sorted({*record_own, *differ})
+    if record or record_own:
+        failed = [case for case in [*record, *record_own]
+                  if actual[case] == selftest.FAILED]
         if failed:
             raise SetupError("self-test cases failed, nothing pinned: "
                              + ", ".join(failed))
         pins["selftest"]["golden"] = dict(sorted(
-            {**checked, **{case: actual[case] for case in record}}.items()))
+            {**{c: v for c, v in shared.items() if v is not None},
+             **{case: actual[case] for case in record}}.items()))
+        new_shared = pins["selftest"]["golden"]
+        mine = {case: value for case, value in
+                {**own, **{case: actual[case] for case in record_own}}.items()
+                if value is not None and value != new_shared.get(case)}
+        table = dict(pins["selftest"].get("platformGolden") or {})
+        if mine:
+            table[plat] = dict(sorted(mine.items()))
+        else:
+            table.pop(plat, None)
+        if table or "platformGolden" in pins["selftest"]:
+            pins["selftest"]["platformGolden"] = dict(sorted(table.items()))
         save_pins(pins, pin_path)
         for case in repin:
             log(f"re-pinned {case}: {old[case]} -> {actual[case]}")
-        noun = "hash" if len(record) == 1 else "hashes"
-        log(f"recorded {len(record)} self-test golden {noun} into "
-            "converter/media-tools.json")
+        if record:
+            noun = "hash" if len(record) == 1 else "hashes"
+            log(f"recorded {len(record)} self-test golden {noun} into "
+                f"{pin_path}")
+        if record_own:
+            noun = "hash" if len(record_own) == 1 else "hashes"
+            log(f"recorded {len(record_own)} {plat} golden {noun} into "
+                f"{pin_path}: " + ", ".join(
+                    f"{case} {actual[case]}" for case in record_own))
     selftest.write_cache(plat_dir, selftest.cache_key(
-        pins, versions, binaries, selftest.SAMPLES_DIR))
+        pins, versions, binaries, selftest.SAMPLES_DIR, plat))
     log(f"self-test passed ({len(actual)} cases)")
 
 
@@ -354,11 +416,12 @@ def setup(*, pin: bool, force: bool, fetch: Fetch, pin_path: Path,
         {"platform": plat, "version": ff["version"], "tools": records},
         indent=2) + "\n", "utf-8")
     hashes = {name: rec["binarySha256"] for name, rec in records.items()}
-    # Archive checksums recorded above reach the pin file only once every
-    # shared golden has matched (run_selftest saves when it records).
+    # Archive checksums recorded above reach the pin file only once the
+    # self-test has passed (run_selftest saves when it records).
     run_selftest(pins, pin=pin, pin_path=pin_path, plat_dir=plat_dir,
                  versions=versions, binaries=hashes, runner=runner, log=log,
-                 repin=tuple(repin))
+                 repin=tuple(repin), plat=plat,
+                 new_platform=bool(pinned_now))
     if pinned_now:
         save_pins(pins, pin_path)
         for name in pinned_now:

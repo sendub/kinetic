@@ -92,23 +92,36 @@ reported version, then runs the golden-hash self-test. Nothing is
 downloaded again while the pinned archive is installed (`--force`
 re-downloads). PATH's ffmpeg, `cjxl` and `djxl` are never used.
 
-A null `sha256`, a null `selftest.golden`, or a single null (or
-missing) golden case means "not pinned yet": `--pin` records them (the
-archive checksum cross-checked against the publisher's `<url>.sha256`,
-or the line naming the archive in the checksums file an entry gives as
+A null `sha256`, a null `selftest.golden`, or a single null (or missing)
+golden case means "not pinned yet": `--pin` records them (the archive
+checksum cross-checked against the publisher's `<url>.sha256`, or the
+line naming the archive in the checksums file an entry gives as
 `sha256Url`) while every pinned case must still match, and the updated
 pin file is committed. Nothing is written unless the whole self-test
-passes, so a build whose output differs from the shared goldens is
-never pinned. On a platform with a null archive checksum, setup without
-`--pin` refuses and says why: no one has verified that platform's build
-on such a machine yet. A newly added self-test case lands as a null golden, and
-`kinetic-extract` refuses, naming the case, until `--pin` records it.
-Pinned values are only ever verified, never overwritten by `--pin`. When
-a deliberate recipe change alters one case's bytes, re-record exactly
-that case with `--repin CASE` (repeatable; it prints old and new
-values, and every other case must still match). To move to a new
-ffmpeg, change the version and URLs, null the checksums and goldens,
-and re-run `--pin`.
+passes, so a build whose output differs from the shared goldens is never
+pinned, with one exception for the CPU. Some recipes give other bytes on
+x86_64 than on arm64 whoever built ffmpeg (float audio encoders,
+swscale, x264): those cases are listed in `selftest.cpuDependent`, and
+only the user adds to that list. The `--pin` that first records a
+platform's archive checksums also records that platform's own golden for
+each listed case that differs, under
+`selftest.platformGolden.<platform>.<case>`; any other differing case,
+or a case that fails to run, refuses with nothing written. On that
+platform the self-test then checks those cases against its own goldens
+and every other case against the shared one. A platform golden for a
+platform or case the pin file does not know, or for a case not in the
+list, is an error. On a platform with a null archive checksum, setup
+without `--pin` refuses and says why: no one has verified that
+platform's build on such a machine yet. A newly added self-test case
+lands as a null golden, and `kinetic-extract` refuses, naming the case,
+until `--pin` records it. Pinned values are only ever verified, never
+overwritten by `--pin`. When a deliberate recipe change alters one
+case's bytes, re-record exactly that case with `--repin CASE`
+(repeatable; it prints old and new values, and every other case must
+still match); on a platform that holds its own golden for CASE, `--repin
+CASE` re-records that one, and the shared golden is re-recorded on a
+platform without one. To move to a new ffmpeg, change the version and
+URLs, null the checksums and goldens, and re-run `--pin`.
 
 Encoders run single-threaded and bitexact: every ffmpeg command carries
 `-filter_threads 1`, `-threads 1` for the decoder and the encoder,
@@ -247,7 +260,10 @@ It runs the recorded steps through the same step code the converter
 uses, and checks source sha256s, output sha256s and the folder's
 `media/`. Give the same `--decoder` hooks the conversion ran. The
 ledger's `mediaTools` must equal the current pinned tools, or the
-rebuild refuses (exit 2). By default it only verifies; `--out DIR` also
+rebuild refuses (exit 2); a ledger made on another platform (its
+`mediaTools.platform`, `macos-arm64` when absent) stops with `made on
+<platform>; rebuild there to verify` (exit 3), since the CPU-dependent
+recipes give other bytes there. By default it only verifies; `--out DIR` also
 writes the rebuilt `media/` tree. Exit 0 means everything matched.
 Exit 1 means something is missing, unsupported or mismatched, and each
 problem is named by its output path. The details are in

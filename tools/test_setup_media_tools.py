@@ -478,3 +478,127 @@ def test_pins_flag_points_setup_at_another_file(tmp_path: Path) -> None:
     assert setup_mod.parse_args([]).pins == setup_mod.PIN_PATH
     scratch = tmp_path / "scratch.json"
     assert setup_mod.parse_args(["--pins", str(scratch)]).pins == scratch
+
+
+# --- per-platform goldens ------------------------------------------------------
+
+X86 = {**GOLDEN, "ffmpeg.transcode-mp4": "x86"}
+
+
+def platform_pin_file(path: Path, *, sha256: str | None,
+                      own: dict[str, str] | None = None) -> bytes:
+    """Windows pins with shared GOLDEN and ffmpeg.transcode-mp4 the only
+    CPU-dependent case; returns the file's bytes."""
+    pins = {"ffmpeg": {"version": "9.0.2", "platforms": {
+        WIN: {name: {"url": WIN_URL, "sha256": sha256}
+              for name in ("ffmpeg", "ffprobe")}}},
+        "python": dict(VERSIONS),
+        "selftest": {"golden": GOLDEN,
+                     "cpuDependent": ["ffmpeg.transcode-mp4"],
+                     "platformGolden": {WIN: own} if own else {}}}
+    path.write_text(json.dumps(pins, indent=2) + "\n")
+    return path.read_bytes()
+
+
+def win_served() -> FakeFetch:
+    return FakeFetch({WIN_URL: WIN_ZIP,
+                      WIN_URL + ".sha256": f"{sha(WIN_ZIP)}\n".encode()})
+
+
+def run_platform(tmp_path: Path, result: dict[str, str], *,
+                 pin: bool = False, repin: tuple[str, ...] = (),
+                 force: bool = True) -> list[str]:
+    log: list[str] = []
+    setup_mod.setup(pin=pin, force=force, fetch=win_served(), repin=repin,
+                    pin_path=tmp_path / "media-tools.json",
+                    root=tmp_path / "tools", plat=WIN, versions=VERSIONS,
+                    runner=Runner(result), check_versions=False,
+                    log=log.append)
+    return log
+
+
+def test_pin_on_a_new_platform_records_its_own_goldens(
+        tmp_path: Path) -> None:
+    platform_pin_file(tmp_path / "media-tools.json", sha256=None)
+    log = run_platform(tmp_path, X86, pin=True)
+    pins = pins_of(tmp_path)
+    assert {e["sha256"] for e in pins["ffmpeg"]["platforms"][WIN].values()} \
+        == {sha(WIN_ZIP)}
+    assert pins["selftest"]["golden"] == GOLDEN
+    assert pins["selftest"]["platformGolden"] == {
+        WIN: {"ffmpeg.transcode-mp4": "x86"}}
+    assert any(f"recorded 1 {WIN} golden hash" in line
+               and "ffmpeg.transcode-mp4 x86" in line for line in log)
+    # The platform is now checked against its own golden, and only there.
+    run_platform(tmp_path, X86)
+    with pytest.raises(setup_mod.SetupError, match="expected x86, got aa"):
+        run_platform(tmp_path, GOLDEN)
+
+
+def test_pin_refuses_a_difference_outside_the_cpu_cases(
+        tmp_path: Path) -> None:
+    before = platform_pin_file(tmp_path / "media-tools.json", sha256=None)
+    with pytest.raises(setup_mod.SetupError) as exc:
+        run_platform(tmp_path, {**X86, "pillow.encode-png": "b2"}, pin=True)
+    message = str(exc.value)
+    assert "beyond the CPU-dependent cases" in message
+    assert "pillow (pillow.encode-png): expected bb, got b2" in message
+    assert "ffmpeg.transcode-mp4" not in message
+    assert "Only the user may add a case" in message
+    assert (tmp_path / "media-tools.json").read_bytes() == before
+
+
+def test_pin_refuses_a_cpu_case_that_failed(tmp_path: Path) -> None:
+    before = platform_pin_file(tmp_path / "media-tools.json", sha256=None)
+    with pytest.raises(setup_mod.SetupError, match="nothing pinned"):
+        run_platform(tmp_path, {**GOLDEN, "ffmpeg.transcode-mp4": "FAILED"},
+                     pin=True)
+    assert (tmp_path / "media-tools.json").read_bytes() == before
+
+
+def test_platform_goldens_only_with_the_first_archive_pin(
+        tmp_path: Path) -> None:
+    """An already pinned platform cannot gain its own goldens by --pin."""
+    before = platform_pin_file(tmp_path / "media-tools.json",
+                               sha256=sha(WIN_ZIP))
+    with pytest.raises(setup_mod.SetupError,
+                       match="expected aa, got x86(.|\n)*first records its "
+                             "archive checksums"):
+        run_platform(tmp_path, X86, pin=True)
+    assert (tmp_path / "media-tools.json").read_bytes() == before
+
+
+def test_repin_rerecords_the_platform_golden_or_the_shared_one(
+        tmp_path: Path) -> None:
+    platform_pin_file(tmp_path / "media-tools.json", sha256=sha(WIN_ZIP),
+                      own={"ffmpeg.transcode-mp4": "x86"})
+    changed = {**X86, "ffmpeg.transcode-mp4": "x86b"}
+    log = run_platform(tmp_path, changed, repin=("ffmpeg.transcode-mp4",))
+    pins = pins_of(tmp_path)
+    assert pins["selftest"]["platformGolden"][WIN] == {
+        "ffmpeg.transcode-mp4": "x86b"}
+    assert pins["selftest"]["golden"] == GOLDEN
+    assert any("re-pinned ffmpeg.transcode-mp4: x86 -> x86b" in line
+               for line in log)
+    shared = {**changed, "pillow.encode-png": "b2"}
+    run_platform(tmp_path, shared, repin=("pillow.encode-png",))
+    pins = pins_of(tmp_path)
+    assert pins["selftest"]["golden"]["pillow.encode-png"] == "b2"
+    assert pins["selftest"]["platformGolden"][WIN] == {
+        "ffmpeg.transcode-mp4": "x86b"}
+
+
+@pytest.mark.parametrize("table, problem", [
+    ({"linux-arm64": {"ffmpeg.transcode-mp4": "x"}}, "no such platform"),
+    ({WIN: {"ffmpeg.nope": "x"}}, "no such self-test case"),
+    ({WIN: {"pillow.encode-png": "x"}}, "not a CPU-dependent case"),
+])
+def test_bad_platform_golden_in_the_pin_file_refuses(
+        tmp_path: Path, table: dict[str, Any], problem: str) -> None:
+    path = tmp_path / "media-tools.json"
+    platform_pin_file(path, sha256=sha(WIN_ZIP))
+    pins = json.loads(path.read_text())
+    pins["selftest"]["platformGolden"] = table
+    path.write_text(json.dumps(pins))
+    with pytest.raises(setup_mod.SetupError, match=problem):
+        run_platform(tmp_path, GOLDEN)

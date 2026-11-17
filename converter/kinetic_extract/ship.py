@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from . import media_tools
 from .media import image_size, probe_duration_seconds
 from .rpa import RpaError, extract_cached, open_archive
 from .timeline import ItemRecord, set_video_duration
@@ -268,7 +269,7 @@ def check_same_tools(ledger: dict[str, Any], tools: dict[str, Any],
                      out_dir: Path) -> None:
     """Refuse to merge outputs made with other media tools: one folder's
     media must rebuild with one tool set."""
-    old = ledger.get("mediaTools") or {}
+    old = media_tools.ledger_tools(ledger.get("mediaTools") or {})
     differ = sorted(k for k in set(old) | set(tools)
                     if old.get(k) != tools.get(k))
     if differ:

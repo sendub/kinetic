@@ -234,7 +234,12 @@ docs/content-format.md.
   single-threaded and bitexact. A golden-hash self-test over committed
   samples runs at setup and (cached) at converter start; any missing
   install, version or binary drift, unpinned golden or mismatch makes
-  the converter refuse to run.
+  the converter refuse to run. The goldens are shared by every
+  platform, except that a platform may hold its own for the cases a
+  CPU difference explains (`selftest.cpuDependent`, 2026-11-17: x86_64
+  and arm64 differ there whoever built ffmpeg), so a folder's media is
+  reproducible on the platform that made it: its ledger records that
+  platform, and the reuse cache keys on it.
 - Packaged assets: most released games keep all media inside `.rpa`
   archives; read those directly (a pickle index plus concatenated data,
   pure Python). Handle `.rpak` with an unrpak-style tool only when real

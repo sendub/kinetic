@@ -15,7 +15,8 @@ entry, and each of its ``alsoFrom`` sources, is rebuilt independently:
    code the converter makes outputs with (decoder hooks included);
 3. the output's sha256 must equal the entry's, exactly: the tools are
    pinned and the ledger's ``mediaTools`` must equal the current ones, so
-   there is no drift to tolerate;
+   there is no drift to tolerate (a ledger made on another platform is
+   refused before any of this: ``other_platforms``);
 4. an entry with a ``script`` (an audio output's ``<file>.js``,
    ``audio_format``) has it made again from that output, and its sha256
    and size must equal the recorded ones.
@@ -43,6 +44,7 @@ from typing import Any
 
 from . import assets, audio_format
 from .assets import hook_func
+from .media_tools import ledger_tools
 from .decoders import Decoder, describe
 from .media import MEDIA_DIR, existing_problem, sha256_file, write_whole
 from .rpa import RpaError, extract_cached, open_archive
@@ -91,13 +93,30 @@ def load_ledgers(folder: Path) -> list[tuple[str, dict[str, Any]]]:
     return found
 
 
+def other_platforms(ledgers: list[tuple[str, dict[str, Any]]],
+                    tools: dict[str, Any]) -> list[str]:
+    """One line per ledger made on a platform other than this run's: its
+    outputs can only be verified there (the CPU-dependent recipes give
+    other bytes here). A ledger without ``mediaTools.platform`` was made
+    on macos-arm64 (``ledger_tools``)."""
+    here = tools.get("platform")
+    lines: list[str] = []
+    for name, ledger in ledgers:
+        made_on = ledger_tools(ledger.get("mediaTools") or {})["platform"]
+        if made_on != here:
+            lines.append(f"{name}: made on {made_on}; rebuild there to "
+                         f"verify (this machine is {here})")
+    return lines
+
+
 def tool_differences(ledgers: list[tuple[str, dict[str, Any]]],
                      tools: dict[str, Any]) -> list[str]:
     """One line per ``mediaTools`` key a ledger records differently from
-    the tools this run has."""
+    the tools this run has (an older ledger's missing platform read as
+    macos-arm64)."""
     lines: list[str] = []
     for name, ledger in ledgers:
-        old = ledger.get("mediaTools") or {}
+        old = ledger_tools(ledger.get("mediaTools") or {})
         for key in sorted(set(old) | set(tools)):
             if old.get(key) != tools.get(key):
                 lines.append(f"{name}: mediaTools {key}: ledger "

@@ -404,6 +404,45 @@ def test_other_media_tools_refuse(copies, capsys) -> None:
     assert "Pillow" in report and "1.0.0" in report
 
 
+def test_ledger_made_on_another_platform_says_where_to_verify(
+        copies, capsys) -> None:
+    """The CPU-dependent recipes give other bytes elsewhere: a ledger made
+    on another platform is not a bare mismatch but a pointer to the
+    platform that can verify it (exit 3)."""
+    project, out = copies
+    ledger = ledger_of(out)
+    here = ledger["mediaTools"]["platform"]
+    assert here == media_tools.platform_key()
+    there = "windows-x86_64" if here != "windows-x86_64" else "linux-x86_64"
+    ledger["mediaTools"]["platform"] = there
+    write_ledger(out, ledger)
+    assert rebuild(project, out, "--decoder", HOOK) == 3
+    err = capsys.readouterr().err
+    assert (f"build-ledger.json: made on {there}; rebuild there to verify "
+            f"(this machine is {here})") in err
+    assert "output mismatch" not in err
+
+
+def test_ledger_without_a_platform_was_made_on_macos_arm64(
+        copies, capsys, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Older folders record no platform: they were made on macos-arm64,
+    the only platform pinned then."""
+    project, out = copies
+    ledger = ledger_of(out)
+    del ledger["mediaTools"]["platform"]
+    write_ledger(out, ledger)
+    monkeypatch.setattr(media_tools, "platform_key",
+                        lambda *_args: "macos-arm64")
+    assert rebuild(project, out, "--decoder", HOOK) == 0
+    capsys.readouterr()
+    monkeypatch.setattr(media_tools, "platform_key",
+                        lambda *_args: "linux-x86_64")
+    assert rebuild(project, out, "--decoder", HOOK) == 3
+    assert ("build-ledger.json: made on macos-arm64; rebuild there to "
+            "verify (this machine is linux-x86_64)") in \
+        capsys.readouterr().err
+
+
 def test_folder_without_a_ledger_is_an_error(tmp_path: Path,
                                              capsys) -> None:
     (tmp_path / "empty").mkdir()

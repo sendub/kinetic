@@ -16,8 +16,10 @@ it):
   measurements ``audio-duration`` and ``audio-loudness``), the sha256
   of the bytes entering the encode (after any decoder hook and carve),
   the recipe (every step dict and parameter the operation can choose
-  from), and the run's whole ``mediaTools`` (tool versions and binary
-  hashes). The value is the outcome: for an image the chosen ext,
+  from), and the run's whole ``mediaTools`` (tool versions, binary
+  hashes and the platform, since the CPU-dependent recipes give other
+  bytes on another platform: a cache shared between machines never
+  serves one platform's outputs to another). The value is the outcome: for an image the chosen ext,
   decision, notes, ledger steps and output sha256, so the candidate
   comparison ("is the JPEG XL smaller?") is skipped too, not just the
   encode; for a measurement its ``value`` (seconds, or dBFS).

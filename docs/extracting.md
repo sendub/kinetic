@@ -334,8 +334,11 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
 - `mediaTools`: the tools this run used. `ffmpeg` and `ffprobe` as
   `{version, sha256}` (the version `-version` reports and the binary's
   hash), `Pillow`, `imagecodecs`, `libjxl`, `numpy`, `kinetic-extract`,
-  and `pinned` (false only under the test-only `KINETIC_MEDIA_TOOLS_DIR`
-  override, whose output is not reproducible).
+  `platform` (the media-tools platform that made the outputs, such as
+  `macos-arm64` or `windows-x86_64`; a ledger without it, from before
+  it was recorded, was made on `macos-arm64`), and `pinned` (false only
+  under the test-only `KINETIC_MEDIA_TOOLS_DIR` override, whose output
+  is not reproducible).
 - `media`: one entry per shipped file, keyed by its path
   (`media/<h[:2]>/<h>.<ext>`), posters included:
   - `kind`: `image`, `video`, `poster` or `audio`; `sha256` and `bytes`
@@ -1019,7 +1022,9 @@ into it, so a helper can ship once per episode into one folder:
 - `decoders` gains any hook not already listed.
 - A ledger made with different `mediaTools` is refused (exit 1): one
   folder's media must rebuild with one tool set, so ship into a new
-  folder.
+  folder. That includes the platform, so one ledger's outputs are
+  always made on one platform (a ledger without `platform` counts as
+  `macos-arm64`).
 - An output its ledger already records for the same source, made by
   the same steps with the same tools, and still in `media/` with its
   sha256, is reused as it stands: a transcode or remux is not run
@@ -1207,7 +1212,17 @@ files, and checks every hash (docs/plan.md Phase 25):
   verifies: outputs go to a temporary dir that is deleted afterwards,
   and the folder is not written.
 
-The pinned tools' self-test runs first. The ledger's `mediaTools` must
+The pinned tools' self-test runs first. A ledger made on another
+platform is refused before anything runs (exit 3), one line per
+ledger: `build-ledger.json: made on windows-x86_64; rebuild there to
+verify (this machine is macos-arm64)`. Some recipes give other bytes on
+another CPU (`selftest.cpuDependent` in `converter/media-tools.json`:
+the AAC and Opus encodes, the poster frame and its JPEG, the H.264
+transcodes), and the ffmpeg binaries differ per platform anyway, so
+this applies to every output of the folder, not only those recipes. A
+ledger without `mediaTools.platform`, from before ledgers recorded it,
+counts as made on `macos-arm64`, the only platform pinned then. The
+ledger's `mediaTools` must
 equal this run's tools exactly, or the rebuild refuses (exit 2) and
 names each difference (`mediaTools Pillow: ledger "13.0.0", now
 "13.1.0"`). `mediaTools` includes the ffmpeg and ffprobe binaries'
@@ -1273,6 +1288,8 @@ Exit codes:
 - 2: the rebuild cannot start: no ledger in the folder, a ledger with
   no `media` section, other media tools, a bad game root, or tools that
   are not ready.
+- 3: a ledger was made on another platform: rebuild on the platform
+  each `made on <platform>` line names.
 
 ## kinetic-media posters
 

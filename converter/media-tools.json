@@ -1,5 +1,5 @@
 {
-  "_comment": "Pinned media tools (docs/plan.md Phase 25). ffmpeg/ffprobe: Martin Riedl's static release builds for macOS and Linux (https://ffmpeg.martin-riedl.de/, build script https://git.martin-riedl.de/ffmpeg/build-script); URLs are the timestamped per-build links read from the site's release listing on 2026-11-02. Windows (no Martin Riedl build): Gyan Doshi's static essentials build (https://www.gyan.dev/ffmpeg/builds/), the versioned package URL; one zip holds both ffmpeg.exe and ffprobe.exe (in <build>/bin/), so both entries name it. Intel Macs are not supported. A null sha256 is recorded by `.venv/bin/python tools/setup_media_tools.py --pin` on that platform, which cross-checks the publisher's <url>.sha256 (or the checksums file an entry names in sha256Url). python: must equal requirements.txt. selftest.golden: case -> sha256 of the self-test outputs, shared by every platform; a null case (new, or never pinned) is recorded by --pin, which still checks every pinned case; after a tool or recipe change meant to change a case's bytes, re-record just that case with --repin CASE.",
+  "_comment": "Pinned media tools (docs/plan.md Phase 25). ffmpeg/ffprobe: Martin Riedl's static release builds for macOS and Linux (https://ffmpeg.martin-riedl.de/, build script https://git.martin-riedl.de/ffmpeg/build-script); URLs are the timestamped per-build links read from the site's release listing on 2026-11-02. Windows (no Martin Riedl build): Gyan Doshi's static essentials build (https://www.gyan.dev/ffmpeg/builds/), the versioned package URL; one zip holds both ffmpeg.exe and ffprobe.exe (in <build>/bin/), so both entries name it. Intel Macs are not supported. A null sha256 is recorded by `.venv/bin/python tools/setup_media_tools.py --pin` on that platform, which cross-checks the publisher's <url>.sha256 (or the checksums file an entry names in sha256Url). python: must equal requirements.txt. selftest.golden: case -> sha256 of the self-test outputs, shared by every platform; a null case (new, or never pinned) is recorded by --pin, which still checks every pinned case; after a tool or recipe change meant to change a case's bytes, re-record just that case with --repin CASE. selftest.cpuDependent: the cases whose bytes a CPU difference explains (x86_64 against arm64: float audio encoders, swscale, x264), the only cases a platform may hold its own golden for; adding a case to it is the user's call, never an agent's. selftest.platformGolden.<platform>.<case>: that platform's own golden, used there in place of the shared one; recorded only by the --pin that first records the platform's archive checksums, for the cpuDependent cases that differ (any other difference refuses, writing nothing), and re-recorded by --repin CASE on that platform.",
   "ffmpeg": {
     "version": "9.0.2",
     "source": "https://ffmpeg.martin-riedl.de/",
@@ -76,6 +76,15 @@
       "pillow.encode-jpeg": "7bf099041db071a8e2b50bf28dbacbb1dc4a4f575b582879f73cc6b12b6e2eef",
       "pillow.encode-png": "d4fdc547b1c8d4615f52dd025a5bedf2bbfb8ed7c42d328b0cc2b50fd03b09b6",
       "pillow.poster-jpeg": "3c945c1679420b7f26215481374cc735cb178a62e95c350bdd2220aa2e760114"
-    }
+    },
+    "cpuDependent": [
+      "ffmpeg.audio-loop-aac",
+      "ffmpeg.audio-transcode-opus",
+      "ffmpeg.poster-frame",
+      "ffmpeg.transcode-mp4",
+      "ffmpeg.transcode-odd-mp4",
+      "pillow.poster-jpeg"
+    ],
+    "platformGolden": {}
   }
 }

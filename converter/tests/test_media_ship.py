@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 import extra_hook
-from kinetic_extract import assets
+from kinetic_extract import assets, media_tools
 from kinetic_extract import rpa as rpa_mod
 from kinetic_extract.cli import main as extract_main
 from kinetic_extract.media_cli import main as media_main
@@ -264,6 +264,26 @@ def test_other_media_tools_refuse_to_merge(
     assert ship(project, out, [MEMBER]) == 1
     err = capsys.readouterr().err
     assert "different media tools" in err and "Pillow" in err
+
+
+def test_ledger_without_a_platform_merges_on_macos_arm64(
+        project: Path, tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """A media ledger from before ledgers named their platform was made on
+    macos-arm64: shipping into it there merges, and records the
+    platform."""
+    monkeypatch.setattr(media_tools, "platform_key",
+                        lambda *_args: "macos-arm64")
+    out = tmp_path / "out"
+    assert ship(project, out, [LOOSE]) == 0
+    ledger = ledger_of(out)
+    del ledger["mediaTools"]["platform"]
+    (out / LEDGER).write_text(json.dumps(ledger), encoding="utf-8")
+    assert ship(project, out, [MEMBER]) == 0
+    assert ledger_of(out)["mediaTools"]["platform"] == "macos-arm64"
+    monkeypatch.setattr(media_tools, "platform_key",
+                        lambda *_args: "linux-x86_64")
+    assert ship(project, out, [LOOSE]) == 1
 
 
 def test_identical_output_from_two_sources_is_one_entry(

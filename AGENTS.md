@@ -25,7 +25,10 @@ are implementing and docs/stack.md for settled decisions.
   orchestrator, not a subagent, records pins: a platform's archive
   checksums only by running `--pin` on that platform, only when the
   download matches the publisher's checksum and only while every
-  shared golden matches; the golden of a newly added self-test case
+  shared golden matches, except that the same `--pin` may record the
+  platform's own goldens for cases in `selftest.cpuDependent` (setup
+  refuses any other difference; only the user extends that list); the
+  golden of a newly added self-test case
   with `--repin CASE` from the installed pinned tools while every other
   case still matches; and it lists every hash recorded in the item's
   evidence note. Run `.venv/bin/kinetic extract

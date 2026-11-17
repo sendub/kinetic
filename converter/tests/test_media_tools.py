@@ -302,13 +302,102 @@ def test_cache_keyed_by_tool_versions(no_override: Path) -> None:
     ready(no_override, pins, runner, versions=newer)
     assert runner.calls == 2
     binaries = {"ffmpeg": "x", "ffprobe": "y"}
-    base = selftest.cache_key(pins, newer, binaries, selftest.SAMPLES_DIR)
+    base = selftest.cache_key(pins, newer, binaries, selftest.SAMPLES_DIR,
+                              PLAT)
     assert base != selftest.cache_key(pins, newer, {**binaries, "ffmpeg": "z"},
-                                      selftest.SAMPLES_DIR)
+                                      selftest.SAMPLES_DIR, PLAT)
     pins["ffmpeg"]["version"] = "9.0.3"
     assert base != selftest.cache_key(pins, newer, binaries,
-                                      selftest.SAMPLES_DIR)
+                                      selftest.SAMPLES_DIR, PLAT)
     assert plat_dir.is_dir()
+
+
+# --- per-platform goldens ----------------------------------------------------
+
+WIN = "windows-x86_64"
+
+
+def platform_pins(own: dict[str, Any], plat: str = WIN,
+                  allowed: tuple[str, ...] = ("ffmpeg.poster-frame",)
+                  ) -> dict[str, Any]:
+    pins = make_pins({"ffmpeg.poster-frame": "arm", "pillow.encode-png": "p"},
+                     plat)
+    pins["selftest"]["cpuDependent"] = list(allowed)
+    pins["selftest"]["platformGolden"] = {plat: own}
+    return pins
+
+
+def test_platform_golden_replaces_only_its_case(no_override: Path) -> None:
+    pins = platform_pins({"ffmpeg.poster-frame": "x86"})
+    plat_dir = install(no_override, pins, WIN)
+    assert selftest.golden_for(pins, WIN) == {
+        "ffmpeg.poster-frame": "x86", "pillow.encode-png": "p"}
+    selftest.ensure_ready(pins=pins, versions=VERSIONS, plat=WIN,
+                          root=no_override, runner=Runner(
+                              {"ffmpeg.poster-frame": "x86",
+                               "pillow.encode-png": "p"}))
+    (plat_dir / selftest.CACHE_FILE).unlink()
+    with pytest.raises(MediaToolsError, match=r"pillow \(pillow.encode-png\)"
+                                              ": expected p, got q"):
+        selftest.ensure_ready(pins=pins, versions=VERSIONS, plat=WIN,
+                              root=no_override, runner=Runner(
+                                  {"ffmpeg.poster-frame": "x86",
+                                   "pillow.encode-png": "q"}))
+    # Another platform's goldens never apply here.
+    assert selftest.golden_for(pins, PLAT)["ffmpeg.poster-frame"] == "arm"
+
+
+def test_cache_key_follows_the_platform_goldens() -> None:
+    pins = platform_pins({"ffmpeg.poster-frame": "x86"})
+    pins["ffmpeg"]["platforms"][PLAT] = pins["ffmpeg"]["platforms"][WIN]
+    args = (VERSIONS, {"ffmpeg": "x", "ffprobe": "y"}, selftest.SAMPLES_DIR)
+    assert selftest.cache_key(pins, *args, WIN) != \
+        selftest.cache_key(pins, *args, PLAT)
+
+
+@pytest.mark.parametrize("table, problem", [
+    ({"freebsd-x86_64": {"ffmpeg.poster-frame": "x"}}, "no such platform"),
+    ({WIN: {"ffmpeg.nope": "x"}}, "no such self-test case"),
+    ({WIN: {"pillow.encode-png": "x"}}, "not a CPU-dependent case"),
+    ({WIN: {"ffmpeg.poster-frame": None}}, "is empty"),
+])
+def test_bad_platform_golden_refuses(no_override: Path,
+                                     table: dict[str, Any],
+                                     problem: str) -> None:
+    pins = platform_pins({})
+    pins["selftest"]["platformGolden"] = table
+    install(no_override, pins, WIN)
+    with pytest.raises(MediaToolsError, match=problem):
+        selftest.ensure_ready(pins=pins, versions=VERSIONS, plat=WIN,
+                              root=no_override, runner=Runner({}))
+
+
+def test_unknown_cpu_dependent_case_refuses() -> None:
+    pins = platform_pins({}, allowed=("ffmpeg.nope",))
+    with pytest.raises(MediaToolsError, match="cpuDependent.*ffmpeg.nope"):
+        selftest.check_platform_goldens(pins)
+
+
+def test_pin_file_platform_goldens_are_valid() -> None:
+    pins = media_tools.load_pins()
+    selftest.check_platform_goldens(pins)
+    assert sorted(selftest.cpu_dependent(pins)) == [
+        "ffmpeg.audio-loop-aac", "ffmpeg.audio-transcode-opus",
+        "ffmpeg.poster-frame", "ffmpeg.transcode-mp4",
+        "ffmpeg.transcode-odd-mp4", "pillow.poster-jpeg"]
+    assert "macos-arm64" not in (pins["selftest"].get("platformGolden")
+                                 or {})
+
+
+def test_run_tools_records_the_platform() -> None:
+    assert media_tools.run_tools("x")["platform"] == \
+        media_tools.platform_key()
+
+
+def test_ledger_tools_fill_in_the_legacy_platform() -> None:
+    assert media_tools.ledger_tools({"Pillow": "1"}) == {
+        "Pillow": "1", "platform": "macos-arm64"}
+    assert media_tools.ledger_tools({"platform": WIN})["platform"] == WIN
 
 
 def test_override_skips_checks(tmp_path: Path,

@@ -192,13 +192,31 @@ def binary_version(name: str) -> str | None:
     return words[2]
 
 
+# The platform a ledger without ``mediaTools.platform`` was made on: the
+# only one pinned before ledgers recorded it.
+LEGACY_PLATFORM = "macos-arm64"
+
+
+def ledger_tools(tools: dict[str, Any]) -> dict[str, Any]:
+    """A ledger's ``mediaTools`` with its platform filled in (an older
+    ledger has none: LEGACY_PLATFORM)."""
+    return {"platform": LEGACY_PLATFORM, **tools}
+
+
 def run_tools(extractor_version: str) -> dict[str, Any]:
     """The tools this run converts with, for the ledger's ``mediaTools``:
     ffmpeg/ffprobe version and binary sha256, the Python codec stack, the
-    extractor version, and whether the pinned install is in use (False
-    under the test-only override)."""
+    extractor version, the platform (outputs of the CPU-dependent recipes
+    differ between platforms, so a ledger names where it was made and the
+    reuse cache keys on it), and whether the pinned install is in use
+    (False under the test-only override)."""
+    try:
+        plat: str | None = platform_key()
+    except MediaToolsError:
+        plat = None
     out: dict[str, Any] = {"kinetic-extract": extractor_version,
-                           "pinned": override_dir() is None}
+                           "pinned": override_dir() is None,
+                           "platform": plat}
     for name in TOOL_NAMES:
         try:
             binary = tool_path(name)

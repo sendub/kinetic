@@ -150,6 +150,26 @@ def test_changed_tool_version_misses(project: Path, tmp_path: Path,
     assert "jxl_encode_lossless" in calls and "ffmpeg_error" in calls
 
 
+def test_other_platform_misses(project: Path, tmp_path: Path,
+                               monkeypatch: pytest.MonkeyPatch) -> None:
+    """The CPU-dependent recipes give other bytes on another platform, so
+    a cache shared between machines never serves one platform's outputs
+    to another: the key holds the run's platform."""
+    out = tmp_path / "out"
+    extract(project, out)
+    monkeypatch.setattr(media_tools, "platform_key",
+                        lambda *_args: "linux-x86_64")
+    calls = spy(monkeypatch)
+    extract(project, out)
+    assert "jxl_encode_lossless" in calls and "ffmpeg_error" in calls
+    tools = media_tools.run_tools("x")
+    assert tools["platform"] == "linux-x86_64"
+    from kinetic_extract.media_cache import MediaCache
+    keys = {MediaCache(tmp_path, {**tools, "platform": plat}).key(
+        "poster", "0" * 64, {}) for plat in ("linux-x86_64", "macos-arm64")}
+    assert len(keys) == 2
+
+
 def test_changed_jxl_recipe_misses(project: Path, tmp_path: Path,
                                    monkeypatch: pytest.MonkeyPatch) -> None:
     out = tmp_path / "out"

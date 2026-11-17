@@ -58,7 +58,9 @@ Verify-only by default; ``--out DIR`` also writes the rebuilt ``media/``
 tree there. Exit 0 when
 everything matches, 1 when anything is missing, unsupported or
 mismatched (each named), 2 when it cannot start (no ledger, other media
-tools, tools not ready).
+tools, tools not ready), 3 when a ledger was made on another platform
+(``made on <platform>; rebuild there to verify``; a ledger without
+``mediaTools.platform`` counts as made on macos-arm64).
 
 ``posters`` checks that every video item of the manifest (default
 ``<folder>/manifest.json``) has the frame at its ``startSeconds`` as its
@@ -98,7 +100,8 @@ from .decoders import Decoder, DecoderError
 from .media import ExistingFileError, write_whole
 from .media_cache import open_cache
 from .media_tools import MediaToolsError, run_tools
-from .rebuild import RebuildError, load_ledgers, rebuild, tool_differences
+from .rebuild import (RebuildError, load_ledgers, other_platforms, rebuild,
+                      tool_differences)
 from .selftest import ensure_ready
 from .workers import (Progress, Workers, default_jobs,
                       default_video_jobs)
@@ -197,6 +200,9 @@ def ship_requests(root: Path, out_dir: Path,
 
 
 PROGRESS_SECONDS = 10.0
+# `rebuild` exit code for a ledger made on another platform (docs/
+# extracting.md, "kinetic-media rebuild").
+REBUILD_OTHER_PLATFORM = 3
 
 
 def _limits(args: argparse.Namespace) -> tuple[int, int]:
@@ -230,7 +236,14 @@ def rebuild_cmd(args: argparse.Namespace) -> int:
         ledgers = load_ledgers(folder)
     except RebuildError as exc:
         return _fail(str(exc), 2)
-    differ = tool_differences(ledgers, run_tools(__version__))
+    tools = run_tools(__version__)
+    elsewhere = other_platforms(ledgers, tools)
+    if elsewhere:
+        return _fail("the outputs were made on another platform, whose "
+                     "CPU-dependent recipes give other bytes, so they "
+                     "cannot be verified here:\n" + "\n".join(elsewhere),
+                     REBUILD_OTHER_PLATFORM)
+    differ = tool_differences(ledgers, tools)
     if differ:
         return _fail("the ledger was made with other media tools; with "
                      "these the outputs cannot match:\n"

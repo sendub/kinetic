@@ -140,15 +140,20 @@ either:
   still null (the pin file lists `macos-arm64`, `linux-x86_64`,
   `linux-arm64` and `windows-x86_64`; only `macos-arm64` is pinned so
   far). It records the archives' sha256s once they match the
-  publisher's checksums. The golden values are shared by every platform
-  and must still match, so `--pin` cannot hide a platform whose tools
-  give different bytes. On Windows run it as
+  publisher's checksums. The golden values are shared by every
+  platform and must still match, with one exception: a few recipes
+  give other bytes on x86_64 than on arm64 (the cases listed in
+  `selftest.cpuDependent`, which only the user extends), and for those
+  this first `--pin` records the platform's own goldens. Any other
+  difference refuses and writes nothing, so `--pin` cannot hide a
+  platform whose tools give different bytes. On Windows run it as
   `.venv\Scripts\python tools\setup_media_tools.py --pin`, the form
   setup's own messages give there.
 - `--repin CASE`: only after a deliberate change to a media recipe in
   the converter changes one self-test case's output. It re-records that
   case (repeatable) and prints old and new values; every other case
-  must still match.
+  must still match. On a platform with its own golden for that case, it
+  re-records the platform's one.
 
 Reference: converter/README.md, "Pinned media tools".
 
@@ -734,8 +739,13 @@ mean every media file is exactly what this game and these tools make.
 
 To verify a folder on another machine, that machine needs:
 
-- the same OS and architecture: the ledger records the ffmpeg binary's
-  sha256, and a rebuild refuses tools that differ (exit 2);
+- the same platform (OS and architecture): the ledger records the
+  platform that made the folder, since some recipes give other bytes
+  on another CPU. Elsewhere the rebuild stops with `made on
+  <platform>; rebuild there to verify` (exit 3). A folder whose ledger
+  names no platform, from before ledgers recorded it, was made on
+  `macos-arm64`. The ledger also records the ffmpeg binary's sha256,
+  and a rebuild refuses tools that differ (exit 2);
 - the Kinetic release that made the folder, installed and set up as in
   Installing Kinetic (or a checkout at the commit that made it; note
   the release or commit when you share a folder);
@@ -906,6 +916,11 @@ tools`, followed by each difference (`mediaTools Pillow: ledger
 "12.0.0", now "13.0.0"`). Rebuild with the Kinetic release or commit
 that made the folder, on the same OS and architecture, or convert the
 game again with the current tools.
+
+**`rebuild` exit 3.** `made on <platform>; rebuild there to verify`:
+the folder was converted on another platform, whose CPU-dependent
+recipes give other bytes, so this machine cannot check them. Rebuild
+on that platform (a ledger without a platform means `macos-arm64`).
 
 **`rebuild` exit 1.** Each problem is one `FAIL <output path>:
 <problem>` line, then `rebuild FAILED: N problem(s)`:
