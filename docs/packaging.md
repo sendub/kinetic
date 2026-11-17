@@ -53,13 +53,16 @@ decision; this file is the practical sheet.
   manifest's `$schema` key stays; docs/content-format.md, Manifest).
 - Optionally `<title>.app`, the macOS app that plays the folder, and
   `<title>.exe`, the Windows program that shows it in a window of its
-  own over WebView2, built only when the author asks: `tools/build_apps.py <folder>
-  --mac --windows` (either flag alone builds one), or the same flags on
-  `tools/assemble_folder.py` (CREATE.md, "Building the apps"). Each
-  app carries its own words (menus, alert, error box) in every language
-  of the player's catalogue, from `apps/host-words.json`, which `npm run
-  i18n` writes; a build stops with an error while that table is stale
-  against the catalogue (apps/README.md, "The apps' own words").
+  own over WebView2, made only when the author asks: `kinetic apps
+  <folder> --mac --windows` (either flag alone makes one; in a checkout
+  `tools/build_apps.py` is the same), or the same flags on `kinetic
+  assemble` (CREATE.md, "Building the apps"). Each is a copy of a host
+  program built once per release, given the game's title, storyId,
+  first window size and icon. Each app carries its own words (menus,
+  alert, error box) in every language of the player's catalogue, from
+  `apps/host-words.json`, which `npm run i18n` writes; a host build
+  stops with an error while that table is stale against the catalogue
+  (apps/README.md, "The apps' own words").
 
 ## Building one
 
@@ -116,29 +119,33 @@ python3 -m venv ~/kinetic-venv
 ```
 
 `kinetic --help` lists the subcommands: `setup`, `extract`, `media`
-(`ship`, `rebuild`, `posters`), `validate`, `assemble`, `upgrade`,
-`check`, `report`, `routes` and `export`. Each wrapped tool takes the
-arguments, prints the output and exits with the codes of the command it
-stands for (CREATE.md, "Without a checkout: the `kinetic` command").
-`kinetic-extract` and `kinetic-media` install beside it, and in a
-checkout `tools/*.py` keep working; those scripts are thin wrappers
-over the same modules in `converter/kinetic_extract/`. Making the
-macOS app or the Windows exe still needs a checkout
-(`tools/build_apps.py`, or `--mac`/`--windows` on assemble).
+(`ship`, `rebuild`, `posters`), `validate`, `assemble`, `apps`,
+`upgrade`, `check`, `report`, `routes` and `export`. Each wrapped tool
+takes the arguments, prints the output and exits with the codes of the
+command it stands for (CREATE.md, "Without a checkout: the `kinetic`
+command"). `kinetic-extract` and `kinetic-media` install beside it, and
+in a checkout `tools/*.py` keep working; those scripts are thin
+wrappers over the same modules in `converter/kinetic_extract/`.
+`kinetic apps` makes the macOS app and the Windows exe from the hosts
+the wheel carries prebuilt, with no Swift or Go: the exe on any system,
+the Mac app on macOS, which signs it with `codesign` (see "The app
+hosts" below).
 
 The wheel carries what the tools read from the repo in a checkout,
 under `kinetic_extract/data/`: the repo's VERSION,
 `converter/media-tools.json`, the two schemas from docs/, the media
 self-test's samples, vendored unrpyc, the built player (`index.html`
-and `app.js`, which `kinetic assemble` and `kinetic upgrade` copy), and
-check-game bundled with puppeteer-core into one file. `kinetic check`
+and `app.js`, which `kinetic assemble` and `kinetic upgrade` copy),
+check-game bundled with puppeteer-core into one file with the WebKit
+driver beside it (`check/kinetic-webkit-driver`, macOS arm64), the
+repo's LICENSE and `apps/host-words.json`, and the two app hosts
+(`apps/macos/kinetic` and `apps/windows/kinetic.exe`). `kinetic check`
 runs that file with the system Node, so it needs Node.js at the version
 puppeteer-core needs (22.12 or later; the check names it when Node is
 missing or older) and Chrome, found as check-game finds it
 (`KINETIC_CHROME`, else the usual place). The engine `auto` uses
-WebKit on macOS only when the wheel carries a prebuilt WebKit driver
-beside the bundle (`check/kinetic-webkit-driver`); without one it tests
-on Chrome and says why.
+WebKit on macOS, through the prebuilt driver, with no Swift; a wheel
+without the driver tests on Chrome and says why.
 
 Where an installed Kinetic writes, `KINETIC_HOME` when set, else the
 system's place for an application's data and caches. The media tools
@@ -169,11 +176,67 @@ The wheel is built in a checkout with
 
 which builds the player afresh into a staging folder (player/dist/ is
 left alone) and refuses a bundle not stamped with the checkout's
-VERSION, bundles check-game (`player/scripts/bundle-check.mjs`), and
-writes `dist/kinetic-<version>-py3-none-any.whl` with `pip wheel`. It
-needs Node and `player/node_modules`. The wheel is about 1.1 MB, of
-which the bundled check-game is 2.4 MB and the player 1.4 MB before
-compression (2026-11-17).
+VERSION, bundles check-game and builds the WebKit driver
+(`player/scripts/bundle-check.mjs --driver`), builds the two app hosts,
+and writes `dist/kinetic-<version>-py3-none-any.whl` with `pip wheel`.
+It needs Node and `player/node_modules`, macOS with a Swift toolchain
+(the Mac host and the driver) and Go 1.27 or later (the Windows host):
+the release machine's tools, never an installer's. The wheel is about
+4.6 MB, of which the Windows host is 7.8 MB, the bundled check-game
+2.4 MB, the player 1.4 MB, the WebKit driver 0.7 MB and the Mac host
+0.6 MB before compression (2026-11-17).
+
+### The app hosts
+
+`kinetic apps` (kinetic_extract/apps.py) copies one of two programs
+into each game folder and writes the game's settings into the copy;
+each host reads them once at launch, which costs well under a
+millisecond and nothing afterwards (docs/plan.md Phase 57 item 10):
+
+- **The Mac host** (`apps/macos/app/`, arm64, macOS 12 or later) reads
+  `KineticStoryId`, `KineticTitle`, `KineticWindowSize` ({Width,
+  Height}) and `KineticVersion` from its bundle's Info.plist, which
+  macOS reads anyway (`apps/macos/app/HostSettings.swift`). `kinetic
+  apps --mac` writes that Info.plist (with the bundle id
+  `org.kinetic.game.<storyId>`), the icon as `AppIcon.icns` (Pillow,
+  no `sips` or `iconutil`) and `LICENSE`, then signs the bundle ad hoc
+  with `codesign`, so the Mac app still needs macOS.
+- **The Windows host** (`apps/windows/`, x86-64 GUI) reads RT_RCDATA
+  resource 3, a small UTF-8 JSON object (`{"kineticVersion",
+  "storyId", "title", "windowSize": {"width", "height"}}`), through
+  FindResourceW from its own mapped image (`apps/windows/settings.go`).
+  `kinetic apps --windows` rewrites the copy's resources on any system
+  (kinetic_extract/windows_resources.py, `replace_resources`): it
+  keeps the host's application manifest and license texts (RT_RCDATA 1
+  and 2), and writes the icon (RT_ICON and RT_GROUP_ICON), the version
+  resource (the title as its description, the storyId) and the
+  settings. It replaces the exe's `.rsrc` section, which the Go linker
+  puts last in the file and in memory (the host build checks), so the
+  new section may grow or shrink: its sizes, SizeOfImage and the
+  resource data directory follow, and the PE checksum is computed
+  afresh (imagehlp's own `MapFileAndCheckSum` agrees on the user's
+  Windows PC), though Windows checks it only for drivers and DLLs
+  loaded into system processes. The host links with `-buildid=`, so
+  writing a game's resources into it gives the very exe that linking
+  them in would, byte for byte but that checksum (the linker leaves
+  0); tools/test_build_apps.py checks this.
+
+Both hosts carry what is the same for every game compiled in: the voice
+helper and the hosts' own words table. `<binary> --self-check FILE`
+writes the settings the host read (and the Kinetic version that made
+the app) to FILE as JSON and exits at once, with no window (the exe
+has no console, hence a file): `{"host": "macos", "storyId", "title",
+"windowSize": {"width", "height"} or null, "kineticVersion",
+"bundleId"}` from the Mac binary inside the app
+(`<title>.app/Contents/MacOS/kinetic`), the same keys but `bundleId`
+from the exe, `"host": "windows"`.
+
+In a checkout `kinetic apps` builds the hosts on first use into
+`.tmp/app-hosts/<kind>-<hash>/`, the hash covering every input
+(sources, the generated embeds, flags, the toolchain's version, the
+license texts), so it needs Swift (the Mac host) or Go (the Windows
+host) there, as the release build does, and reuses a build until an
+input changes. kinetic_extract/app_hosts.py says how each is built.
 
 ## Double-click behavior and transport
 
@@ -250,11 +313,12 @@ player keeps each track it plays decoded, 23 MB a minute in stereo at
 This section once held a Tauri v2 wrapper in reserve for the day a real
 `.app` was wanted (docs/stack.md § Revisit triggers). The per-game apps
 replace it (docs/plan.md Phase 43): the macOS app is a small Swift
-program over the system WebKit that `tools/build_apps.py` compiles
-with Xcode or the Command Line Tools and signs ad hoc, and the Windows
-exe is a small Go program (`apps/windows/`) that shows the folder
-through WebView2, which Go builds for Windows from any system. No Rust toolchain is
-needed and the folder's files stay as they are beside them. The page
+program over the system WebKit that each release compiles once with
+Xcode or the Command Line Tools and `kinetic apps` signs ad hoc, and
+the Windows exe is a small Go program (`apps/windows/`) that shows the
+folder through WebView2, which Go builds for Windows from any system.
+No Rust toolchain is needed and the folder's files stay as they are
+beside them. The page
 talks to either app over one small protocol (apps/README.md): the Esc
 screen's Exit and Fullscreen | Window.
 

@@ -46,10 +46,9 @@ double-clicks open over `file://` with nothing else on disk:
 Prints the assembled folder's file count and total size.
 
 `--mac` and `--windows` (and `--icon IMAGE`) then add the macOS app and
-the Windows exe to the folder with tools/build_apps.py's build, checked
-before anything is copied (the manifest's storyId, the Swift toolchain,
-Go, the icon picture). They need a checkout, where tools/build_apps.py
-is.
+the Windows exe to the folder as `kinetic apps` does (kinetic_extract/
+apps.py), checked before anything is copied (the manifest's storyId,
+macOS for the Mac app's signature, the prebuilt hosts, the icon picture).
 """
 
 from __future__ import annotations
@@ -226,19 +225,6 @@ def bundle_dir() -> Path:
     return REPO_ROOT / "player" / "dist"
 
 
-def app_builder():
-    """tools/build_apps.py, imported from the checkout; exits 1 from an
-    installed wheel, which has none."""
-    if REPO_ROOT is None:
-        fail(1, "--mac and --windows need a Kinetic checkout "
-                "(tools/build_apps.py); this installed Kinetic has none")
-    tools = str(REPO_ROOT / "tools")
-    if tools not in sys.path:
-        sys.path.insert(0, tools)
-    import build_apps
-    return build_apps
-
-
 def main(argv: list[str]) -> None:
     parser = argparse.ArgumentParser(
         prog=Path(argv[0]).name,
@@ -248,11 +234,11 @@ def main(argv: list[str]) -> None:
     parser.add_argument("--force", action="store_true",
                         help="replace a non-empty output folder")
     parser.add_argument("--mac", action="store_true",
-                        help="then add <title>.app (tools/build_apps.py)")
+                        help="then add <title>.app (kinetic apps)")
     parser.add_argument("--windows", action="store_true",
-                        help="then add <title>.exe (tools/build_apps.py)")
+                        help="then add <title>.exe (kinetic apps)")
     parser.add_argument("--icon", type=Path, metavar="IMAGE",
-                        help="the apps' icon (tools/build_apps.py --icon)")
+                        help="the apps' icon (kinetic apps --icon)")
     add_version_option(parser)
     args = parser.parse_args(argv[1:])
 
@@ -263,7 +249,9 @@ def main(argv: list[str]) -> None:
     apps = {"mac": args.mac, "windows": args.windows}
     if args.icon is not None and not any(apps.values()):
         fail(2, "--icon goes with --mac or --windows")
-    build_apps = app_builder() if any(apps.values()) else None
+    build_apps = None
+    if any(apps.values()):
+        from . import apps as build_apps
     if build_apps is not None:
         try:
             build_apps.prepare(content, args.icon, **apps)

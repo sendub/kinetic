@@ -59,23 +59,22 @@ func TestEachGameHasItsOwnWindowClassAndMutex(t *testing.T) {
 	}
 }
 
-func TestGameTitle(t *testing.T) {
-	cases := []struct{ escaped, want string }{
-		{"Rainy%20Day%3A%20Two%3F", "Rainy Day: Two?"},
-		{"Zo%C3%AB%27s%20%22Day%22", `Zoë's "Day"`},
+func TestGameTitleIsTheSettingsTitleElseKinetic(t *testing.T) {
+	defer func() { settings = hostSettings{} }()
+
+	cases := []struct{ title, want string }{
+		{"Rainy Day: Two?", "Rainy Day: Two?"},
+		{`Zoë's "Day" 100%`, `Zoë's "Day" 100%`},
 		{"", fallbackTitle},
-		{"%20", fallbackTitle},
-		{"Bad%zz", fallbackTitle},
-		{"Nul%00", fallbackTitle},
+		{"  ", fallbackTitle},
+		{"Nul\x00", fallbackTitle},
 	}
 	for _, c := range cases {
-		titleEscaped = c.escaped
+		settings = hostSettings{StoryID: "rainy", Title: c.title}
 		if got := gameTitle(); got != c.want {
-			t.Errorf("gameTitle with %q = %q, want %q", c.escaped, got, c.want)
+			t.Errorf("gameTitle with %q = %q, want %q", c.title, got, c.want)
 		}
 	}
-
-	titleEscaped = ""
 }
 
 func TestTheWebViewIsCreatedWithAutoplayAllowed(t *testing.T) {

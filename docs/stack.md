@@ -264,8 +264,10 @@ stays the route everywhere.
 - macOS: `<title>.app` inside the game folder shows the folder through
   the system WebKit (WKWebView) with its own name and Dock icon,
   fullscreen from launch. It is arm64 only, needs macOS 12 or later and
-  is signed ad hoc by `tools/build_apps.py`. It holds only its binary,
-  so no check reads the media beside it.
+  is signed ad hoc by `kinetic apps`, which copies in a host binary each
+  release builds once and writes the game's settings into its
+  Info.plist. It holds only its binary, so no check reads the media
+  beside it.
 - Windows: `<title>.exe` inside the game folder is a small Go program
   (x86-64, a GUI program, so no console window) that opens a window of
   its own and shows `index.html` in it through WebView2, the Edge engine
@@ -280,9 +282,10 @@ stays the route everywhere.
   missing. Microsoft preinstalls the runtime on all Windows 11 devices
   and installed it on all eligible Windows 10 devices
   ([Microsoft](https://learn.microsoft.com/microsoft-edge/webview2/concepts/evergreen-vs-fixed-version#windows-11-devices-and-windows-10-devices)).
-  `tools/build_apps.py` builds it from Go's standard library on any
-  system and links in its icon, version resource and DPI manifest. It is
-  unsigned.
+  Each release builds it once from Go's standard library (any system
+  builds it), with its DPI manifest linked in, and `kinetic apps` writes
+  each game's icon, version resource and settings into its copy's
+  resources, on any system. It is unsigned.
 
 Gatekeeper assesses only files that carry the quarantine flag. A folder
 the author builds locally has none, so the app opens with no check. A

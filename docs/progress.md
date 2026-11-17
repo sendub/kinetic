@@ -5604,8 +5604,39 @@ truthful: an unchecked box means nothing was accepted.
       (the wheel installed and run) and release_version 68 passed;
       converter and tools without test_flow 1922; npm test 1853, check
       clean; smoke 6/6; checkgame and trace 67/67.)
-- [ ] Prebuilt app hosts (item 10). Hosts read their story settings at
+- [x] Prebuilt app hosts (item 10). Hosts read their story settings at
       launch; `kinetic apps` builds both apps with no Swift or Go.
+      (2026-11-17: the Mac host reads Info.plist `KineticStoryId`,
+      `KineticTitle`, `KineticWindowSize`, `KineticVersion` once
+      (apps/macos/app/HostSettings.swift); the exe reads RCDATA 3,
+      compact JSON, once with FindResource/LockResource
+      (apps/windows/settings*.go), empty settings showing its "made
+      without its game's details" box. `--self-check FILE` on both
+      writes the settings and exits (0, 1 unwritable, 2 no FILE), no
+      window. `kinetic apps` (`kinetic_extract/apps.py`, with
+      `app_hosts.py` finding the wheel's hosts or building them in a
+      checkout into `.tmp/app-hosts/<kind>-<hash>/`): Mac copies the
+      bundle, writes Info.plist, Pillow icns, LICENSE, signs ad hoc with
+      codesign; Windows rewrites the exe's last-section `.rsrc` in pure
+      Python (`windows_resources.read_resources/replace_resources`:
+      VirtualSize, SizeOfRawData, SizeOfImage, the data directory, a
+      fresh checksum that imagehlp agreed with), keeping manifest and
+      licences and writing icon, version and settings; with Go's
+      `-buildid=` the rewrite equals linking a .syso byte for byte bar
+      the checksum. tools/build_apps.py is a wrapper; assemble's
+      --mac/--windows work from a wheel. The wheel grows 1.1 -> 4.85 MB
+      (exe 3.26 MB compressed, WebKit driver, Mac host, host words,
+      LICENSE). CREATE.md, apps/README.md "Game settings",
+      docs/packaging.md "The app hosts", AGENTS.md. Subagent: Mac and
+      Windows PC self-checks right (a UTF-8 title, null window size,
+      the raw host empty; VersionInfo and icon right; PC folder
+      deleted); pytest tools and converter 1956; npm test 1853; Go test
+      and vet; Swift tests; WebKit smoke 6/6 and machost 55/55; wheel
+      test with no swift or go on PATH. Orchestrator: build_apps,
+      build_wheel, kinetic_cli 199 passed; Go test and Windows vet
+      clean; assemble of the demo with both apps, the Mac self-check
+      JSON right, codesign verify, the exe's 13 resources read back;
+      WebKit smoke 6/6, machost 55/55; npm test 1853.)
 - [ ] Release and install docs (item 11). CREATE.md around `kinetic`,
       AGENTS.md and README.md, the closer's wheel step, package-proof's
       wheel stage.

@@ -178,8 +178,9 @@ print it.
   It also writes `apps/host-words.json`, the game apps' own words (the
   `host.*` messages: the Mac menus and alert, the Windows error box) in
   English and every language, with a digest of `en.ts` and the PO files
-  it came from (`sourceDigest`), which `tools/build_apps.py` embeds in
-  each app and refuses when stale (docs/plan.md Phase 56 item 7;
+  it came from (`sourceDigest`), which the app host build
+  (`converter/kinetic_extract/app_hosts.py`) embeds in each host and
+  refuses when stale (docs/plan.md Phase 56 item 7;
   apps/README.md, "The apps' own words"). All three are committed; `npm
   test` (`scripts/i18n.test.mjs`) fails while any is stale, and the
   compiler reports and leaves out an entry with an unknown key, a wrong

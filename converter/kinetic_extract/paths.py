@@ -113,3 +113,7 @@ UNRPYC_DIR = resource("converter/vendor/unrpyc", "vendor/unrpyc")
 # check-game, bundled with puppeteer-core into one file (docs/packaging.md).
 CHECK_GAME = resource("player/scripts/testing/check-game.mjs",
                       "check/check-game.mjs")
+# Kinetic's license (MIT), which every game app carries, and the apps' own
+# words in every catalogue language (kinetic_extract/apps.py).
+LICENSE_FILE = resource("LICENSE", "LICENSE")
+HOST_WORDS_FILE = resource("apps/host-words.json", "apps/host-words.json")

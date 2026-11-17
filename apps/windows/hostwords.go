@@ -7,8 +7,8 @@ package main
 // the window title the page asks for with its language message
 // (apps/README.md, "The page-to-host protocol"). The words come from
 // apps/host-words.json, which `npm run i18n` writes from the player's
-// catalogue and tools/build_apps.py embeds (hostwords_embedded.go, never
-// committed). Platform-neutral (hostwords_test.go).
+// catalogue and the host build (kinetic_extract/app_hosts.py) embeds
+// (hostwords_embedded.go, never committed). Platform-neutral (hostwords_test.go).
 
 import (
 	"encoding/json"

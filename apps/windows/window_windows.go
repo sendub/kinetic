@@ -62,7 +62,7 @@ const (
 // maximized if it was left so.
 func (g *game) createWindow(s start) error {
 	instance, _, _ := procGetModuleHandle.Call(0)
-	class := utf16(windowClass(storyID))
+	class := utf16(windowClass(settings.StoryID))
 	cursor, _, _ := procLoadCursor.Call(0, idcArrow)
 	brush, _, _ := procGetStockObject.Call(blackBrush)
 	icon := func(w, h uintptr) syscall.Handle {
@@ -396,7 +396,7 @@ func (g *game) leave(format string, args ...any) {
 // session. The first launch's mutex handle stays open until its process
 // ends, which is how a later launch knows.
 func alreadyRunning() bool {
-	h, _, err := procCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(utf16(mutexName(storyID)))))
+	h, _, err := procCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(utf16(mutexName(settings.StoryID)))))
 
 	return h != 0 && errors.Is(err, syscall.ERROR_ALREADY_EXISTS)
 }
@@ -404,7 +404,7 @@ func alreadyRunning() bool {
 // bringForward shows the open game's window, waiting a little for one that
 // is still opening.
 func bringForward() {
-	class := utf16(windowClass(storyID))
+	class := utf16(windowClass(settings.StoryID))
 
 	for range 30 {
 		if hwnd, _, _ := procFindWindow.Call(uintptr(unsafe.Pointer(class)), 0); hwnd != 0 {

@@ -1,6 +1,9 @@
 // The macOS game app (docs/plan.md Phase 43 items 7 and 9; CREATE.md,
-// "Building the apps"). tools/build_apps.py compiles this file with
-// ../WebViewSetup.swift into `<title>.app` inside a game folder. The app
+// "Building the apps"). Each release compiles this file with
+// HostSettings.swift and ../WebViewSetup.swift once
+// (kinetic_extract/app_hosts.py), and `kinetic apps --mac` copies the
+// binary into `<title>.app` inside a game folder, with the game's settings
+// in its Info.plist (HostSettings.swift). The app
 // shows the folder it sits in through the system WebKit (the engine Safari
 // uses, on every Mac): its own name and Dock icon, Esc and reload wholly
 // the game's. Every key but the menus' shortcuts is the game's: one the
@@ -14,9 +17,9 @@
 // screen asks it to quit or to switch between the two over the shared
 // bridge (KineticHostBridge, apps/README.md), and every switch, the
 // reader's own green button, menu item or ⌃⌘F included, reaches the page.
-// The first window is the game's first graphic's size and shape (baked
-// into Info.plist by build_apps.py), scaled down to fit the screen; after
-// that the reader's size and place are kept.
+// The first window is the game's first graphic's size and shape (in
+// Info.plist), scaled down to fit the screen; after that the reader's size
+// and place are kept.
 //
 // It offers spoken lines (docs/plan.md Phase 52): one VoiceEngine
 // (../VoiceEngine.swift), passed to the bridge, downloads the voice install
@@ -30,12 +33,17 @@
 import AppKit
 import WebKit
 
-/// The game's name, which build_apps.py writes into Info.plist from the
-/// manifest title, for the menus and the window's first title.
-let gameTitle =
-    Bundle.main.object(forInfoDictionaryKey: "KineticTitle") as? String
-    ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-    ?? "Kinetic"
+/// The game's settings from Info.plist, read once (HostSettings.swift).
+let settings = HostSettings(info: Bundle.main.infoDictionary ?? [:])
+
+// Tools and tests: the settings as read, written to a file, before
+// anything of the app's starts (no window, no Dock icon).
+if let path = selfCheckPath(Array(CommandLine.arguments.dropFirst())) {
+    exit(settings.selfCheck(to: path))
+}
+
+/// The game's name, for the menus and the window's first title.
+let gameTitle = settings.title
 
 /// The app's own words in every catalogue language (../HostWords.swift).
 let hostWords = HostWords.embedded
@@ -45,15 +53,9 @@ let hostWords = HostWords.embedded
 let displayKey = "KineticDisplay"
 let frameKey = "KineticWindowFrame"
 
-/// The game window's first content size: the first graphic's pixel size,
-/// which build_apps.py writes as Info.plist `KineticWindowSize` ({Width,
-/// Height}); 16:9 at 1280 x 720 when the build had none.
-func firstContentSize() -> NSSize {
-    let baked = Bundle.main.object(forInfoDictionaryKey: "KineticWindowSize") as? [String: Any]
-    let width = (baked?["Width"] as? NSNumber)?.doubleValue ?? 0
-    let height = (baked?["Height"] as? NSNumber)?.doubleValue ?? 0
-    return width >= 1 && height >= 1 ? NSSize(width: width, height: height) : NSSize(width: 1280, height: 720)
-}
+/// The game window's first content size: the first graphic's pixel size
+/// (Info.plist `KineticWindowSize`); 16:9 at 1280 x 720 without one.
+func firstContentSize() -> NSSize { settings.firstContentSize }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate,
     WKUIDelegate, WKDownloadDelegate

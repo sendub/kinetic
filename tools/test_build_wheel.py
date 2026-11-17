@@ -1,5 +1,5 @@
 """tools/build_wheel.py and the `kinetic` command installed from its wheel
-(docs/plan.md Phase 57, item 9). Run with:
+(docs/plan.md Phase 57, items 9 and 10). Run with:
 
     .venv/bin/pytest tools/test_build_wheel.py -q
 
@@ -10,7 +10,10 @@ writes the user's own folders. It skips without Node or
 player/node_modules; the check-game test skips without Chrome, and the
 setup and conversion test without this checkout's installed media tools
 (.media-tools/<platform>/, which it links into the scratch home so setup
-downloads nothing). The venv is removed afterwards. About a minute.
+downloads nothing). Building the wheel needs what the release build needs
+(macOS with a Swift toolchain and Go, for the app hosts and the WebKit
+driver); `kinetic apps` then runs from the wheel with neither on PATH. The
+venv is removed afterwards. About a minute.
 """
 
 from __future__ import annotations
@@ -45,6 +48,7 @@ SUBCOMMANDS = {
     "media": "usage: kinetic media",
     "validate": "usage: kinetic validate",
     "assemble": "usage: kinetic assemble",
+    "apps": "usage: kinetic apps",
     "upgrade": "usage: kinetic upgrade",
     "check": "usage: kinetic check",
     "report": "usage: kinetic report",
@@ -53,7 +57,7 @@ SUBCOMMANDS = {
 }
 
 sys.path.insert(0, str(REPO_ROOT / "converter"))
-from kinetic_extract import media_tools  # noqa: E402
+from kinetic_extract import media_tools, windows_resources  # noqa: E402
 
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
@@ -150,12 +154,19 @@ def test_the_wheel_carries_the_package_data(installed: Installed) -> None:
             f"kinetic-{build_wheel.pep440(VERSION)}.dist-info/"
             "entry_points.txt").decode()
         stamp = zf.read("kinetic_extract/data/player/app.js")[:64].decode()
-    for name in ["VERSION", "media-tools.json", "schemas/content-schema.json",
-                 "schemas/lang.schema.json", "selftest/sample.png",
-                 "vendor/unrpyc/unrpyc.py", "player/index.html",
-                 "player/app.js", "check/check-game.mjs",
-                 "check/check-game.json"]:
+        modes = {info.filename: info.external_attr >> 16
+                 for info in zf.infolist()}
+    for name in ["VERSION", "LICENSE", "media-tools.json",
+                 "schemas/content-schema.json", "schemas/lang.schema.json",
+                 "selftest/sample.png", "vendor/unrpyc/unrpyc.py",
+                 "player/index.html", "player/app.js",
+                 "check/check-game.mjs", "check/check-game.json",
+                 "apps/host-words.json"]:
         assert f"kinetic_extract/data/{name}" in names, name
+    # The prebuilt programs, executable once installed.
+    for name in ["check/kinetic-webkit-driver", "apps/macos/kinetic",
+                 "apps/windows/kinetic.exe"]:
+        assert modes[f"kinetic_extract/data/{name}"] & 0o111, name
     assert stamp.startswith(f"/*! Kinetic {VERSION} */\n")
     assert "Requires-Dist: jsonschema==" in metadata
     for command in ("kinetic =", "kinetic-extract =", "kinetic-media ="):
@@ -232,14 +243,98 @@ def test_validate_report_assemble_upgrade_and_check(
         assert "no console or page errors" in proc.stdout
         # check-game's browser profiles went to the home's cache.
         assert (installed.home / "cache" / "check").is_dir()
-        # auto has no WebKit driver in this wheel: Chrome, saying why.
+        # On macOS auto takes the wheel's prebuilt WebKit driver.
         proc = installed.run("check", "play", "--steps", "1")
         assert proc.returncode == 0, proc.stdout + proc.stderr
         if sys.platform == "darwin":
-            assert "no prebuilt WebKit driver" in proc.stdout + proc.stderr
+            assert proc.stdout.startswith("webkit: "), proc.stdout
+            assert "no prebuilt WebKit driver" not in proc.stdout + proc.stderr
     finally:
         shutil.rmtree(content, ignore_errors=True)
         shutil.rmtree(installed.cwd / "play", ignore_errors=True)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="the WebKit driver is macOS's")
+def test_check_on_webkit_uses_the_prebuilt_driver(installed: Installed,
+                                                  demo: Path) -> None:
+    play = installed.cwd / "webkit-play"
+    try:
+        proc = installed.run("assemble", str(demo), str(play))
+        assert proc.returncode == 0, proc.stderr
+        proc = installed.run("check", str(play), "--steps", "5",
+                             "--engine", "webkit")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert proc.stdout.startswith("webkit: "), proc.stdout
+        assert "stopped after 5 steps" in proc.stdout
+        assert "no console or page errors" in proc.stdout
+    finally:
+        shutil.rmtree(play, ignore_errors=True)
+
+
+def no_toolchain_path(installed: Installed) -> str:
+    """A PATH holding the venv's commands and, on macOS, codesign alone:
+    no swift, swiftc, xcrun or go."""
+    tools = installed.home / "path-tools"
+    tools.mkdir(exist_ok=True)
+    codesign = Path("/usr/bin/codesign")
+    if codesign.exists() and not (tools / "codesign").exists():
+        (tools / "codesign").symlink_to(codesign)
+    return os.pathsep.join([str(installed.bin), str(tools)])
+
+
+def test_apps_from_the_wheel_need_no_swift_or_go(installed: Installed,
+                                                 demo: Path) -> None:
+    play = installed.cwd / "apps-play"
+    env = installed.env()
+    env["PATH"] = no_toolchain_path(installed)
+    for tool in ("swift", "swiftc", "xcrun", "go"):
+        assert shutil.which(tool, path=env["PATH"]) is None, tool
+    mac = sys.platform == "darwin"
+    flags = ["--mac", "--windows"] if mac else ["--windows"]
+    try:
+        proc = installed.run("assemble", str(demo), str(play))
+        assert proc.returncode == 0, proc.stderr
+        proc = subprocess.run([str(installed.bin / "kinetic"), "apps",
+                               str(play), *flags], capture_output=True,
+                              text=True, cwd=installed.cwd, env=env,
+                              timeout=300)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        manifest = json.loads((play / "manifest.json").read_text())
+        story, title = manifest["storyId"], manifest["title"]
+        exe = play / f"{title}.exe"
+        resources = {(r.type_id, r.name_id): r.data for r in
+                     windows_resources.read_resources(exe.read_bytes())}
+        settings = json.loads(resources[windows_resources.RT_RCDATA, 3])
+        assert settings["storyId"] == story and settings["title"] == title
+        assert settings["kineticVersion"] == VERSION
+        # The host's manifest and license texts are kept.
+        host = zipfile.ZipFile(installed.wheel).read(
+            "kinetic_extract/data/apps/windows/kinetic.exe")
+        kept = {(r.type_id, r.name_id): r.data
+                for r in windows_resources.read_resources(host)}
+        for key in [(24, 1), (10, 1), (10, 2)]:
+            assert resources[key] == kept[key], key
+        if not mac:
+            return
+        app = play / f"{title}.app"
+        check = subprocess.run(["/usr/bin/codesign", "--verify", "--strict",
+                                str(app)], capture_output=True, text=True)
+        assert check.returncode == 0, check.stderr
+        out = installed.cwd / "self-check.json"
+        binary = app / "Contents" / "MacOS" / "kinetic"
+        done = subprocess.run([str(binary), "--self-check", str(out)],
+                              capture_output=True, text=True, timeout=60)
+        assert done.returncode == 0, done.stderr
+        report = json.loads(out.read_text())
+        out.unlink()
+        assert report == {
+            "host": "macos", "storyId": story, "title": title,
+            "bundleId": "org.kinetic.game." + story.replace("_", "-"),
+            "kineticVersion": VERSION,
+            "windowSize": {"width": settings["windowSize"]["width"],
+                           "height": settings["windowSize"]["height"]}}
+    finally:
+        shutil.rmtree(play, ignore_errors=True)
 
 
 def test_setup_and_a_conversion_from_the_wheel(installed: Installed) -> None:

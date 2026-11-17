@@ -22,8 +22,9 @@
 // - apps/host-words.json, the game apps' own words (docs/plan.md Phase 56
 //   item 7): the `host.*` messages alone, in English and every language,
 //   with `source`, a sha256 over en.ts and the PO files it was made from
-//   (`sourceDigest`), so tools/build_apps.py, which embeds the table in
-//   each app, refuses a stale one without running Node.
+//   (`sourceDigest`), so the app host build (kinetic_extract/app_hosts.py),
+//   which embeds the table in each host, refuses a stale one without
+//   running Node.
 //
 // Run: `node scripts/i18n.mjs` (writes all three, prints any problem) or
 // `node scripts/i18n.mjs --check` (writes nothing; exit 1 if stale).
@@ -318,9 +319,9 @@ export function buildModule(locales) {
 /**
  * The sha256 (hex) of the sources the generated files come from: en.ts,
  * then each PO file in tag order, each preceded by its name
- * (`src/i18n/en.ts`, `locales/<tag>.po`) between NULs. tools/build_apps.py
- * (`host_words_digest`) computes the same to tell a stale
- * apps/host-words.json.
+ * (`src/i18n/en.ts`, `locales/<tag>.po`) between NULs.
+ * kinetic_extract/app_hosts.py (`host_words_digest`) computes the same to
+ * tell a stale apps/host-words.json.
  */
 export function sourceDigest(dir = LOCALES_DIR, enSource = EN_SOURCE) {
   const hash = createHash("sha256");

@@ -7,6 +7,7 @@ the tool, so its options, `--help` and exit codes are the tool's.
     kinetic media     kinetic-media: ship, rebuild, posters (media_cli)
     kinetic validate  tools/validate_content.py (validate_content)
     kinetic assemble  tools/assemble_folder.py (assemble_folder)
+    kinetic apps      tools/build_apps.py (apps)
     kinetic upgrade   tools/upgrade_folder.py (upgrade_folder)
     kinetic check     check-game (check)
 
@@ -70,6 +71,12 @@ def assemble(subcommands: Any) -> None:
              "make the folder readers get: the player beside the content",
              _tool("assemble_folder",
                    lambda tool, argv: tool.main(["kinetic assemble", *argv])))
+
+
+def apps(subcommands: Any) -> None:
+    add_tool(subcommands, "apps",
+             "add the Mac app and the Windows exe to a game folder",
+             _tool("apps", lambda tool, argv: tool.main(argv)))
 
 
 def upgrade(subcommands: Any) -> None:

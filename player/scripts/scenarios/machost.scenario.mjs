@@ -461,8 +461,8 @@ async function install({ check }) {
       readFileSync(join(root, "helper", "lock-macos-arm64.json"), "utf8"),
     );
     // What this driver carries: the generated source its build compiled
-    // (player/scripts/webkit/build.mjs), the same text tools/build_apps.py
-    // compiles into the app.
+    // (player/scripts/webkit/build.mjs), the same text
+    // kinetic_extract/app_hosts.py compiles into the app's host.
     const embedded = embeddedFiles(host.browser);
     const helperFiles = [...embedded.keys()].filter((f) =>
       f.startsWith("kinetic_voice/"),

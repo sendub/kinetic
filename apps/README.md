@@ -6,8 +6,44 @@ scenario suite's WebKit driver (`driver/`), which share
 `macos/HostWords.swift`. `windows/` holds
 the Windows exe (Go's standard library over WebView2). `voice/` holds the
 voice helper both apps run for spoken lines (`voice/README.md`).
-`tools/build_apps.py` builds them into a game folder (CREATE.md, "Building
-the apps").
+Each release builds the two hosts once (`converter/kinetic_extract/
+app_hosts.py`; in a checkout on first use, into `.tmp/app-hosts/`), and
+`kinetic apps` (or `tools/build_apps.py`) copies them into a game folder
+with the game's settings (CREATE.md, "Building the apps"; Game settings,
+below).
+
+## Game settings
+
+Neither host has a game compiled in. `kinetic apps` writes each game's
+settings into its copy, and the host reads them once as it starts and
+holds them (docs/plan.md Phase 57 item 10; docs/packaging.md, "The app
+hosts"):
+
+- macOS: Info.plist keys `KineticStoryId`, `KineticTitle`,
+  `KineticWindowSize` ({Width, Height}, absent without a readable first
+  graphic) and `KineticVersion`, beside the bundle id
+  `org.kinetic.game.<storyId>` under which macOS keeps the reader's
+  progress (`macos/app/HostSettings.swift`, read from
+  `Bundle.main.infoDictionary`, which macOS has loaded already).
+- Windows: RT_RCDATA resource 3, compact UTF-8 JSON, `{"kineticVersion",
+  "storyId", "title", "windowSize": {"width", "height"}}` (`windowSize`
+  absent without a picture), found with FindResourceW in the exe's own
+  mapped image (`windows/settings.go`, `windows/settings_windows.go`).
+  A missing or unreadable resource, or a storyId that breaks the
+  manifest's rule, leaves the settings empty, and the exe says it was
+  made without its game's details.
+
+`<binary> --self-check FILE` writes the settings as read to FILE as JSON
+and exits (0 written, 1 not written, 2 no FILE) before anything else
+starts, so no window, Dock icon or WebView2 appears: `{"host":
+"macos"|"windows", "storyId", "title", "windowSize": {"width",
+"height"} or null, "kineticVersion"}`, plus `"bundleId"` on macOS. The
+Mac binary is `<title>.app/Contents/MacOS/kinetic`; the exe, a GUI
+program with no console, takes the flag the same way. The Swift tests
+(`macos/tests/main.swift`, compiled with `HostSettings.swift` alone by
+`tools/test_build_apps.py`) and `settings_test.go` cover the reading and
+the report; `tools/test_build_apps.py` and `tools/test_build_wheel.py` run
+the Mac binary's self-check on an app `kinetic apps` made.
 
 ## Keys in the macOS app
 
@@ -89,9 +125,10 @@ is `player/src/render/host.ts`; the macOS side is `KineticHostBridge` in
   event: the page never assumes the switch happened.
 - The host owns the mode and its memory. It reopens in the mode it was left
   in, with no fullscreen flash when that is a window. Its first window takes
-  the first graphic's pixel size, which the build bakes in (Info.plist
-  `KineticWindowSize` on macOS, `-ldflags -X main.firstWindowSize` on
-  Windows), scaled down to fit the screen; a size the reader sets is kept.
+  the first graphic's pixel size from the game's settings (Info.plist
+  `KineticWindowSize` on macOS, the settings resource's `windowSize` on
+  Windows; Game settings, above), scaled down to fit the screen; a size
+  the reader sets is kept.
 - With a host present the page never asks for element fullscreen. Without
   one (a browser tab) the page keeps a Display setting with its other
   settings and uses the Fullscreen API.
@@ -145,9 +182,9 @@ the page in it through WebView2, the Edge engine Windows provides to apps.
   it was maximized in `kinetic-window.json` in the data folder, and opens
   straight in that mode: frameless over the monitor the window was on, or
   at the remembered place while that monitor is connected. The first
-  window is the baked size fitted to the work area with a margin,
+  window is the settings' size fitted to the work area with a margin,
   centred. The exe is per-monitor DPI aware (its manifest), so it works
-  in the monitor's pixels and counts the baked size as CSS pixels.
+  in the monitor's pixels and counts that size as CSS pixels.
 - Export saves into Downloads under a free name (`name (2).json` and so
   on) with no download bubble; Import uses WebView2's own file dialog. A
   page whose renderer ended reloads, a web view whose browser process
@@ -163,10 +200,12 @@ the page in it through WebView2, the Edge engine Windows provides to apps.
 and memory, the host script (run in Node when it is installed), the
 message and sender checks (the language message and the title it gives
 the window too), the keys, download names, finding the runtime, the
-environment variables it sets for WebView2, and the words table (its
-language matching against the shared cases, the lookup and its English
-fallback, and reading `GetUserPreferredUILanguages`' list). Running the
-exe on Windows is a manual check.
+environment variables it sets for WebView2, the game's settings and
+`--self-check`, and the words table (its language matching against the
+shared cases, the lookup and its English fallback, and reading
+`GetUserPreferredUILanguages`' list). Running the exe on Windows is a
+manual check, but for `--self-check`, which the orchestrator runs on the
+user's Windows PC.
 
 The voice host's decisions are tested the same way, on any OS
 (`voice_test.go`, `voice_engine_test.go`, `voice_fetch_test.go`): the lock
@@ -179,8 +218,8 @@ message that moves events to the UI thread, where every WebView2 call is
 made) runs on Windows alone. The orchestrator's check there is a
 cross-compiled `go test -c` binary that runs the engine without a window
 against the real Python download. A windowed exe's own run, with a real
-game, is a manual check. `tools/build_apps.py --windows` stops with an
-error when `voice/lock-windows-x64.json` is missing.
+game, is a manual check. Building the Windows host stops with an error
+when `voice/lock-windows-x64.json` is missing.
 
 ## The apps' own words
 
@@ -189,8 +228,10 @@ its languages (docs/plan.md Phase 56 item 7; docs/verify-player.md, "The
 player's words"): the `host.*` messages of `player/src/i18n/en.ts` and
 `player/locales/<tag>.po`, which `npm run i18n` writes to
 `apps/host-words.json` (committed; `npm test` fails while it is stale).
-`tools/build_apps.py` embeds it in each app and stops when it is stale
-against the catalogue (a digest of `en.ts` and the PO files is in it):
+The host build (`converter/kinetic_extract/app_hosts.py`) embeds it in
+each host and stops when it is stale against the catalogue (a digest of
+`en.ts` and the PO files is in it); `kinetic apps` reads its languages
+for the Mac app's Info.plist:
 
 | Key | Where |
 | --- | --- |
@@ -202,9 +243,10 @@ against the catalogue (a digest of `en.ts` and the PO files is in it):
 The Mac menus have only these items: there is no About, Hide Others or
 Show All item to translate. The window title is the game's title alone,
 with no words around it. Words that stay English: the exe's error box for
-an exe built outside `tools/build_apps.py` ("built without its game's
-details"), which only an author can meet, and the English detail of a
-voice status (`message`, for the log; the page shows its `code`'s words).
+the host exe run as built, before `kinetic apps` gives it a game ("made
+without its game's details"), which only an author can meet, and the
+English detail of a voice status (`message`, for the log; the page shows
+its `code`'s words).
 
 Before the page loads, an app picks the language from the system's
 preferred languages (`Locale.preferredLanguages` on macOS, the user's
@@ -240,7 +282,7 @@ user's display languages.
 
 - macOS: `macos/HostWords.swift` (shared with the WebKit driver) reads
   the table, compiled in as a generated `KineticHostWordsEmbedded.swift`
-  (base64, never committed; `tools/build_apps.py` and
+  (base64, never committed; `converter/kinetic_extract/app_hosts.py` and
   `player/scripts/webkit/build.mjs` write the same text), matches the
   language, and gives the menu and alert words; `KineticHostBridge` hands
   each language message to the app's `onLanguage`. The app's window
@@ -395,8 +437,9 @@ helper runs with no console window (`CREATE_NO_WINDOW`), its stderr in
 
 The build embeds `voice/kinetic_voice/*.py` and the lock in the binary: it
 writes them, base64, into a generated `KineticVoiceEmbedded.swift`, never
-committed (`tools/build_apps.py` and `player/scripts/webkit/build.mjs`
-write the same text), so the bundle's layout is unchanged. The app runs
+committed (`converter/kinetic_extract/app_hosts.py` and
+`player/scripts/webkit/build.mjs` write the same text), so the bundle's
+layout is unchanged. The app runs
 `<voice>/python/bin/python3 -I -B <voice>/helper/kinetic_voice/__main__.py
 --root <voice>` with pipes for stdin and stdout. It starts the helper for
 `install` once Python is there, and for `status`, `voice` or `speak` once

@@ -43,6 +43,7 @@ COMMANDS = (
     "kinetic_extract.tool_commands:media",
     "kinetic_extract.tool_commands:validate",
     "kinetic_extract.tool_commands:assemble",
+    "kinetic_extract.tool_commands:apps",
     "kinetic_extract.tool_commands:upgrade",
     "kinetic_extract.tool_commands:check",
     "kinetic_extract.report",

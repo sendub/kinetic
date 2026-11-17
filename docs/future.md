@@ -132,7 +132,7 @@ To settle:
 
 ## Signed apps for downloads (maybe, 2026-11-14)
 
-Today `tools/build_apps.py` signs the Mac app ad hoc, for arm64 only
+Today `kinetic apps` signs the Mac app ad hoc, for arm64 only
 (macOS 12 or later), and leaves the Windows program unsigned. A folder
 the author builds opens with no prompt. From a downloaded zip the Mac
 app is refused and the Windows program meets SmartScreen (docs/stack.md,
@@ -141,9 +141,10 @@ app is refused and the Windows program meets SmartScreen (docs/stack.md,
 Candidates:
 
 - Developer ID signing and notarization with the author's own Apple
-  identity, as options on `tools/build_apps.py`.
+  identity, as options on `kinetic apps`.
 - Authenticode signing of the Windows program with the author's
-  certificate.
+  certificate, after `kinetic apps` writes the game's resources (it
+  refuses to rewrite a signed exe, as that breaks the signature).
 
 To settle:
 

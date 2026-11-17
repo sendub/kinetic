@@ -1,5 +1,7 @@
-// Kinetic's Windows app. tools/build_apps.py --windows builds this package
-// into <title>.exe inside a game folder. Double-clicked, it opens a window
+// Kinetic's Windows app. Each release builds this package once
+// (kinetic_extract/app_hosts.py), and `kinetic apps --windows` copies it
+// into a game folder as <title>.exe with the game's settings
+// (settings.go). Double-clicked, it opens a window
 // of its own and shows the folder's index.html in it through WebView2, the
 // Edge engine Windows provides to apps: fullscreen (the window without its
 // frame, covering its monitor) or as the window the reader left. It gives
@@ -9,21 +11,14 @@
 // The decisions live in platform-neutral files that build and test on any
 // OS: this file (names and paths), window.go (the window's place, size and
 // memory), host.go (the host script, the page's messages, keys and
-// downloads), runtime.go (finding the WebView2 Runtime) and log.go. The
+// downloads), runtime.go (finding the WebView2 Runtime), settings.go (the
+// game's settings) and log.go. The
 // *_windows.go files carry them out on Windows.
 package main
 
 import (
 	"net/url"
 	"strings"
-)
-
-// Set by tools/build_apps.py with -ldflags -X: the manifest's storyId, and
-// its title percent-encoded, because go build splits -ldflags at spaces
-// and reads no escapes inside quotes.
-var (
-	storyID      string
-	titleEscaped string
 )
 
 const (
@@ -35,11 +30,11 @@ const (
 	logFile = "kinetic-host.log"
 )
 
-// gameTitle is the game's title, for the window and message box captions
-// (which end at a NUL).
+// gameTitle is the game's title from its settings, for the window and
+// message box captions (which end at a NUL).
 func gameTitle() string {
-	title, err := url.PathUnescape(titleEscaped)
-	if err != nil || strings.TrimSpace(title) == "" || strings.ContainsRune(title, 0) {
+	title := settings.Title
+	if strings.TrimSpace(title) == "" || strings.ContainsRune(title, 0) {
 		return fallbackTitle
 	}
 

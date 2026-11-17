@@ -15,8 +15,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 )
 
 // The two display modes, the protocol's words (apps/README.md).
@@ -63,12 +61,7 @@ func (m monitor) scale() float64 {
 // laptop's, at 100%.
 var fallbackMonitor = monitor{Area: rect{W: 1366, H: 768}, Work: rect{W: 1366, H: 728}, DPI: baseDPI}
 
-// Set by tools/build_apps.py with -ldflags -X: the game's first graphic's
-// pixel size, "<width>x<height>", for the first window; empty when the game
-// has no readable picture.
-var firstWindowSize string
-
-// defaultContent is the first window's content without a baked size: 16:9.
+// defaultContent is the first window's content without a size in the settings: 16:9.
 var defaultContent = size{1280, 720}
 
 // The smallest remembered window worth reopening, and how much of it must
@@ -79,28 +72,11 @@ const (
 	minOnScreen    = 100
 )
 
-// parseSize reads "<width>x<height>" (both at least 1).
-func parseSize(text string) (size, bool) {
-	w, h, ok := strings.Cut(text, "x")
-	if !ok {
-		return size{}, false
-	}
-
-	width, errW := strconv.Atoi(w)
-	height, errH := strconv.Atoi(h)
-
-	if errW != nil || errH != nil || width < 1 || height < 1 {
-		return size{}, false
-	}
-
-	return size{width, height}, true
-}
-
-// firstContent is the first window's content size in CSS pixels: the baked
-// first graphic's, else 16:9.
+// firstContent is the first window's content size in CSS pixels: the
+// first graphic's from the game's settings, else 16:9.
 func firstContent() size {
-	if s, ok := parseSize(firstWindowSize); ok {
-		return s
+	if w := settings.WindowSize; w != nil && w.Width >= 1 && w.Height >= 1 {
+		return size{w.Width, w.Height}
 	}
 
 	return defaultContent

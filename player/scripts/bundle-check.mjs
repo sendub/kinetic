@@ -4,11 +4,14 @@
 // for `kinetic check` (tools/build_wheel.py; docs/packaging.md,
 // "Installing the tools").
 //
-//   node scripts/bundle-check.mjs <out-dir>
+//   node scripts/bundle-check.mjs <out-dir> [--driver]
 //
 // writes <out-dir>/check-game.mjs and <out-dir>/check-game.json, which
 // names the oldest Node it runs on (puppeteer-core's `engines`):
-// {"node": "22.12.0"}. In the bundle:
+// {"node": "22.12.0"}. With --driver (on macOS with a Swift toolchain) it
+// also builds the WebKit driver (webkit/build.mjs) and copies it in as
+// <out-dir>/kinetic-webkit-driver, where webkit/prebuilt.mjs looks for it
+// (docs/plan.md Phase 57 item 10). In the bundle:
 //
 // - webkit/build.mjs, which builds the WebKit driver from the checkout's
 //   Swift sources, is replaced by webkit/prebuilt.mjs, which looks for a
@@ -17,11 +20,19 @@
 //   checkout's VERSION file read at run time;
 // - `require` is made from the bundle's own URL, for puppeteer-core's
 //   CommonJS dependencies (ws, debug).
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import esbuild from "esbuild";
 import { KINETIC_VERSION } from "./version.mjs";
+import { ensureDriver } from "./webkit/build.mjs";
+import { DRIVER_NAME } from "./webkit/prebuilt.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ENTRY = join(here, "testing", "check-game.mjs");
@@ -100,11 +111,22 @@ export async function bundleCheck(outDir) {
   return join(outDir, "check-game.mjs");
 }
 
+/** Builds the WebKit driver and copies it into `outDir`; its path there. */
+export function copyDriver(outDir) {
+  mkdirSync(outDir, { recursive: true });
+  const target = join(outDir, DRIVER_NAME);
+  copyFileSync(ensureDriver(), target);
+  chmodSync(target, 0o755);
+  return target;
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const outDir = process.argv[2];
-  if (outDir === undefined) {
-    console.error("usage: node scripts/bundle-check.mjs <out-dir>");
+  const [outDir, ...rest] = process.argv.slice(2);
+  const driver = rest.length === 1 && rest[0] === "--driver";
+  if (outDir === undefined || (rest.length > 0 && !driver)) {
+    console.error("usage: node scripts/bundle-check.mjs <out-dir> [--driver]");
     process.exit(2);
   }
   console.log(`bundled ${await bundleCheck(resolve(outDir))}`);
+  if (driver) console.log(`copied ${copyDriver(resolve(outDir))}`);
 }

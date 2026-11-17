@@ -1,4 +1,4 @@
-"""Windows resources for the game exe (tools/build_apps.py --windows).
+"""Windows resources for the game exe (`kinetic apps --windows`).
 
 The Go linker links any `*.syso` COFF object in a package's folder, and
 moves an object's `.rsrc` section into the exe's resources. This module
@@ -7,6 +7,24 @@ in the layout the Microsoft PE/COFF specification gives for the `.rsrc`
 section (three directory levels, type, then id, then language; then the
 data entries; then the data), with one relocation per data entry so the
 linker turns each entry's section offset into an image-relative address.
+Each release links the exe once that way (kinetic_extract/app_hosts.py),
+with the resources every game shares (docs/plan.md Phase 57 item 10).
+
+`read_resources(exe)` reads an exe's resources back, and
+`replace_resources(exe, resources)` gives the exe with its `.rsrc` section
+replaced by one holding `resources`, which is how `kinetic apps` writes
+each game's icon, version and settings into its copy, on any OS. That
+needs `.rsrc` to be the exe's last section, in the file and in memory,
+with nothing after it in the file: the Go linker puts it there (after
+`.symtab`), and the host build checks it does. The new section may be any
+size: it starts where the old one did, its raw size is padded to the
+FileAlignment, and the headers that describe it follow (the section's
+sizes, SizeOfImage, the resource data directory; SizeOfInitializedData,
+which the Go linker makes `.data`'s size alone, stays).
+The PE checksum is then computed afresh, though Windows checks it only for
+drivers, boot-time DLLs and DLLs loaded into critical system processes,
+never for an application like this one (the Go linker writes 0). An exe
+with an Authenticode signature is refused: a new `.rsrc` would break it.
 
 `icon_resources`, `version_resource`, `manifest_resource` and
 `data_resource` make the resources the exe carries: the icon as RT_ICON
@@ -14,7 +32,8 @@ images plus the RT_GROUP_ICON directory Explorer, the taskbar and the game
 window read, a VERSIONINFO whose description Task Manager shows, the
 application manifest that makes the exe per-monitor DPI aware (v2), so
 Windows does not stretch its window on a high-DPI screen, and raw bytes as
-RT_RCDATA (the license texts the exe carries).
+RT_RCDATA (the license texts the exe carries, and the game's settings,
+which apps/windows/settings.go reads at start).
 """
 
 from __future__ import annotations
@@ -72,10 +91,13 @@ def _align(offset: int, boundary: int) -> int:
 
 # --- the .rsrc section and its COFF object ----------------------------------
 
-def resource_section(resources: list[Resource]) -> tuple[bytes, list[int]]:
+def resource_section(resources: list[Resource],
+                     address: int = 0) -> tuple[bytes, list[int]]:
     """The `.rsrc` section holding `resources`, and the section offsets of
-    its data entries' OffsetToData fields, each of which holds its data's
-    offset in the section until the linker relocates it."""
+    its data entries' OffsetToData fields. Each field holds its data's
+    offset in the section plus `address`: with 0 (a COFF object) the linker
+    adds the section's address when it relocates the field; in an exe
+    `address` is the section's relative virtual address."""
     tree: dict[int, dict[int, dict[int, bytes]]] = {}
     for res in resources:
         for value in (res.type_id, res.name_id, res.language):
@@ -133,8 +155,10 @@ def resource_section(resources: list[Resource]) -> tuple[bytes, list[int]]:
                          for language in sorted(tree[type_id][name_id])])
     for key, at in entries.items():
         data = tree[key[0]][key[1]][key[2]]
-        # OffsetToData (relocated), Size, CodePage, Reserved.
-        struct.pack_into("<IIII", section, at, blobs[key], len(data), 0, 0)
+        # OffsetToData (relocated, or the data's address), Size, CodePage,
+        # Reserved.
+        struct.pack_into("<IIII", section, at, address + blobs[key],
+                         len(data), 0, 0)
         section[blobs[key]:blobs[key] + len(data)] = data
     return bytes(section), list(entries.values())
 
@@ -161,6 +185,169 @@ def coff_object(resources: list[Resource]) -> bytes:
     symbol = struct.pack("<8sIhHBB", b".rsrc", 0, 1, 0, IMAGE_SYM_CLASS_STATIC, 0)
     string_table = struct.pack("<I", 4)  # empty: just its own length
     return file_header + section_header + section + relocations + symbol + string_table
+
+
+# --- an exe's resources ------------------------------------------------------
+
+PE32_PLUS = 0x20B
+# Offsets in a PE32+ optional header.
+OPT_SECTION_ALIGNMENT = 32
+OPT_FILE_ALIGNMENT = 36
+OPT_SIZE_OF_IMAGE = 56
+OPT_CHECKSUM = 64
+OPT_RVA_COUNT = 108
+OPT_DIRECTORIES = 112
+DIRECTORY_RESOURCE = 2
+DIRECTORY_SECURITY = 4
+SECTION_HEADER = 40
+
+
+@dataclass(frozen=True)
+class _Layout:
+    """Where an exe's headers and its `.rsrc` section are."""
+
+    optional: int  # the optional header's file offset
+    rsrc_header: int  # the .rsrc section header's file offset
+    rsrc_address: int  # its relative virtual address
+    rsrc_raw_at: int  # its data's file offset
+    rsrc_raw_size: int
+    rsrc_size: int  # VirtualSize
+    resource_size: int  # the resource data directory's size
+    section_alignment: int
+    file_alignment: int
+
+
+def _fail(why: str) -> ValueError:
+    return ValueError(f"not an exe whose resources can be rewritten: {why}")
+
+
+def _layout(exe: bytes) -> _Layout:
+    """The layout of an x86-64 PE32+ exe whose `.rsrc` is its last section
+    with nothing after it; ValueError for any other file."""
+    try:
+        return _read_layout(exe)
+    except struct.error:
+        raise _fail("its headers are cut short") from None
+
+
+def _read_layout(exe: bytes) -> _Layout:
+    fail = _fail
+    if exe[:2] != b"MZ":
+        raise fail("no MZ header")
+    if len(exe) < 0x40:
+        raise fail("too short for an exe")
+    pe_at = struct.unpack_from("<I", exe, 0x3C)[0]
+    if exe[pe_at:pe_at + 4] != b"PE\0\0":
+        raise fail("no PE signature")
+    machine, count, _, _, _, optional_size, _ = struct.unpack_from(
+        "<HHIIIHH", exe, pe_at + 4)
+    optional = pe_at + 24
+    if machine != IMAGE_FILE_MACHINE_AMD64:
+        raise fail(f"machine {machine:#x}, not x86-64")
+    if struct.unpack_from("<H", exe, optional)[0] != PE32_PLUS:
+        raise fail("not PE32+")
+    directories = struct.unpack_from("<I", exe, optional + OPT_RVA_COUNT)[0]
+    if directories <= DIRECTORY_SECURITY:
+        raise fail("too few data directories")
+    if struct.unpack_from("<II", exe, optional + OPT_DIRECTORIES
+                          + 8 * DIRECTORY_SECURITY) != (0, 0):
+        raise fail("it is signed (Authenticode), and a new .rsrc would break "
+                   "the signature")
+    resource_address, resource_size = struct.unpack_from(
+        "<II", exe, optional + OPT_DIRECTORIES + 8 * DIRECTORY_RESOURCE)
+    section_alignment, file_alignment = struct.unpack_from(
+        "<II", exe, optional + OPT_SECTION_ALIGNMENT)
+    table = optional + optional_size
+    sections = [struct.unpack_from("<8sIIII", exe, table + SECTION_HEADER * i)
+                for i in range(count)]
+    if not sections or sections[-1][0] != b".rsrc\0\0\0":
+        raise fail(".rsrc is not the last section")
+    _, size, address, raw_size, raw_at = sections[-1]
+    if any(other[2] >= address or (other[3] and other[4] >= raw_at)
+           for other in sections[:-1]):
+        raise fail(".rsrc is not the last section in memory and in the file")
+    if raw_at + raw_size != len(exe):
+        raise fail("data follows .rsrc in the file")
+    if resource_address != address:
+        raise fail("the resource directory is not the .rsrc section")
+    return _Layout(optional, table + SECTION_HEADER * (count - 1), address,
+                   raw_at, raw_size, size, resource_size, section_alignment,
+                   file_alignment)
+
+
+def read_resources(exe: bytes) -> list[Resource]:
+    """The resources in an exe's `.rsrc` section (the last section; see
+    _layout), in type, id and language order. ValueError when the exe is
+    not one this module can rewrite, or its resources use names rather
+    than ids."""
+    layout = _layout(exe)
+    section = exe[layout.rsrc_raw_at:
+                  layout.rsrc_raw_at + min(layout.rsrc_raw_size,
+                                           layout.rsrc_size)]
+
+    def table(at: int, leaf: bool) -> list[tuple[int, int]]:
+        if at + 16 > len(section):
+            raise ValueError(f"resource table at {at:#x} is outside .rsrc")
+        named, ids = struct.unpack_from("<HH", section, at + 12)
+        if named:
+            raise ValueError("named resources are not supported")
+        entries = [struct.unpack_from("<II", section, at + 16 + 8 * i)
+                   for i in range(ids)]
+        for _, offset in entries:
+            if bool(offset & SUBDIRECTORY) == leaf:
+                raise ValueError("resource tree is not three levels deep")
+        return [(key, offset & ~SUBDIRECTORY) for key, offset in entries]
+
+    found = []
+    for type_id, type_at in table(0, False):
+        for name_id, name_at in table(type_at, False):
+            for language, entry_at in table(name_at, True):
+                address, size = struct.unpack_from("<II", section, entry_at)
+                at = address - layout.rsrc_address
+                if at < 0 or at + size > len(section):
+                    raise ValueError(f"resource {type_id}/{name_id}/{language}"
+                                     " lies outside .rsrc")
+                found.append(Resource(type_id, name_id, language,
+                                      section[at:at + size]))
+    return found
+
+
+def pe_checksum(exe: bytes, checksum_at: int) -> int:
+    """The PE image checksum (as imagehlp's CheckSumMappedFile computes
+    it): the file's 16-bit little-endian words summed with end-around
+    carry, the CheckSum field itself counted as 0, plus the file's
+    length."""
+    data = bytearray(exe)
+    data[checksum_at:checksum_at + 4] = bytes(4)
+    if len(data) % 2:
+        data.append(0)
+    total = int(numpy.frombuffer(bytes(data), dtype="<u2").sum(dtype=numpy.uint64))
+    while total > 0xFFFF:
+        total = (total & 0xFFFF) + (total >> 16)
+    return (total + len(exe)) & 0xFFFFFFFF
+
+
+def replace_resources(exe: bytes, resources: list[Resource]) -> bytes:
+    """`exe` with its `.rsrc` section holding `resources` in place of the
+    ones it had, its headers and checksum to match (the module notes)."""
+    layout = _layout(exe)
+    section, _ = resource_section(resources, layout.rsrc_address)
+    raw_size = _align(len(section), layout.file_alignment)
+    out = bytearray(exe[:layout.rsrc_raw_at])
+    out += section + bytes(raw_size - len(section))
+    # The section header: VirtualSize, (VirtualAddress kept), SizeOfRawData.
+    struct.pack_into("<I", out, layout.rsrc_header + 8, len(section))
+    struct.pack_into("<I", out, layout.rsrc_header + 16, raw_size)
+    optional = layout.optional
+    struct.pack_into("<I", out, optional + OPT_SIZE_OF_IMAGE,
+                     _align(layout.rsrc_address + len(section),
+                            layout.section_alignment))
+    struct.pack_into("<II", out, optional + OPT_DIRECTORIES
+                     + 8 * DIRECTORY_RESOURCE, layout.rsrc_address,
+                     len(section))
+    struct.pack_into("<I", out, optional + OPT_CHECKSUM,
+                     pe_checksum(bytes(out), optional + OPT_CHECKSUM))
+    return bytes(out)
 
 
 # --- the icon ----------------------------------------------------------------

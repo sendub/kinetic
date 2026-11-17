@@ -1,4 +1,5 @@
-"""The `kinetic` command's subcommands (docs/plan.md Phase 57, item 9):
+"""The `kinetic` command's subcommands (docs/plan.md Phase 57, items 9
+and 10):
 each is reachable, answers `--help`, and a wrapped tool gets its
 arguments unparsed and gives its exit code. The installed wheel runs the
 same in tools/test_build_wheel.py."""
@@ -9,8 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from kinetic_extract import (assemble_folder, kinetic_cli, setup_media_tools,
-                             upgrade_folder, validate_content)
+from kinetic_extract import (apps, assemble_folder, kinetic_cli,
+                             setup_media_tools, upgrade_folder,
+                             validate_content)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERSION = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
@@ -21,6 +23,7 @@ SUBCOMMANDS = {
     "media": "usage: kinetic media",
     "validate": "usage: kinetic validate",
     "assemble": "usage: kinetic assemble",
+    "apps": "usage: kinetic apps",
     "upgrade": "usage: kinetic upgrade",
     "check": "usage: kinetic check",
     "report": "usage: kinetic report",
@@ -57,7 +60,7 @@ def test_version(capsys) -> None:
     assert help_of(["--version"], capsys) == (0, f"Kinetic {VERSION}\n")
 
 
-@pytest.mark.parametrize("name", ["setup", "validate", "assemble",
+@pytest.mark.parametrize("name", ["setup", "validate", "assemble", "apps",
                                   "upgrade", "check"])
 def test_a_wrapped_tools_version_is_kinetics(name, capsys) -> None:
     assert help_of([name, "--version"], capsys) == (0, f"Kinetic {VERSION}\n")
@@ -106,10 +109,19 @@ def test_assemble_and_upgrade_get_their_name_as_argv0(monkeypatch) -> None:
                     ["kinetic upgrade", "game"]]
 
 
+def test_apps_gets_its_arguments_unparsed(monkeypatch) -> None:
+    seen = []
+    monkeypatch.setattr(apps, "main", lambda argv: seen.append(argv) or 1)
+    assert kinetic_cli.main(["apps", "game", "--mac", "--icon", "i.png"]) == 1
+    assert seen == [["game", "--mac", "--icon", "i.png"]]
+
+
 def test_real_exit_codes_pass_through(tmp_path, capsys) -> None:
     missing = str(tmp_path / "missing")
     assert kinetic_cli.main(["validate", missing]) == 2
     assert kinetic_cli.main(["upgrade", missing]) == 2
+    assert kinetic_cli.main(["apps", missing, "--windows"]) == 2
+    assert "kinetic apps: " in capsys.readouterr().err
     with pytest.raises(SystemExit) as stopped:
         kinetic_cli.main(["assemble", missing, str(tmp_path / "out")])
     assert stopped.value.code == 2

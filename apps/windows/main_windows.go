@@ -14,11 +14,19 @@ func init() {
 }
 
 func main() {
-	// For the author, not a reader: an exe built outside build_apps.py, so
-	// in English.
-	if storyID == "" {
-		fail("This program was built without its game's details.\n\n" +
-			"Build it with tools/build_apps.py --windows, or open the game's index.html instead.")
+	// Once, before anything else: the game's settings (settings.go).
+	settings = loadSettings()
+
+	// Tools and tests: the settings as read, written to a file, no window.
+	if path, ok := selfCheckPath(os.Args[1:]); ok {
+		os.Exit(selfCheck(path, settings))
+	}
+
+	// For the author, not a reader: the exe as each release builds it,
+	// before `kinetic apps` gives it a game, so in English.
+	if settings.StoryID == "" {
+		fail("This program was made without its game's details.\n\n" +
+			"Make it with kinetic apps --windows, or open the game's index.html instead.")
 	}
 
 	// A reader who moved the exe: in their display language.
@@ -34,7 +42,7 @@ func main() {
 		return
 	}
 
-	dir := dataDir(os.Getenv, storyID)
+	dir := dataDir(os.Getenv, settings.StoryID)
 	if dir == "" {
 		openInBrowser(page)
 
@@ -45,7 +53,8 @@ func main() {
 	defer closeLog()
 
 	exe, _ := os.Executable()
-	logf("start %s: story %s, title %q", exe, storyID, gameTitle())
+	logf("start %s: story %s, title %q, made by Kinetic %s", exe, settings.StoryID, gameTitle(),
+		settings.KineticVersion)
 	logf("page %s; data folder %s; DPI awareness %s", fileURL(page), dir, dpiAwareness())
 
 	rt, ok := findRuntime()

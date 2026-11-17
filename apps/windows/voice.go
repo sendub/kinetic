@@ -22,7 +22,8 @@ import (
 const (
 	// voiceLockName is the lock's name in the embedded files and in the
 	// voice folder's helper/, where the helper is told to read it.
-	// tools/build_apps.py copies apps/voice/lock-windows-x64.json in as it.
+	// The host build (kinetic_extract/app_hosts.py) copies
+	// apps/voice/lock-windows-x64.json in as it.
 	voiceLockName = "lock-windows-x64.json"
 	// voiceReceiver is the page's function for voice events.
 	voiceReceiver = "__kineticVoice"
@@ -33,8 +34,9 @@ const (
 )
 
 // embeddedVoice is the helper the exe carries: kinetic_voice/*.py and the
-// lock (voiceLockName). tools/build_apps.py generates voice_embedded.go,
-// which sets it, into the package copy it builds from; without it (go
+// lock (voiceLockName). The host build (kinetic_extract/app_hosts.py)
+// generates voice_embedded.go, which sets it, into the package copy it
+// builds from; without it (go
 // test, or a build without the Windows lock) the exe offers no voice.
 var embeddedVoice fs.FS
 

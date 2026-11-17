@@ -10,12 +10,16 @@ Usage:
 It builds the player afresh into a staging folder (`node
 scripts/build.mjs`, what `npm run build` runs, so player/dist/ is left
 alone) and checks the bundle is stamped with this checkout's VERSION;
-bundles check-game with puppeteer-core into one file
-(player/scripts/bundle-check.mjs); copies converter/ (pyproject.toml and
-the kinetic_extract package) into the staging folder with the package
-data an install reads in place of the repo, under kinetic_extract/data/:
+bundles check-game with puppeteer-core into one file and builds the WebKit
+driver beside it (player/scripts/bundle-check.mjs --driver); builds the
+two app hosts (kinetic_extract/app_hosts.py, reusing the checkout's
+builds of the same sources from .tmp/app-hosts/); copies converter/
+(pyproject.toml and the kinetic_extract package) into the staging folder
+with the package data an install reads in place of the repo, under
+kinetic_extract/data/:
 
     VERSION                         the repo's VERSION
+    LICENSE                         the repo's LICENSE (the apps carry it)
     media-tools.json                converter/media-tools.json
     schemas/content-schema.json     docs/content-schema.json
     schemas/lang.schema.json        docs/lang.schema.json
@@ -23,6 +27,10 @@ data an install reads in place of the repo, under kinetic_extract/data/:
     vendor/unrpyc/, vendor/SOURCES.md   converter/vendor/
     player/index.html, app.js       the fresh player build
     check/check-game.mjs, check-game.json   the bundled check-game
+    check/kinetic-webkit-driver     the WebKit driver (macOS arm64)
+    apps/host-words.json            apps/host-words.json
+    apps/macos/kinetic              the Mac app host (arm64, macOS 12+)
+    apps/windows/kinetic.exe        the Windows app host (x86-64)
 
 and builds `kinetic-<version>-py3-none-any.whl` into DIR (default
 dist/ at the repo root) with `pip wheel --no-deps` and the build backend
@@ -31,7 +39,10 @@ converter/pyproject.toml names. The staging folder (default
 wheel's path, size and file count.
 
 Needs Node and player/node_modules (`npm ci --cache ../.tmp/npm-cache`
-in player/). Exit status: 0 built, 1 a step failed, 2 bad arguments.
+in player/), macOS with a Swift toolchain (the Mac host and the driver)
+and Go at apps/windows/go.mod's version (the Windows host): the release
+machine's tools, never an installer's. Exit status: 0 built, 1 a step
+failed, 2 bad arguments.
 """
 
 from __future__ import annotations
@@ -47,6 +58,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT / "converter") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "converter"))
+from kinetic_extract import app_hosts  # noqa: E402
 from kinetic_extract.version import (  # noqa: E402
     add_version_option, folder_player_version, kinetic_version)
 
@@ -59,6 +71,8 @@ BUNDLE_NAMES = ("index.html", "app.js")
 # Package data: path under kinetic_extract/data/ -> source in the repo.
 DATA_FILES = {
     "VERSION": REPO_ROOT / "VERSION",
+    "LICENSE": REPO_ROOT / "LICENSE",
+    "apps/host-words.json": REPO_ROOT / "apps" / "host-words.json",
     "media-tools.json": CONVERTER / "media-tools.json",
     "schemas/content-schema.json": REPO_ROOT / "docs" / "content-schema.json",
     "schemas/lang.schema.json": REPO_ROOT / "docs" / "lang.schema.json",
@@ -115,6 +129,22 @@ def build_player(node: str, out: Path) -> None:
                          f"not this checkout's {kinetic_version()}")
 
 
+def stage_hosts(data: Path) -> None:
+    """The two app hosts, built for this checkout (or reused from
+    .tmp/app-hosts/), copied into the package data, executable."""
+    try:
+        hosts = {"apps/macos/" + app_hosts.MAC_EXECUTABLE: app_hosts.mac_host(),
+                 "apps/windows/" + app_hosts.WINDOWS_EXECUTABLE:
+                     app_hosts.windows_host()}
+    except app_hosts.BuildError as exc:
+        raise BuildError(f"the app hosts: {exc}") from None
+    for name, host in hosts.items():
+        target = data / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(host, target)
+        target.chmod(0o755)
+
+
 def stage(work: Path, node: str) -> Path:
     """The staging copy of converter/ with its package data; its path."""
     if work.exists():
@@ -140,7 +170,9 @@ def stage(work: Path, node: str) -> Path:
     (data / "player").mkdir()
     for name in BUNDLE_NAMES:
         shutil.copyfile(built / name, data / "player" / name)
-    run([node, "scripts/bundle-check.mjs", str(data / "check")], PLAYER)
+    run([node, "scripts/bundle-check.mjs", str(data / "check"), "--driver"],
+        PLAYER)
+    stage_hosts(data)
     return src
 
 

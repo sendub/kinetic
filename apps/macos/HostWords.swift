@@ -2,9 +2,9 @@
 // item 7), shared by both macOS hosts: the game app (app/main.swift) and
 // the scenario suite's WebKit driver (driver/main.swift), so the suite
 // tests what readers get. The words come from apps/host-words.json, which
-// `npm run i18n` writes from the player's catalogue; tools/build_apps.py and
-// player/scripts/webkit/build.mjs compile it in as a generated
-// KineticHostWordsEmbedded.swift (never committed).
+// `npm run i18n` writes from the player's catalogue; the app's host build
+// (kinetic_extract/app_hosts.py) and player/scripts/webkit/build.mjs compile
+// it in as a generated KineticHostWordsEmbedded.swift (never committed).
 //
 // Before the page loads (the alert when the app cannot find its game), the
 // language is the first of the system's preferred languages the catalogue

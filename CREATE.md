@@ -694,10 +694,12 @@ install` the release's `kinetic-<version>-py3-none-any.whl` into a venv
 of its own, then `kinetic setup` once. Each subcommand takes the
 arguments of the tool it stands for: `kinetic setup` is
 `tools/setup_media_tools.py`, `kinetic extract` is `kinetic-extract`,
-`kinetic media` is `kinetic-media`, `kinetic validate`, `assemble` and
-`upgrade` are `tools/validate_content.py`, `assemble_folder.py` and
-`upgrade_folder.py`, and `kinetic check` is check-game ("Testing your
-game"), which needs Node.js 22.12 or later and Chrome. `kinetic --help`
+`kinetic media` is `kinetic-media`, `kinetic validate`, `assemble`,
+`apps` and `upgrade` are `tools/validate_content.py`,
+`assemble_folder.py`, `build_apps.py` and `upgrade_folder.py`, and
+`kinetic check` is check-game ("Testing your game"), which needs
+Node.js 22.12 or later and Chrome (or, on macOS, the WebKit driver the
+wheel carries). `kinetic --help`
 lists them all. In a checkout `.venv/bin/kinetic` works too, and the
 commands this guide shows stay as they are.
 
@@ -1839,36 +1841,41 @@ other reader.
 Add the apps to an assembled folder, or assemble with them:
 
 ```sh
-.venv/bin/python tools/build_apps.py novel-play --mac --windows
-.venv/bin/python tools/assemble_folder.py my-novel novel-play --windows --icon cover.png
+kinetic apps novel-play --mac --windows
+kinetic assemble my-novel novel-play --windows --icon cover.png
 ```
+
+In a checkout `.venv/bin/python tools/build_apps.py` and
+`tools/assemble_folder.py` take the same arguments. Each app is a copy
+of a small host program that every Kinetic release builds once and
+carries; `kinetic apps` writes the game's title, storyId, first window
+size and icon into the copy, and the app reads them as it starts.
 
 - `--mac` adds `<title>.app`, named from the manifest `title`, with `/`
   and `:` written as `-` (the folder's name when there is no title). The
   manifest needs a `storyId` (Manifest, above), since the app keeps
   readers' progress under its bundle id, `org.kinetic.game.<storyId>`
-  (`_` written as `-`). The build refuses a manifest without one. It
-  also reads the pixel size of the game's first graphic (see `--icon`)
-  into the app, for its first window, and prints it; a game with no
-  readable picture gets a 16:9 first window.
+  (`_` written as `-`). `kinetic apps` refuses a manifest without one.
+  It also writes the pixel size of the game's first graphic (see
+  `--icon`) into the app, for its first window, and prints it; a game
+  with no readable picture gets a 16:9 first window.
 - `--windows` adds `<title>.exe`, named the same way, with the other
   characters Windows refuses in a file name (`\ * ? " < > |`) also
   written as `-`. It keeps readers' progress under the `storyId` too, so
-  it needs one as well. It bakes in the same first-window size as the
-  Mac app, and prints it.
-- Building again replaces the app or exe the build made before, and a
-  failed build leaves the folder as it was. After a title change the
-  build names the app or exe left under the old title; delete it
-  yourself.
+  it needs one as well. It gets the same first-window size as the Mac
+  app, and prints it.
+- Running it again replaces the app or exe it made before, and a
+  failure leaves the folder as it was. After a title change it names
+  the app or exe left under the old title; delete it yourself.
 - `--icon IMAGE` names the icon picture for both: a PNG, JPEG, WebP, GIF
   or JPEG XL file, cut to the largest square in its middle. Without it
   the icon is the game's first graphic: the first item with a picture,
   which is an image, an animation's first frame or a video's poster. A
-  picture that cannot be read stops the build and names the file.
-- With neither `--mac` nor `--windows`, `build_apps.py` prints its usage
-  and builds nothing. Asked for both, it checks everything both need
-  before it builds either. `assemble_folder.py` checks the `storyId`,
-  the tools and the icon before it copies anything.
+  picture that cannot be read stops it and names the file.
+- With neither `--mac` nor `--windows`, `kinetic apps` prints its usage
+  and makes nothing. Asked for both, it checks everything both need
+  before it makes either. `kinetic assemble` checks the `storyId`,
+  macOS for the Mac app and the icon before it copies anything.
 
 Both apps speak the reader's language where they draw words of their
 own: the Mac app's menus (Hide, Quit, View, Reload, Toggle Full Screen)
@@ -1880,19 +1887,21 @@ the game's title in the language shown. In a checkout where the player's
 catalogue has changed since `npm run i18n` last ran, the build stops and
 says to run it.
 
-Building the Mac app needs a Mac with a Swift toolchain: Xcode, or the
-Command Line Tools (`xcode-select --install`). On any other system, or
-without the toolchain, `--mac` stops with one error saying so and writes
-nothing. No Apple ID or certificate is needed, since the app is signed
-ad hoc.
+Making the apps needs no Swift or Go. The Mac app needs a Mac, which
+signs it with its own `codesign`; on any other system `--mac` stops with
+one error saying so and writes nothing. No Apple ID or certificate is
+needed, since the app is signed ad hoc. The Windows program is made on
+macOS, Linux or Windows alike: its icon, version details and settings
+are written into the copy's resources directly.
 
-Building the Windows program needs Go 1.27 or later
-(https://go.dev/dl/), on macOS, Linux or Windows: Go builds the Windows
-program on any of them, with nothing else installed, since the program
-uses Go's standard library alone. Without `go` on
-PATH, or with an older one, `--windows` stops with one error saying so
-and writes nothing. The build downloads nothing and keeps Go's caches in
-`.tmp/windows-app-build/`.
+Only a checkout builds the hosts themselves, once, the first time they
+are needed, into `.tmp/app-hosts/` (again only after their sources
+change): the Mac host needs Xcode or the Command Line Tools
+(`xcode-select --install`), and the Windows host Go 1.27 or later
+(https://go.dev/dl/) on any system, downloading nothing and keeping Go's
+caches in `.tmp/windows-app-build/`. Without them `--mac` or `--windows`
+stops with one error saying so, and says a release wheel carries the
+host prebuilt.
 
 What Mac readers get and see:
 
@@ -1911,13 +1920,13 @@ What Mac readers get and see:
   the size and place the reader gives the window.
 - A game with sound plays it from launch, with no key or click first and
   no "Press any key for sound" hint.
-- Progress is kept per app, under its bundle id (so a rebuild keeps it)
+- Progress is kept per app, under its bundle id (so remaking it keeps it)
   and apart from any browser's. A reader who played `index.html` in a
   browser starts over in the app, or moves the progress across with
   Export and Import.
 - The first time the app opens from Documents, Desktop or Downloads,
-  macOS asks once whether it may use that folder. A rebuilt app asks
-  again, because its ad-hoc signature changes with every build.
+  macOS asks once whether it may use that folder. A remade app may ask
+  again, since its ad-hoc signature changes with what it holds.
 - A folder downloaded as a zip carries macOS's quarantine flag, and the
   app will not open there: macOS refuses it, or runs it away from its
   folder, where it finds no game and says so. Readers of a download open
@@ -1961,10 +1970,10 @@ What Windows readers get and see:
 - Progress is kept in a folder only this game uses,
   `%LOCALAPPDATA%\Kinetic\WebView2\<storyId>`, apart from the reader's
   browsers and any browser that played `index.html` (Export and Import
-  move progress across). A rebuild keeps it. The window's mode and place
-  are kept in that folder too (`kinetic-window.json`), with a log of the
-  exe's last run (`kinetic-host.log`) to ask for when a reader reports a
-  problem.
+  move progress across). Remaking the exe keeps it. The window's mode
+  and place are kept in that folder too (`kinetic-window.json`), with a
+  log of the exe's last run (`kinetic-host.log`) to ask for when a reader
+  reports a problem.
 - The exe needs the Microsoft Edge WebView2 Runtime. Microsoft says the
   runtime is preinstalled on all Windows 11 devices and that it installed
   the runtime on all eligible Windows 10 devices, though a small number
@@ -1986,14 +1995,21 @@ What Windows readers get and see:
   mark, so its exe starts with no prompt.
 
 Keep each app inside its game folder. Upgrading the player
-(`tools/upgrade_folder.py`, Upgrading to a newer Kinetic) needs no
-rebuild, since each app plays whichever `index.html` sits beside it.
+(`kinetic upgrade`, Upgrading to a newer Kinetic) needs no new apps,
+since each app plays whichever `index.html` sits beside it.
+
+Each app answers `--self-check FILE` by writing the settings it reads to
+FILE as JSON and exiting, with no window: run
+`"<title>.app/Contents/MacOS/kinetic" --self-check out.json` on a Mac, or
+`"<title>.exe" --self-check out.json` on Windows, to see the title,
+storyId, first window size and Kinetic version an app was made with
+(apps/README.md, "Game settings").
 
 Kinetic is under the MIT License (`LICENSE` in this repo), and the
 notice travels in what you ship: the folder's `index.html` and `app.js`
 open with it as a comment, the Mac app holds it in
 `Contents/Resources/LICENSE`, and the Windows program in its resources.
-You owe nothing beyond shipping the folder and apps as built: leave
+You owe nothing beyond shipping the folder and apps as made: leave
 those files as they are and the license is met.
 
 ## Testing your game

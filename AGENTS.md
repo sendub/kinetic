@@ -37,22 +37,24 @@ are implementing and docs/stack.md for settled decisions.
   `kinetic`; a venv that still has the old `kinetic-extract` needs
   `.venv/bin/pip uninstall kinetic-extract` before reinstalling):
   subcommands `setup`, `extract`, `media`, `validate`, `assemble`,
-  `upgrade`, `check`, `report`, `routes`, `export`, each taking the
-  arguments of the tool it wraps (`kinetic_extract/tool_commands.py`).
+  `apps`, `upgrade`, `check`, `report`, `routes`, `export`, each taking
+  the arguments of the tool it wraps (`kinetic_extract/tool_commands.py`).
   The tools those wrap live in `converter/kinetic_extract/`
   (`validate_content.py`, `assemble_folder.py`, `upgrade_folder.py`,
-  `setup_media_tools.py`, `windows_resources.py`); the same names in
+  `setup_media_tools.py`, `windows_resources.py`, `apps.py` as
+  `build_apps.py`); the same names in
   `tools/` are wrappers, so every command here still works. File
   locations go through `kinetic_extract/paths.py`: a checkout reads and
   writes the repo as always, an installed wheel uses package data and
   `KINETIC_HOME` or the per-user folders (docs/packaging.md,
   "Installing the tools"). The wheel: `.venv/bin/python
   tools/build_wheel.py [--out DIR]` (fresh player build into a staging
-  folder, check-game bundled by `player/scripts/bundle-check.mjs`;
-  writes `dist/kinetic-<version>-py3-none-any.whl`); its test,
-  `.venv/bin/pytest tools/test_build_wheel.py -q`, installs it into a
-  venv under `.tmp/` and runs the commands outside the repo (about a
-  minute).
+  folder, check-game bundled with the WebKit driver by
+  `player/scripts/bundle-check.mjs --driver`, the two app hosts; needs
+  Swift and Go; writes `dist/kinetic-<version>-py3-none-any.whl`); its
+  test, `.venv/bin/pytest tools/test_build_wheel.py -q`, installs it
+  into a venv under `.tmp/` and runs the commands outside the repo,
+  `kinetic apps` with no Swift or Go on PATH (about a minute).
 - `--version` on `kinetic`, `kinetic-extract`, `kinetic-media`, `tools/`
   `validate_content.py`, `assemble_folder.py`, `build_apps.py`,
   `setup_media_tools.py`, `upgrade_folder.py`, `translations.py` and
@@ -62,16 +64,26 @@ are implementing and docs/stack.md for settled decisions.
   `kinetic_extract.version.folder_player_version` (Python) or
   `folderKineticVersion` in `player/scripts/version.mjs` (null/None for
   an older player).
-- Game apps: `.venv/bin/python tools/build_apps.py <game-folder> [--mac]
-  [--windows] [--icon IMAGE]` adds `<title>.app` (needs macOS and a
-  Swift toolchain) and `<title>.exe` (needs Go 1.27 or later, any OS;
-  Go's caches go to `.tmp/windows-app-build/`);
-  `tools/assemble_folder.py` takes the same flags (CREATE.md, "Building
-  the apps"). The exe's Go tests, from `apps/windows/`:
-  `GOCACHE=$PWD/../../.tmp/windows-app-build/go-cache GOTOOLCHAIN=local
-  go test ./...` (and `GOOS=windows go vet ./...` with the same
-  variables); the host script test runs the script in Node and skips
-  without it. Never launch a built app on the user's screen unasked.
+- Game apps: `kinetic apps <game-folder> [--mac] [--windows] [--icon
+  IMAGE]` (or `.venv/bin/python tools/build_apps.py`, the same) copies
+  the prebuilt hosts in as `<title>.app` (signed with `codesign`, so
+  macOS only) and `<title>.exe` (any OS; its resources rewritten) with
+  the game's settings; `tools/assemble_folder.py` takes the same flags
+  (CREATE.md, "Building the apps"). In a checkout the hosts are built on
+  first use into `.tmp/app-hosts/<kind>-<hash>/`
+  (`converter/kinetic_extract/app_hosts.py`): the Mac host needs a Swift
+  toolchain, the exe Go 1.27 or later (Go's caches in
+  `.tmp/windows-app-build/`); an installed wheel carries both. Each host
+  answers `--self-check FILE` (its settings as JSON, no window;
+  apps/README.md, "Game settings"): the Mac binary is
+  `<title>.app/Contents/MacOS/kinetic`. The exe's Go tests, from
+  `apps/windows/`: `GOCACHE=$PWD/../../.tmp/windows-app-build/go-cache
+  GOTOOLCHAIN=local go test ./...` (and `GOOS=windows go vet ./...` with
+  the same variables); the host script test runs the script in Node and
+  skips without it. The Mac host's settings tests are
+  `apps/macos/tests/main.swift`, which `tools/test_build_apps.py`
+  compiles and runs. Never launch a built app on the user's screen
+  unasked; `--self-check` opens none.
 - Translations as PO files: `.venv/bin/python tools/translations.py
   export <folder> TAG [--out FILE]`, `import <folder> FILE.po`, `status
   <folder>` (docs/translating.md); tests

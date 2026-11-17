@@ -8,33 +8,18 @@ import (
 	"testing"
 )
 
-func TestParseSize(t *testing.T) {
-	good := map[string]size{"1920x1080": {1920, 1080}, "64x48": {64, 48}, "1x1": {1, 1}}
-	for text, want := range good {
-		if got, ok := parseSize(text); !ok || got != want {
-			t.Errorf("parseSize(%q) = %v, %v; want %v", text, got, ok, want)
-		}
-	}
+func TestFirstContentIsTheSettingsSizeElse16By9(t *testing.T) {
+	defer func() { settings = hostSettings{} }()
 
-	for _, text := range []string{"", "1920", "1920x", "x1080", "0x10", "10x0", "-5x10", "axb", "10x10x10", "10 x 10"} {
-		if got, ok := parseSize(text); ok {
-			t.Errorf("parseSize(%q) = %v, want refused", text, got)
-		}
-	}
-}
-
-func TestFirstContentIsTheBakedSizeElse16By9(t *testing.T) {
-	defer func() { firstWindowSize = "" }()
-
-	firstWindowSize = "1080x1920"
+	settings = hostSettings{StoryID: "rainy", WindowSize: &windowSize{1080, 1920}}
 	if got := firstContent(); got != (size{1080, 1920}) {
-		t.Errorf("firstContent with 1080x1920 baked = %v", got)
+		t.Errorf("firstContent with 1080x1920 = %v", got)
 	}
 
-	for _, baked := range []string{"", "junk"} {
-		firstWindowSize = baked
+	for _, w := range []*windowSize{nil, {0, 10}, {10, 0}} {
+		settings = hostSettings{StoryID: "rainy", WindowSize: w}
 		if got := firstContent(); got != (size{1280, 720}) {
-			t.Errorf("firstContent with %q baked = %v, want 1280x720", baked, got)
+			t.Errorf("firstContent with %v = %v, want 1280x720", w, got)
 		}
 	}
 }
