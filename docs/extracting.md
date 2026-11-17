@@ -76,13 +76,14 @@ translation identifiers (Translations, below) use it, so a script the
 walk does not read neither hides another nor feeds identifiers
 (docs/plan.md Phase 56 item 9d):
 
-- **In scope**: the loose `.rpy` and `.rpyc` files at the top level of
-  `game/`, the loose files `--files` reaches (its pattern with either
-  extension, so `chapters/*.rpy` brings in `chapters/`), and every
-  `.rpy` and `.rpyc` member of the `game/*.rpa` archives, at any depth.
-  `tl/` is never in scope. A loose script in a subfolder that `--files`
-  does not reach is not walked, and an archived script with the same
-  path is walked instead.
+- **In scope**: every loose `.rpy` and `.rpyc` file under `game/`, at
+  any depth, and every `.rpy` and `.rpyc` member of the `game/*.rpa`
+  archives, at any depth, as Ren'Py loads every script under `game/`
+  (docs/plan.md Phase 57 item 4b). `tl/` is never in scope: its scripts
+  are translations (Translations, below), never story flow. A file or
+  folder whose name starts with `.` is not either, as Ren'Py's loader
+  (`walkdir` in `renpy/loader.py`) skips it. Before item 4b only the top
+  level of `game/` and the loose files `--files` reached were in scope.
 - **One source per path**: a loose file in scope beats an archive member
   with the same key, an earlier archive (in name order) beats a later
   one, and a `.rpy`, loose or archived, beats the `.rpyc` with the same
@@ -94,11 +95,14 @@ walk does not read neither hides another nor feeds identifiers
   compiled script that has no `.rpy`. A pattern ending in `.rpyc`
   chooses only compiled scripts, and one with no script extension
   (`cred*`) chooses both kinds. Loose files match as a glob from
-  `game/` (`*` stays in one folder); archive members match on their key
-  or on their file name (`*` crosses folders), so `--files "*.rpy"`
-  takes every archived script but only the top-level loose ones, the
-  same set as no `--files` at all. The `.rpy` that beats a chosen
-  `.rpyc` is looked for whatever `--files` says.
+  `game/` (`*` stays in one folder, `**` crosses folders); archive
+  members match on their key or on their file name (`*` crosses
+  folders), so `--files "*.rpy"` takes every archived script but only
+  the top-level loose ones, and `--files "**/*.rpy"` takes the same set
+  as no `--files` at all. A loose script `--files` leaves out still
+  beats an archive member with its key, which is then not walked
+  either. The `.rpy` that beats a chosen `.rpyc` is looked for whatever
+  `--files` says.
 
 The walk reads the chosen scripts in file-name order (loose `.rpy`,
 loose `.rpyc`, then archive members, sorted by file name with ties in
@@ -315,6 +319,27 @@ example:
             "libjxl": "0.12.0", "numpy": "2.5.4"}
 }
 ```
+
+## Finding a script's files
+
+A `scene` or `show` name resolves as Ren'Py resolves it: the game's
+`image` definition first (a `Movie(play=...)` value answers as a video),
+then the implicit image index of loose files and archive members (BUG 5
+under Results, below): a file's path under `game/` without its
+extension, then its file name without the extension, then Ren'Py's own
+name for an image under `images/` (its "Images Directory" rule: the
+file name without the extension, in lowercase, its directories
+dropped, so `scene intro_shot_3` shows `images/Intro/Intro_Shot_3.jpg`),
+loose files before archive members. `show screen x` shows a screen,
+not an image: it is reported and changes no picture. A file name the script gives, in an `image`
+definition, `Movie(play=...)` or `movie`, is looked up as Ren'Py's
+loader looks it up, under each of `config.search_prefixes`, `""` then
+`"images/"`: `game/<name>`, then `game/images/<name>`, then the
+archives (their member with that key or a near match, then
+`images/<name>`). So `image first = "day1/first shot.jpg"` plays
+`game/images/day1/first shot.jpg` (docs/plan.md Phase 57 item 4d); the
+item's ledger `asset` names the file found. A name found nowhere drops
+its item (`droppedUnresolved`), as before.
 
 ## Image policy
 
@@ -1460,8 +1485,16 @@ The code is `converter/kinetic_extract/presentation.py`. Text tags
 neither stripped nor escaped; the player reads them
 (docs/content-format.md, "Text tags").
 
-Speaker colours come from `define x = Character(...)` and
-`DynamicCharacter(...)`, the call over one line or several:
+Speaker colours come from a Character however the game makes it:
+`define x = Character(...)` (with or without an init priority),
+`$ x = Character(...)`, or `x = Character(...)` in an `init python`
+block (and `$` lines in `init:` blocks), from `DynamicCharacter`,
+`ADVCharacter` and `NVLCharacter` too, the call over one line or
+several. The same statements give the speaker's display name
+(docs/plan.md Phase 57 item 4c), and a Character with no name argument
+takes its `kind=`'s name, through a chain of kinds, as Ren'Py does; a
+later statement for the same variable replaces an earlier one. The
+colours:
 
 - `color` and `who_color` give the name's colour, `nameColor`;
   `who_color` wins when both are given. `what_color` gives the lines'

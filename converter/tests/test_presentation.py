@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
 
@@ -49,11 +50,15 @@ def make_project(tmp: Path, script: str) -> Path:
 
 def convert(tmp: Path, script: str,
             capsys: pytest.CaptureFixture[str] | None = None,
+            setup: Callable[[Path], None] | None = None,
             ) -> tuple[dict, dict, str]:
     """(manifest, ledger, run summary) of the script, after checking
-    that the folder validates."""
+    that the folder validates; ``setup`` gets the game folder first."""
     out = tmp / "out"
-    assert cli_main([str(make_project(tmp, script)), str(out)]) == 0
+    project = make_project(tmp, script)
+    if setup is not None:
+        setup(project / "game")
+    assert cli_main([str(project), str(out)]) == 0
     printed = capsys.readouterr().out if capsys is not None else ""
     assert validate_content.validate_folder(out) == []
     manifest = json.loads((out / "manifest.json").read_text("utf-8"))
@@ -402,3 +407,101 @@ def test_defines_with_an_init_priority(tmp_path: Path) -> None:
     manifest, _ledger, _out = convert(tmp_path, script)
     assert transitions(manifest) == [{"kind": "dissolve", "seconds": 0.4}]
     assert manifest["characters"] == {"Ana": {"nameColor": "#ffffff"}}
+
+
+# --- old-style characters (Phase 57 item 4c) --------------------------------
+
+def test_characters_from_init_blocks_and_dollar_lines(tmp_path: Path) -> None:
+    script = ('init:\n'
+              '    $ a = Character("Ana", color="#aa0000")\n'
+              'init python:\n'
+              '    b = Character(\n'
+              '        "Bo",\n'
+              '        what_color="#00bb00")\n'
+              '    c = NVLCharacter("Cy")\n'
+              'label start:\n'
+              '    $ d = Character("Di", who_color="#0000dd")\n'
+              '    scene bg one\n'
+              '    a "One."\n'
+              '    b "Two."\n'
+              '    c "Three."\n'
+              '    d "Four."\n')
+    manifest, ledger, _out = convert(tmp_path, script)
+    assert [item["speaker"] for item in manifest["items"]] == [
+        "Ana", "Bo", "Cy", "Di"]
+    assert manifest["characters"] == {
+        "Ana": {"nameColor": "#aa0000"},
+        "Bo": {"textColor": "#00bb00"},
+        "Di": {"nameColor": "#0000dd"},
+    }
+    # The Character call over several lines made no statements.
+    assert not any("unrecognized" in r for r in reasons(ledger))
+
+
+def test_a_nameless_character_takes_its_kinds_name(tmp_path: Path) -> None:
+    script = ('define a = Character("Ana", color="#aa0000")\n'
+              'define a_shout = Character(kind=a, what_color="#ffffff")\n'
+              'define a_again = Character(kind=a_shout)\n'
+              'define z = Character(kind=nvl)\n'
+              'label start:\n'
+              '    scene bg one\n'
+              '    a_shout "One."\n'
+              '    a_again "Two."\n'
+              '    z "Three."\n')
+    manifest, _ledger, _out = convert(tmp_path, script)
+    assert [item.get("speaker") for item in manifest["items"]] == [
+        "Ana", "Ana", "z"]
+    # Both nameless characters show "Ana"; the first defined with a
+    # colour (a_shout, inheriting a's name colour) wins.
+    assert manifest["characters"] == {
+        "Ana": {"nameColor": "#aa0000", "textColor": "#ffffff"}}
+
+
+# --- file names under images/ (Phase 57 item 4d) ----------------------------
+
+def test_defined_file_is_found_under_images(tmp_path: Path) -> None:
+    """Ren'Py looks a file name up under game/ and then game/images/
+    (`config.search_prefixes`), so a define naming `day1/x.png` plays
+    `game/images/day1/x.png`, even when the image name differs from the
+    file's."""
+    script = ('image first = "day1/%_first shot (v2).png"\n'
+              'label start:\n'
+              '    scene first with dissolve\n'
+              '    "One."\n')
+    def setup(game: Path) -> None:
+        shot = game / "images" / "day1" / "%_first shot (v2).png"
+        shot.parent.mkdir(parents=True)
+        shot.write_bytes((game / "one.png").read_bytes())
+
+    manifest, ledger, _out = convert(tmp_path, script, setup=setup)
+    assert [item["type"] for item in manifest["items"]] == ["image"]
+    assert transitions(manifest) == [{"kind": "dissolve", "seconds": 0.5}]
+    entry = ledger["items"][manifest["items"][0]["id"]]
+    assert entry["asset"] == "game/images/day1/%_first shot (v2).png"
+    assert not any(r.startswith("droppedUnresolved") for r in reasons(ledger))
+
+
+def test_renpy_automatic_names_for_the_images_folder(tmp_path: Path) -> None:
+    """A file under images/ is named by its lowercased file name, its
+    directories dropped, as Ren'Py's images directory rule names it."""
+    script = ('label start:\n'
+              '    scene intro_shot_3\n'
+              '    "One."\n'
+              '    show screen hud\n'
+              '    scene bg big sky\n'
+              '    "Two."\n')
+
+    def setup(game: Path) -> None:
+        (game / "images" / "Intro").mkdir(parents=True)
+        (game / "images" / "Intro" / "Intro_Shot_3.png").write_bytes(
+            (game / "one.png").read_bytes())
+        (game / "images" / "BG Big  Sky.png").write_bytes(
+            (game / "two.png").read_bytes())
+
+    manifest, ledger, _out = convert(tmp_path, script, setup=setup)
+    assets = [ledger["items"][item["id"]]["asset"]
+              for item in manifest["items"]]
+    assert assets == ["game/images/Intro/Intro_Shot_3.png",
+                      "game/images/BG Big  Sky.png"]
+    assert not any(r.startswith("droppedUnresolved") for r in reasons(ledger))
+    assert any(r.startswith("show screen") for r in reasons(ledger))

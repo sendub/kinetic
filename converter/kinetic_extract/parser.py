@@ -52,12 +52,14 @@ from .audio_statements import (AudioChannel, AudioStatement, mentions_audio,
                                read_audio_define, read_channel, read_python,
                                read_statement)
 
-# `define e = Character(...)` or `DynamicCharacter(...)`, with or
-# without an init priority (`define -2 e = ...`): the display name is
-# read from the arguments by character_name.
+# A Character made by `define e = Character(...)` (with or without an
+# init priority, `define -2 e = ...`), by `$ e = Character(...)`, or by
+# `e = Character(...)` in an `init python` block; `DynamicCharacter`,
+# `ADVCharacter` and `NVLCharacter` too. The display name is read from
+# the arguments by character_name.
 _DEFINE_CHAR_RE = re.compile(
-    r"define\s+(?:[+-]?\d+\s+)?([A-Za-z_]\w*)\s*=\s*"
-    r"(Character|DynamicCharacter)\s*\(")
+    r"(?:define\s+(?:[+-]?\d+\s+)?|\$\s*)?([A-Za-z_]\w*)\s*=\s*"
+    r"(Character|DynamicCharacter|ADVCharacter|NVLCharacter)\s*\(")
 # A name argument the converter can read: a string literal, plain or
 # wrapped in Ren'Py's translation markers `_()` or `__()`.
 _NAME_ARG_RE = re.compile(
@@ -98,6 +100,7 @@ _REGISTER_STATEMENT_RE = re.compile(
     r"register_statement\(\s*(?:name\s*=\s*)?[\"']([^\"']+)[\"']")
 _AUDIO_KEYWORDS = frozenset({"play", "queue", "stop", "voice"})
 CREATOR_STATEMENT = "creator-defined statement: not converted"
+SHOW_SCREEN = "show screen: a screen, not an image; not converted"
 AUDIO_IN_MENU = "audio inside an unsupported menu: not converted"
 
 # Block-opening keywords whose contents the walker skips silently (the
@@ -189,10 +192,30 @@ def _literal_value(literal: str) -> str | None:
     return parsed[0] if parsed else None
 
 
+def character_kind(line: str) -> str | None:
+    """The `kind=` name of a Character statement (_DEFINE_CHAR_RE) that
+    gives no name argument, which Ren'Py then takes from its kind; None
+    otherwise, or when `kind` is not a plain name."""
+    m = _DEFINE_CHAR_RE.match(line)
+    args = _call_arguments(line, m.end()) if m else None
+    if args is None:
+        return None
+    kind = None
+    for arg in args:
+        kw = _KEYWORD_ARG_RE.fullmatch(arg)
+        if kw is None or kw.group(1) == "name":
+            return None
+        if kw.group(1) == "kind":
+            kind = kw.group(2).strip()
+    return kind if kind and _DOTTED_NAME_RE.fullmatch(kind) else None
+
+
 def character_name(line: str) -> tuple[str, str] | None:
-    """``(variable, display name)`` of a `define x = Character(...)` (or
-    `DynamicCharacter(...)`) statement, or None when it is not one or its
-    name is not a literal the converter can read. The name is the first
+    """``(variable, display name)`` of a Character statement
+    (_DEFINE_CHAR_RE: `define x = Character(...)`, `$ x = ...` or an
+    `init python` assignment, `DynamicCharacter(...)` and the others),
+    or None when it is not one or its name is not a literal the
+    converter can read. The name is the first
     positional argument or `name=`, a string literal, plain or wrapped in
     `_()` or `__()` (Ren'Py's translation markers, so the name is the
     text a `translate ... strings` block translates); a longer
@@ -331,6 +354,9 @@ class FileParse:
     # var -> (source, statement) of each Character define, the call
     # joined onto one line (kinetic_extract.presentation reads colours).
     character_defs: dict[str, tuple[str, str]] = field(default_factory=dict)
+    # var -> its `kind=` name, for a Character with no name argument
+    # (parse_project gives it the kind's display name).
+    character_kinds: dict[str, str] = field(default_factory=dict)
     # name -> value text of every other `define NAME = value` with a
     # plain name (transition aliases).
     simple_defines: dict[str, str] = field(default_factory=dict)
@@ -463,6 +489,8 @@ def _classify_menu_statement(src: str, line: str,
     if keyword == "show":
         if rest.startswith("layer "):
             return "reject", "show layer inside a choice block"
+        if rest.startswith("screen "):
+            return "event", Event("report", src, text=line, name=SHOW_SCREEN)
         name = _name_tokens(rest)
         if not name:
             return "reject", f"show without an image: {line}"
@@ -707,6 +735,9 @@ def _scan_settings(raw_lines: list[str], relname: str,
         defined = read_audio_define(text)
         if defined is not None:
             result.audio_defs[defined[0]] = defined[1]
+        if _DEFINE_CHAR_RE.match(text.strip()):
+            _read_character(_call_text(raw_lines, n), f"{relname}:{n + 1}",
+                            result)
         if "register_channel(" in text:
             channel = read_channel(_call_text(raw_lines, n))
             if channel is None:
@@ -716,6 +747,24 @@ def _scan_settings(raw_lines: list[str], relname: str,
                     "literals: channel not read"))
             else:
                 result.channels[channel.name] = channel
+
+
+def _read_character(line: str, source: str, result: FileParse) -> None:
+    """Record a Character statement, in a block or not: `define`, `$` or
+    an `init python` assignment (Phase 57 item 4c). A later one for the
+    same variable replaces an earlier one, as running them would."""
+    m = _DEFINE_CHAR_RE.match(line)
+    var = m.group(1)
+    result.character_defs[var] = (source, line)
+    result.characters.pop(var, None)
+    result.character_kinds.pop(var, None)
+    named = character_name(line)
+    if named is not None:
+        result.characters[var] = named[1]
+    else:
+        kind = character_kind(line)
+        if kind is not None:
+            result.character_kinds[var] = kind
 
 
 def _audio_event(result: FileParse, source: str, line: str,
@@ -789,15 +838,10 @@ def parse_file(text: str, relname: str,
             continue
 
         if keyword == "define":
-            char = _DEFINE_CHAR_RE.match(line)
-            if char:
+            if _DEFINE_CHAR_RE.match(line):
                 # A Character call may run over several lines; they are
-                # not statements of their own.
+                # not statements of their own. _scan_settings read it.
                 line, i = _continued(raw_lines, lineno - 1, line)
-                result.character_defs[char.group(1)] = (source, line)
-                named = character_name(line)
-                if named is not None:
-                    result.characters[named[0]] = named[1]
             elif _SIMPLE_DEFINE_RE.match(line):
                 line, i = _continued(raw_lines, lineno - 1, line)
                 m = _SIMPLE_DEFINE_RE.match(line)
@@ -805,8 +849,9 @@ def parse_file(text: str, relname: str,
             # other defines: skipped silently
             continue
         if line.startswith("$"):
-            if mentions_audio(line):
-                line, i = _continued(raw_lines, lineno - 1, line)
+            # A call may run over several lines (a playlist, a
+            # Character); they are not statements of their own.
+            line, i = _continued(raw_lines, lineno - 1, line)
             _audio_event(result, source, line, read_python(line))
             continue
         if keyword == "default":
@@ -838,6 +883,12 @@ def parse_file(text: str, relname: str,
                 result.reports.append(
                     Report(source, line, "transform statement (reported, skipped)"))
                 open_block()
+                continue
+            if rest.startswith("screen "):
+                # `show screen x` shows a screen, which is not converted
+                # (Phase 57 item 4d: it used to be read as image `screen
+                # x` and dropped).
+                result.reports.append(Report(source, line, SHOW_SCREEN))
                 continue
             name = _name_tokens(rest)
             if name:
@@ -978,6 +1029,16 @@ def _in_tl(path: Path, game_dir: Path) -> bool:
         return False
 
 
+def _hidden(path: Path, game_dir: Path) -> bool:
+    """Whether a name on `path` below `game_dir` starts with `.`: Ren'Py's
+    loader (`walkdir` in renpy/loader.py) skips such files and folders."""
+    try:
+        parts = path.relative_to(game_dir).parts
+    except ValueError:
+        parts = (path.name,)
+    return any(part.startswith(".") for part in parts)
+
+
 @dataclass
 class ScriptSource:
     """One script the walk reads: a loose file (``path``) or an archive
@@ -1002,19 +1063,6 @@ class WalkedScripts:
     rpa_failed: list[dict]          # archives whose index is unreadable
 
 
-def _scope_globs(files_glob: str | None) -> list[str]:
-    """The globs whose loose scripts are in scope beside the top level:
-    ``--files`` with either script extension, so a pattern for one kind
-    still finds the other's twin."""
-    if files_glob is None:
-        return []
-    if files_glob.endswith(".rpy"):
-        return [files_glob, files_glob + "c"]
-    if files_glob.endswith(".rpyc"):
-        return [files_glob[:-1], files_glob]
-    return [files_glob]
-
-
 def walked_scripts(game_dir: Path,
                    files_glob: str | None = None) -> WalkedScripts:
     """Decide which scripts the walk reads (docs/extracting.md, "Which
@@ -1023,13 +1071,14 @@ def walked_scripts(game_dir: Path,
     feeds identifiers.
 
     The game's scripts, outside ``tl/`` (Ren'Py's translations, never
-    story flow, whatever ``--files`` says): the loose ``.rpy`` and
-    ``.rpyc`` at the top level of ``game/`` and those ``--files`` reaches
-    (its pattern with either extension), and every script member of the
-    ``game/*.rpa`` archives. One source per path: a loose file beats an
-    archive member with the same key, an earlier archive (name order) a
-    later one, and a ``.rpy`` (loose or archived) beats the ``.rpyc``
-    with the same path, which may be stale. ``--files`` then chooses: a
+    story flow, whatever ``--files`` says): every loose ``.rpy`` and
+    ``.rpyc`` under ``game/``, at any depth, as Ren'Py loads them (a file
+    or folder whose name starts with ``.`` aside, as Ren'Py's loader
+    skips it), and every script member of the ``game/*.rpa`` archives.
+    One source per path: a loose file beats an archive member with the
+    same key, an earlier archive (name order) a later one, and a ``.rpy``
+    (loose or archived) beats the ``.rpyc`` with the same path, which may
+    be stale. ``--files`` then chooses: a
     ``.rpy`` matching it and a ``.rpyc`` matching it with ``.rpy`` read
     as ``.rpyc`` (so ``*.rpy`` takes a compiled script that has no
     ``.rpy``), loose files by glob from ``game/``, archive members by
@@ -1043,7 +1092,8 @@ def walked_scripts(game_dir: Path,
     def scripts(pattern: str) -> list[Path]:
         return [p for p in sorted(game_dir.glob(pattern))
                 if p.name.endswith((".rpy", ".rpyc"))
-                and not _in_tl(p, game_dir) and p.is_file()]
+                and not _in_tl(p, game_dir)
+                and not _hidden(p, game_dir) and p.is_file()]
 
     def chosen(key: str) -> bool:
         """Whether ``--files`` chooses the script at this path."""
@@ -1058,7 +1108,7 @@ def walked_scripts(game_dir: Path,
         return _ledger_rel(path, game_dir)[len("game/"):]
 
     loose: dict[str, Path] = {}
-    for pattern in ["*.rpy", "*.rpyc", *_scope_globs(files_glob)]:
+    for pattern in ["**/*.rpy", "**/*.rpyc"]:
         for path in scripts(pattern):
             loose.setdefault(key_of(path), path)
     archived: dict[str, object] = {}
@@ -1094,8 +1144,9 @@ def walked_scripts(game_dir: Path,
 
     # Loose files in glob order: the order the walk has always had for
     # files with the same name in different folders.
-    for pattern, kind in ((files_glob or "*.rpy", "rpy"),
-                          (_rpyc_glob(files_glob), "rpyc")):
+    for pattern, kind in ((files_glob or "**/*.rpy", "rpy"),
+                          (_rpyc_glob(files_glob) if files_glob
+                           else "**/*.rpyc", "rpyc")):
         for path in scripts(pattern):
             key = key_of(path)
             if not key.endswith(f".{kind}"):
@@ -1137,7 +1188,7 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     the ledger names it ``game/<archive>!<key>``.
 
     ``files_glob`` restricts which files feed the walk (relative to
-    ``game/``, filename order; default every top-level ``.rpy``, every
+    ``game/``, filename order; default every loose ``.rpy``, every
     archived one, and each ``.rpyc`` without a ``.rpy``).
 
     Returns ``(parses, image_defs, characters, sources)`` where ``parses``
@@ -1194,9 +1245,31 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     parses: list[tuple[str, FileParse]] = []
     image_defs: dict[str, str] = {}
     characters: dict[str, str] = {}
+    kinds: dict[str, str] = {}
     for rel, text in texts:
         parsed = parse_file(text, rel, creator)
         parses.append((rel, parsed))
         image_defs.update(parsed.image_defs)
+        for var in parsed.character_defs:
+            characters.pop(var, None)
+            kinds.pop(var, None)
         characters.update(parsed.characters)
+        kinds.update(parsed.character_kinds)
+    characters.update(kind_names(characters, kinds))
     return parses, image_defs, characters, sources
+
+
+def kind_names(characters: dict[str, str],
+               kinds: dict[str, str]) -> dict[str, str]:
+    """var -> display name for each Character with no name argument,
+    taken from its `kind=` as Ren'Py does, through a chain of kinds;
+    a kind with no name the converter knows gives none."""
+    out: dict[str, str] = {}
+    for var in kinds:
+        seen, kind = {var}, kinds[var]
+        while kind in kinds and kind not in characters and kind not in seen:
+            seen.add(kind)
+            kind = kinds[kind]
+        if kind in characters:
+            out[var] = characters[kind]
+    return out

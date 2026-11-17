@@ -20,7 +20,14 @@ basename key"):
   ``kinetic_extract.rpa.AssetArchives.candidates`` only when no loose
   file matched (the archive indexes of a 6.9 GB game are not touched by
   a project that needs them);
-- explicit `image` definitions win over both — the timeline consults
+- Ren'Py's own automatic names for the images directory (its "Images
+  Directory" rule): an image file under ``images/``, at any depth, is
+  named by its file name without the extension, in lowercase, with the
+  directories dropped, so `scene intro_shot_3` shows
+  ``images/Intro/Intro_Shot_3.jpg`` (docs/plan.md Phase 57 item 4d).
+  This is the last loose rule, and archive members under ``images/``
+  answer it last of all;
+- explicit `image` definitions win over all of these — the timeline consults
   them first and only reaches here when a name has no definition (or its
   defined file does not exist anywhere).
 
@@ -51,12 +58,17 @@ class ImplicitImages:
         self._by_key: dict[str, list[str]] | None = None
         # basename-without-ext key -> sorted full keys
         self._by_base: dict[str, list[str]] | None = None
+        # Ren'Py's automatic name of an images/ file -> sorted rel paths
+        self._by_auto: dict[str, list[str]] | None = None
+        # The same for archive members, built only when first needed.
+        self._arc_auto: dict[str, list[str]] | None = None
 
     def _index(self) -> None:
         """One recursive listing of game/ (docs/extracting.md: listings on
         the corpus volume are fine; greps inside files are not)."""
         by_key: dict[str, list[str]] = {}
         by_base: dict[str, list[str]] = {}
+        by_auto: dict[str, list[str]] = {}
         for dirpath, dirs, files in os.walk(self._game_dir):
             if Path(dirpath) == self._game_dir and "tl" in dirs:
                 # Ren'Py's per-language file replacements (game/tl/<lang>/)
@@ -72,11 +84,15 @@ class ImplicitImages:
                 key = str(Path(rel).with_suffix(""))
                 by_key.setdefault(key, []).append(rel)
                 by_base.setdefault(Path(key).name, []).append(key)
-        for rels in by_key.values():
+                auto = automatic_name(rel)
+                if auto is not None:
+                    by_auto.setdefault(auto, []).append(rel)
+        for rels in (*by_key.values(), *by_auto.values()):
             rels.sort()
         for keys in by_base.values():
             keys.sort()
         self._by_key, self._by_base = by_key, by_base
+        self._by_auto = by_auto
 
     @staticmethod
     def _pick(rels: list[str], kind: str) -> str:
@@ -109,10 +125,40 @@ class ImplicitImages:
             n = sum(len(self._by_key[k]) for k in keys)
             return (f"game/{rel}", self._game_dir / rel,
                     {"path": f"game/{rel}"}, n)
+        assert self._by_auto is not None
+        rels = self._by_auto.get(name)
+        if rels:
+            rel = rels[0]
+            return (f"game/{rel}", self._game_dir / rel,
+                    {"path": f"game/{rel}"}, len(rels))
         if self._archives is not None:
             found = self._archives.candidates(name, kind)
             if found:
                 arc, key = found[0]
                 ledger, path, ref = self._archives.hit(arc, key)
                 return ledger, path, ref, len(found)
+            if self._arc_auto is None:
+                self._arc_auto = {}
+                for key in self._archives.keys():
+                    auto = automatic_name(key)
+                    if auto is not None:
+                        self._arc_auto.setdefault(auto, []).append(key)
+            members = self._arc_auto.get(name)
+            if members:
+                arc, key = self._archives.member(members[0])
+                ledger, path, ref = self._archives.hit(arc, key)
+                return ledger, path, ref, len(members)
         return None
+
+
+def automatic_name(rel: str) -> str | None:
+    """The image name Ren'Py gives a file under ``images/`` (its "Images
+    Directory" rule, ``_scan_images_directory`` in
+    renpy/common/00images.rpy): the file name without its extension, in
+    lowercase, directories dropped, its words joined by one space; None
+    for a path outside ``images/`` or a file that is not an image."""
+    path = Path(rel)
+    if path.parts[:1] != ("images",) \
+            or path.suffix.lstrip(".").lower() not in IMAGE_EXTS:
+        return None
+    return " ".join(path.stem.lower().split()) or None

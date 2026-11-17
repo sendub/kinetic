@@ -5343,13 +5343,42 @@ truthful: an unchecked box means nothing was accepted.
       punches, an ImageDissolve alias); leads became items 4b-4d.
       Subagent: test_presentation 41, converter suite 917 passed.
       Orchestrator: converter suite 917 passed.)
-- [ ] Ren'Py's script walk (item 4b). Loose scripts in subfolders of
+- [x] Ren'Py's script walk (item 4b). Loose scripts in subfolders of
       `game/` are walked by default, as Ren'Py loads them.
-- [ ] Old-style characters (item 4c). Characters made in `init:` and
+      (2026-11-17: every loose `.rpy`/`.rpyc` under `game/` at any
+      depth, leaving out `tl/` and names starting with `.` as Ren'Py's
+      loader does; one source per path unchanged; `--files` narrows,
+      and a loose script it leaves out still beats the archived copy.
+      docs/extracting.md "Which scripts are walked"; four tests of the
+      old rule rewritten, new hidden/`tl/` and nested-story cases. Both
+      corpus games convert with no `--files` (64 and 13 scripts).)
+- [x] Old-style characters (item 4c). Characters made in `init:` and
       `$` lines give names and colours; a nameless Character takes its
       kind's name.
-- [ ] A corpus game's lost pictures (item 4d). The cause of game 1's
+      (2026-11-17: `define`, `$ x = Character(...)` (in `init:` too) and
+      `x = Character(...)` in `init python`, for Character,
+      DynamicCharacter, ADVCharacter and NVLCharacter, calls joined
+      over lines, later statements replacing earlier; a nameless one
+      follows its `kind=` chain (`nvl` gives none); a `$` call over
+      several lines is joined. Two synthetic cases.)
+- [x] A corpus game's lost pictures (item 4d). The cause of game 1's
       3576 dropped visuals found and fixed.
+      (2026-11-17: three general causes. Ren'Py also looks a file name
+      up under `images/` (`config.search_prefixes`); Ren'Py names a file
+      under `images/` by its lowercased stem with folders dropped, which
+      the lookup did case-sensitively; `show screen x` was read as an
+      image and dropped (now reported, no picture change).
+      `timeline.asset_paths`, `images.automatic_name`, docs/extracting.md
+      "Finding a script's files"; a failing-first synthetic case each.
+      Game 1 dropped entries 3576 -> 14 (5 `show expression`, 2 names
+      with no file), game 2 19 -> 13; game 1: 3601 items, 827 dissolves
+      and 9 fades kept, 5/5 speakers coloured. Its 37 validator errors,
+      text before any picture from non-story scripts joined in file
+      order, became item 4e. Subagent and orchestrator: converter suite
+      924 passed; with the validator tests 1410.)
+- [ ] The walk follows labels (item 4e). The story is read from
+      `label start` through jumps and calls, not by joining files in
+      name order.
 - [x] `kinetic report` (item 5). Reading time per route, speakers,
       unused files, longest lines, unknown tags; check-game reports
       overflowing lines.
@@ -5376,10 +5405,33 @@ truthful: an unchecked box means nothing was accepted.
       check at load 15, judged timing). Orchestrator: the four pytest
       files 519 passed; walk.test 76; check clean; checkgame 51/51 on
       Chrome and 51/51 on WebKit at load 11-25.)
-- [ ] `kinetic routes` (item 6). The branch structure as an outline,
+- [x] `kinetic routes` (item 6). The branch structure as an outline,
       DOT and JSON, agreeing with the branch map's model.
-- [ ] `kinetic export` (item 7). Each route as Markdown with item ids,
+      (2026-11-17: `kinetic_extract/routes.py` copies mapmodel.ts
+      `stripOf`'s line walk without geometry, from
+      `folder_model.resolve_decisions`; outline with each decision,
+      route, result, span and join, then decisions no line reaches,
+      dropped branches, items on no line and unreachable items; `--dot`
+      and `--json`. fixtures/route-shapes.json holds five shapes plus the
+      demo and lang-demo with the six counts the map draws, asserted by
+      test_routes.py and player/src/render/routeshape.test.ts alike.
+      DOT not run through Graphviz (not installed).)
+- [x] `kinetic export` (item 7). Each route as Markdown with item ids,
       in any language of the folder.
+      (2026-11-17: `kinetic_extract/export.py`: `<a id>` before each
+      item, `Speaker: text` with tags read to plain text, `(thinks)`,
+      media, transitions and audio cues as HTML comments, choices with
+      their routes after them in the map's order, items on no line last;
+      one document on stdout or `--out DIR` (main.md plus one file per
+      route); `--lang` marks fallbacks `[base]`, an unlisted tag exits
+      2. CREATE.md and AGENTS.md. Lead: `resolve_decisions` compares
+      every decision with every other (5000 take about 2 s), item 7b.
+      Subagent: test_routes 17, test_export 9, with report and version
+      76; npm test 1821. Orchestrator: converter suite with the
+      validator tests 1410 passed; routeshape 6; check clean.)
+- [ ] Decisions resolved in near-linear time (item 7b). Nesting and
+      branch lookups no longer compare every decision with every
+      other.
 - [ ] Media tools for Windows and Linux (item 8). Windows and
       linux-x86_64 pinned against the shared goldens, `macos-x86_64`
       dropped, AGENTS.md's pin rule rewritten.

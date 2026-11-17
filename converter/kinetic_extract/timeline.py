@@ -41,6 +41,10 @@ _INTERPOLATION_NOTE = " interpolation(s) literal in text"
 _MOVIE_PLAY_RE = re.compile(r"\bplay\s*=\s*\"((?:[^\"\\]|\\.)*)\"")
 _QUOTED_RE = re.compile(r"\"((?:[^\"\\]|\\.)*)\"")
 
+# The folder Ren'Py's loader also looks a file name up in
+# (`config.search_prefixes` is `["", "images/"]`).
+IMAGES_PREFIX = "images"
+
 # Image names Ren'Py renders without a file: a plain black/white screen.
 _SOLID_COLORS = frozenset({"black", "white"})
 
@@ -262,15 +266,25 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     ) -> tuple[str | None, Path | None,
                                dict[str, str] | None]:
         """(ledger rel, file path, source ref) for a script reference:
-        the loose file under game/, else an archive member."""
+        the loose file under game/, else under game/images/, else an
+        archive member. Ren'Py's loader looks a file name up under each
+        of `config.search_prefixes`, `""` then `"images/"`, so
+        `image x = "day1/x.jpg"` plays `game/images/day1/x.jpg`
+        (docs/plan.md Phase 57 item 4d)."""
         if rel is None:
             return None, None, None
         target = game_dir / rel
         ledger_rel = f"game/{Path(rel).as_posix()}"
-        if not target.exists() and asset_lookup is not None:
-            hit = asset_lookup(rel, kind)
-            if hit is not None:
-                return hit
+        if not target.exists():
+            in_images = game_dir / IMAGES_PREFIX / rel
+            if in_images.is_file():
+                images_rel = f"game/{IMAGES_PREFIX}/{Path(rel).as_posix()}"
+                return images_rel, in_images, {"path": images_rel}
+            if asset_lookup is not None:
+                hit = (asset_lookup(rel, kind)
+                       or asset_lookup(f"{IMAGES_PREFIX}/{rel}", kind))
+                if hit is not None:
+                    return hit
         return ledger_rel, target, {"path": ledger_rel}
 
     def flush_bare() -> None:

@@ -47,7 +47,9 @@ non-zero exit naming the hook, the source and the error.
 Slice options (docs/plan.md Phase 11) extract part of a big game:
 ``--label NAME`` starts the walk at that label, ``--max-items N`` stops
 after N manifest items, and ``--files GLOB`` restricts which ``.rpy``
-files feed the walk (matched in ``game/``, parsed in filename order).
+files feed the walk (matched in ``game/``, parsed in filename order;
+by default every script under ``game/`` but ``tl/``, as Ren'Py loads
+them).
 With none of them the whole project is extracted, as before.
 
 Several projects (episodes, docs/plan.md Phase 25) become one game: each
@@ -615,8 +617,9 @@ def main(argv: list[str] | None = None) -> int:
                       help="only walk the scripts matching GLOB, loose "
                            "(a glob from game/) or archived (key or file "
                            "name); a .rpy pattern also takes a .rpyc with "
-                           "no .rpy (default: the top-level loose and every "
-                           "archived .rpy, and each .rpyc without a .rpy)")
+                           "no .rpy (default: every loose .rpy under game/ "
+                           "and every archived one, tl/ aside, and each "
+                           ".rpyc without a .rpy)")
     argp.add_argument("--title", type=title_option, default=None,
                       metavar="TEXT",
                       help="the game's name, shown atop the player's Esc "

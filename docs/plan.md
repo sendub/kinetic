@@ -4199,6 +4199,17 @@ The orchestrator's choices, within those decisions:
     mostly resolve to no image (3576 visuals dropped). Find the cause in
     the image lookup and fix it in general, not for that game. Tests: a
     synthetic case of the cause; game 1's dropped count after the fix.
+4e. The walk follows labels (item 4d's corpus run). The converter joins
+    the walked scripts in file-name order, so lines in non-story scripts
+    (a developer script, minigames) become items, and a game whose
+    story order differs from its file order reads out of order; one
+    corpus game gets 37 validator errors from text before any picture.
+    Read the story as Ren'Py runs it: from `label start` through
+    `jump`, `call` and fall-through to the next label in the same file,
+    taking only reached labels' statements; unreached labels are
+    reported, not emitted. Keep `--label` working. Tests: synthetic
+    projects with story order unlike file order, a call and return, an
+    unreached developer label; the two corpus games before and after.
 5. `kinetic report <folder>`. Reading time per route from "Timing",
    speakers with line counts (names that differ only in case,
    spacing, or by one letter are flagged), files in the folder no item
@@ -4221,6 +4232,14 @@ The orchestrator's choices, within those decisions:
    media file names as comments, and item ids as anchors, so an agent
    can lay a route beside its `.rpy` source. Tests: export of the demo
    and of `fixtures/lang-demo` in German.
+7b. Decisions resolved in near-linear time (items 6-7's lead).
+    `folder_model.resolve_decisions` works out nesting by comparing
+    every decision with every other (5000 decisions take about 2 s) and
+    `report.timing_section` scans for each decision's branch. Use an
+    interval walk or index so validate, report, routes and export stay
+    fast on games with thousands of decisions, same results. Tests: the
+    existing ones unchanged; a 20,000-decision synthetic folder under a
+    time bound.
 8. Media tools for Windows and Linux. Drop `macos-x86_64` from
    `converter/media-tools.json` and the docs. On the user's Windows PC
    over SSH (the user's global notes say how), try ffmpeg 9.0.2 builds

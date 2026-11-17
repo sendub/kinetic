@@ -345,23 +345,45 @@ def test_loose_asset_wins_over_archive(tmp_path: Path) -> None:
 
 # --- walk scope: only walked scripts shadow (item 9d) ------------------------
 
-def test_unwalked_loose_script_does_not_shadow_the_archive(
+def test_loose_script_in_a_subfolder_beats_the_archive(
         tmp_path: Path) -> None:
-    """A loose script in a subfolder of game/ is not walked (the walk reads
-    the top level), so the archived script with its key is walked."""
+    """Every loose script under game/ is walked, as Ren'Py loads them
+    (Phase 57 item 4b), so one in a subfolder beats the archived script
+    with its key."""
     game = _mp_like_game(tmp_path)      # scripts/a.rpy, scripts/z.rpyc
     loose = game / "scripts" / "a.rpy"
     loose.parent.mkdir(parents=True)
-    loose.write_text('label a\n    "never walked"\n', encoding="utf-8")
+    loose.write_text('label a\n    "loose copy"\n', encoding="utf-8")
+    parses, _d, _c, sources = parse_project(game)
+    assert [r for r, _ in parses] == ["game/scripts/a.rpy",
+                                      "game/scripts.rpa!scripts/z.rpyc"]
+    assert "loose copy" in _dialogue(parses)
+    assert "first line" not in _dialogue(parses)
+    assert sources["rpaIgnoredTwins"] == [{
+        "member": "scripts/a.rpy", "archive": "game/scripts.rpa",
+        "reason": "loose file with the same key"}]
+    # --files that leaves the loose script out walks neither copy.
+    parses, _d, _c, _s = parse_project(game, "z.rpy")
+    assert [r for r, _ in parses] == ["game/scripts.rpa!scripts/z.rpyc"]
+
+
+def test_hidden_and_tl_scripts_are_not_walked(tmp_path: Path) -> None:
+    """Ren'Py's loader skips names starting with `.`, and tl/ holds
+    translations: neither is walked, nor shadows an archived script."""
+    game = _mp_like_game(tmp_path)
+    for rel in (".old/scripts/a.rpy", "tl/de/scripts/a.rpy",
+                "scripts/.draft.rpy"):
+        path = game / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('label a\n    "never walked"\n', encoding="utf-8")
     parses, _d, _c, sources = parse_project(game)
     assert [r for r, _ in parses] == ["game/scripts.rpa!scripts/a.rpy",
                                       "game/scripts.rpa!scripts/z.rpyc"]
-    assert "first line" in _dialogue(parses)
     assert "never walked" not in _dialogue(parses)
     assert sources["rpaIgnoredTwins"] == []
 
 
-def test_unwalked_loose_rpy_does_not_beat_an_archived_rpyc(
+def test_loose_rpy_in_a_subfolder_beats_an_archived_rpyc(
         tmp_path: Path) -> None:
     game = tmp_path / "proj" / "game"
     (game / "scripts").mkdir(parents=True)
@@ -369,9 +391,29 @@ def test_unwalked_loose_rpy_does_not_beat_an_archived_rpyc(
     write_rpa(game / "scripts.rpa", {
         "scripts/credits.rpyc": FIXTURE_RPYC.read_bytes()})
     parses, _d, _c, sources = parse_project(game)
-    assert [r for r, _ in parses] == ["game/scripts.rpa!scripts/credits.rpyc"]
-    assert sources["decompiled"] == ["game/scripts.rpa!scripts/credits.rpyc"]
-    assert sources["rpaIgnoredTwins"] == []
+    assert [r for r, _ in parses] == ["game/scripts/credits.rpy"]
+    assert sources["decompiled"] == []
+    assert sources["rpaIgnoredTwins"] == [{
+        "member": "scripts/credits.rpyc", "archive": "game/scripts.rpa",
+        "reason": "a .rpy with the same path",
+        "kept": "game/scripts/credits.rpy"}]
+
+
+def test_subfolder_scripts_walk_with_no_files_option(tmp_path: Path) -> None:
+    """A story kept in subfolders converts with no --files."""
+    game = tmp_path / "proj" / "game"
+    (game / "story" / "day1").mkdir(parents=True)
+    (game / "script.rpy").write_text('label start:\n    jump day1\n',
+                                     encoding="utf-8")
+    (game / "story" / "day1" / "day1.rpy").write_text(
+        'label day1:\n    "Morning."\n', encoding="utf-8")
+    (game / "story" / "credits.rpyc").write_bytes(FIXTURE_RPYC.read_bytes())
+    parses, _d, _c, sources = parse_project(game)
+    assert [r for r, _ in parses] == ["game/story/credits.rpyc",
+                                      "game/story/day1/day1.rpy",
+                                      "game/script.rpy"]
+    assert sources["decompiled"] == ["game/story/credits.rpyc"]
+    assert "Morning." in _dialogue(parses)
 
 
 def test_files_reaching_a_subfolder_walks_and_shadows(tmp_path: Path) -> None:
