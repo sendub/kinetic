@@ -4345,6 +4345,23 @@ The orchestrator's choices, within those decisions:
     reads the coverage text updated. CREATE.md, AGENTS.md and the
     CHANGELOG (an Upgrading bullet: coverage is in `kinetic report` or
     `validate --json`; gates can use `--strict`).
+11c. A README for players and authors (the user, 2026-11-17). README.md
+    has grown into 4,000 words of key-by-key detail, and its opening
+    does not mention the Mac and Windows apps. Rewrite it as a short,
+    engaging overview for a human player and a human author: what
+    Kinetic is (a folder that plays from disk, or as its own Mac or
+    Windows app), the highlights, and why it is better than Ren'Py for
+    a kinetic novel, stated fairly. Screenshots replace walls of text:
+    the Esc screen (the keys), the branch map and the bookmarks, each
+    with a short caption, taken from the demo by a script that can
+    regenerate them (`player/scripts/screenshots.mjs` through the
+    testing library, images under `docs/images/`). The detail moves to
+    a new docs/player.md that records the intended behaviour of every
+    key, control and screen; nothing true is lost. Everything current
+    (the `kinetic` command, the wheel, colours, transitions, tags,
+    translations, spoken lines, apps). Tests: links and image paths
+    resolve; any test that reads README.md updated; docs/player.md
+    checked against the help text and keys in the player source.
 12. Phase-closer: full suites; VERSION 1.12.0, the CHANGELOG dated,
     tag, `main` fast-forwarded, and the wheel attached to the GitHub
     release v1.12.0.

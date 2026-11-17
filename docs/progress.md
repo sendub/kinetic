@@ -5730,6 +5730,9 @@ truthful: an unchecked box means nothing was accepted.
       stderr empty; a clean two-language folder silent on both streams,
       exit 0 under `--strict`; report's coverage section; the four test
       files 632; npm test 1853.)
+- [ ] A README for players and authors (item 11c). A short overview
+      with screenshots of the Esc screen, branch map and bookmarks; the
+      detail moved to docs/player.md.
 - [ ] Phase-closer (Phase 57): full suites; VERSION 1.12.0, the
       CHANGELOG dated, tag v1.12.0, `main` fast-forwarded, the wheel
       attached to the GitHub release.
