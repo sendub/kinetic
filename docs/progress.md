@@ -5244,5 +5244,16 @@ truthful: an unchecked box means nothing was accepted.
       assemble, upgrade and build_apps tests 172 passed; npm test
       1725/1725, check clean; `verify -- checkgame` 43/43 Chrome and
       WebKit; `--lang xx` exits 2 listing en, de, ja, ar.)
-- [ ] Phase-closer (Phase 56): full suites; VERSION 1.10.0, the
-      CHANGELOG dated, tag v1.10.0, `main` fast-forwarded.
+- [x] Phase-closer (Phase 56): full suites; VERSION 1.11.0, the
+      CHANGELOG dated, tag v1.11.0, `main` fast-forwarded. (2026-11-17,
+      after rebasing the `language` branch onto develop's release 1.10.1
+      and renumbering Phase 54 as 56: full pytest with apps/voice 1700
+      passed; Go test and Windows vet clean; npm test 1743, check clean;
+      full `npm run verify` 6580/6580 on Chrome; `npm run verify --
+      --webkit` 6627 pass, 5 partial, 21 fail at load average 31-63,
+      the failing files (branchmap, screens, checkgame, creator) then
+      266 pass and the 2 baseline Keyboard Lock partials on a quieter
+      machine; package-proof 18/18 with .tmp/extract-demo regenerated.
+      VERSION, package.json, its lockfile and pyproject 1.11.0; the
+      CHANGELOG entry dated; tag v1.11.0; develop and `main`
+      fast-forwarded; the `language` branch deleted.)
