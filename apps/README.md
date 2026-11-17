@@ -219,6 +219,24 @@ English. `apps/host-language-cases.json` holds cases the player
 message then moves the Mac menus to `ui` and both windows' titles to
 `title`.
 
+The Mac app's Info.plist declares the table's languages
+(`CFBundleLocalizations`, in the table's order, with
+`CFBundleDevelopmentRegion` `en`; docs/plan.md Phase 54 item 7b), so
+System Settings (General, Language & Region, Applications) offers the app
+a language of its own; without them it says the app "doesn't support
+additional languages". The table's tags are BCP 47 in the forms macOS
+uses (`zh-Hans`, `pt-BR`, `es-419`, `nb`: each its own
+`NSLocale.canonicalLanguageIdentifier`, which `tools/test_build_apps.py`
+checks), and the key alone is enough: the setting lists a bundle's
+`normalizedLocalizations`, which come from the key with no `.lproj`
+folders. macOS stores the choice as the app's own `AppleLanguages` (its
+defaults domain, by bundle id), which stands in for the system's list in
+that app alone: the app's `Locale.preferredLanguages`, and through WebKit
+the page's `navigator.languages`, become that language. The WebKit driver shows the same
+with its `-AppleLanguages` argument (launchWebKit's `languages`). Windows
+has no per-program language for desktop programs; the exe follows the
+user's display languages.
+
 - macOS: `macos/HostWords.swift` (shared with the WebKit driver) reads
   the table, compiled in as a generated `KineticHostWordsEmbedded.swift`
   (base64, never committed; `tools/build_apps.py` and

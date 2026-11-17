@@ -3742,6 +3742,10 @@ The user's decisions (2026-11-16):
   pills mirror for Arabic, Persian, Hebrew and Urdu; the branch map's
   layout does not (its labels still run right to left), and arrow keys
   keep their physical meaning.
+- **The Language control lists the story's languages only**
+  (2026-11-17, after checking the demo): the player's other control
+  languages come from the system, app or browser language, not from
+  the control, so it stays absent in one-language games.
 - **kinetic-extract** reads Ren'Py's `translate` blocks: an official
   Ren'Py feature, with a real example in the corpus (a game with `tl/`
   folders in 14 languages, about 4,400 dialogue blocks each, plus
@@ -3921,6 +3925,16 @@ The orchestrator's choices, within those decisions:
    language from the same table. Tests: build_apps tests (the table
    embedded), the Go tests for the Windows message, a `machost`
    scenario part for the Mac message, WebKit.
+7b. The Mac app's per-app language (the user, 2026-11-17, checking the
+   demo). macOS System Settings, Language & Region, Applications, says
+   the game app "doesn't support additional languages", because its
+   Info.plist declares none. Declare the catalogue's languages
+   (`CFBundleLocalizations` from `apps/host-words.json`'s languages,
+   in the forms macOS lists, and `CFBundleDevelopmentRegion` `en`), so
+   a reader can give the app its own language there; the page's
+   `navigator.languages` and the menus then follow it. Tests:
+   build_apps tests (the keys present, matching the catalogue); a
+   driver check that a per-app language preference reaches the page.
 8. The translator tools. `tools/translations.py export <folder> TAG`
    writes `<tag>.po` with one entry per item text, speaker, prompt,
    label, title and version: the id as `msgctxt`, the base text as

@@ -297,6 +297,11 @@ def test_safe_file_name() -> None:
     assert len(long.encode("utf-8")) <= 251 and set(long) == {"é"}
 
 
+# The player's catalogue languages, as apps/host-words.json lists them.
+CATALOGUE_LANGUAGES = list(json.loads(
+    (REPO_ROOT / "apps" / "host-words.json").read_bytes())["languages"])
+
+
 def test_info_plist_contents() -> None:
     ident = build_apps.identity({"storyId": "rainy-day", "title": "Rainy Day"},
                                 Path("x"))
@@ -314,9 +319,44 @@ def test_info_plist_contents() -> None:
         "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True,
         "NSHumanReadableCopyright": COPYRIGHT,
+        "CFBundleDevelopmentRegion": "en",
+        "CFBundleLocalizations": CATALOGUE_LANGUAGES,
         "KineticVersion": KINETIC_VERSION,
         "KineticTitle": "Rainy Day",
     }
+
+
+def test_info_plist_declares_every_catalogue_language() -> None:
+    """The keys System Settings (Language & Region, Applications) reads to
+    offer the app a language of its own: the catalogue's languages, base
+    first, in apps/host-words.json's order (docs/plan.md Phase 54 item
+    7b)."""
+    ident = build_apps.identity({"storyId": "rainy-day"}, Path("x"))
+    info = build_apps.info_plist(ident)
+    assert info["CFBundleDevelopmentRegion"] == "en"
+    assert info["CFBundleLocalizations"] == CATALOGUE_LANGUAGES
+    assert CATALOGUE_LANGUAGES[0] == "en" and len(CATALOGUE_LANGUAGES) == 39
+    # The tags macOS lists (and System Settings shows) for the scripts
+    # and regions the catalogue has, never the older zh_CN or no forms.
+    for tag in ("zh-Hans", "zh-Hant", "pt-BR", "pt-PT", "es-419", "nb"):
+        assert tag in info["CFBundleLocalizations"], tag
+
+
+def test_the_declared_languages_are_the_forms_macos_uses() -> None:
+    """Each CFBundleLocalizations entry is its own canonical form by
+    NSLocale (zh_CN would become zh-Hans, no would become nb), the form
+    macOS normalises a bundle's localizations to."""
+    osascript = shutil.which("osascript")
+    if sys.platform != "darwin" or osascript is None:
+        pytest.skip("needs macOS")
+    tags = build_apps.mac_localizations()
+    script = ('ObjC.import("Foundation"); JSON.stringify('
+              f'{json.dumps(tags)}.map((t) => '
+              '$.NSLocale.canonicalLanguageIdentifierFromString(t).js))')
+    proc = subprocess.run([osascript, "-l", "JavaScript", "-e", script],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == tags
 
 
 def test_the_license_is_mit_with_its_copyright_line() -> None:
@@ -481,6 +521,9 @@ def test_build_writes_the_bundle_with_the_default_icon(tmp_path, capsys,
     assert info["CFBundleShortVersionString"] == "1.0"
     # The first window: the first graphic's pixel size (make_game's 64x48).
     assert info["KineticWindowSize"] == {"Width": 64, "Height": 48}
+    # Its languages: the key alone, no .lproj folders (the listing above).
+    assert info["CFBundleLocalizations"] == CATALOGUE_LANGUAGES
+    assert info["CFBundleDevelopmentRegion"] == "en"
     assert_green(icns_pixels(app / "Contents" / "Resources" / "AppIcon.icns")
                  .getpixel((512, 512)))
     assert "first window 64x48" in capsys.readouterr().out

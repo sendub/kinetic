@@ -51,6 +51,11 @@ something more of an author.
   messages before the game loads, and the voice download's messages
   follow too. The 38 languages besides English are unreviewed drafts;
   corrections are welcome (docs/verify-player.md, "The player's words").
+- A reader can give a game's Mac app a language of its own in System
+  Settings (Language & Region, Applications): the app declares the 39
+  languages of the player's words, so macOS no longer says it "doesn't
+  support additional languages". The game, the player's words and the
+  menus then start in that language.
 - Right to left: in Arabic, Persian, Hebrew and Urdu the text, choices,
   Esc screen, help, Volumes sheet, end card and pills mirror, and
   sliders run from the right. The branch map keeps its layout, and the

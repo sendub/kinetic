@@ -32,7 +32,10 @@ never committed, the text player/scripts/webkit/build.mjs also writes);
 the exe embeds it as `hostwords.json` in the package copy with a generated
 `hostwords_embedded.go`. The table records a digest of the files it was
 made from, and a build stops with an error when they have changed since
-(run `npm run i18n` in player/).
+(run `npm run i18n` in player/). The Mac app's Info.plist declares the
+table's languages (`CFBundleLocalizations`, with
+`CFBundleDevelopmentRegion` `en`), so macOS lets a reader give the app a
+language of its own (System Settings, Language & Region, Applications).
 
 `--windows` adds `<title>.exe` (with the characters Windows forbids in a
 file name written as `-`): the Go program in apps/windows/, built for
@@ -147,6 +150,9 @@ HOST_WORDS = REPO_ROOT / "apps" / "host-words.json"
 PLAYER_CATALOGUE = REPO_ROOT / "player" / "src" / "i18n" / "en.ts"
 PLAYER_LOCALES = REPO_ROOT / "player" / "locales"
 EMBEDDED_HOST_WORDS_NAME = "KineticHostWordsEmbedded.swift"
+# The catalogue's own language (player/src/i18n/en.ts): the Mac app's
+# CFBundleDevelopmentRegion.
+CATALOGUE_BASE_LANGUAGE = "en"
 MAC_TARGET = "arm64-apple-macos12"
 MAC_MINIMUM_SYSTEM = "12.0"
 MAC_EXECUTABLE = "kinetic"
@@ -374,6 +380,19 @@ def host_words() -> bytes:
     return data
 
 
+def mac_localizations() -> list[str]:
+    """The languages the Mac app declares in its Info.plist
+    (CFBundleLocalizations): the catalogue's, in apps/host-words.json's
+    order. They let System Settings (Language & Region, Applications)
+    offer the app a language of its own, which macOS stores as the app's
+    AppleLanguages; the page's navigator.languages and the menus follow
+    it. The catalogue's tags are BCP 47 in the forms macOS itself uses
+    (zh-Hans, pt-BR, es-419, nb: NSLocale's canonical language
+    identifiers, which tools/test_build_apps.py checks), so they go in as
+    written; macOS needs no .lproj folders beside the key."""
+    return list(json.loads(host_words())["languages"])
+
+
 def embedded_host_words_source() -> str:
     """KineticHostWordsEmbedded.swift: apps/host-words.json, base64, which
     apps/macos/HostWords.swift reads. Never committed: each build writes
@@ -596,6 +615,8 @@ def info_plist(ident: Identity,
         "LSMinimumSystemVersion": MAC_MINIMUM_SYSTEM,
         "NSHighResolutionCapable": True,
         "NSHumanReadableCopyright": kinetic_copyright(),
+        "CFBundleDevelopmentRegion": CATALOGUE_BASE_LANGUAGE,
+        "CFBundleLocalizations": mac_localizations(),
         KINETIC_VERSION_KEY: kinetic_version(),
         TITLE_KEY: ident.title,
         **sized,

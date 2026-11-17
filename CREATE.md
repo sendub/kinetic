@@ -1575,6 +1575,17 @@ contributors, with the translator tools.
   `zh-Hant`, `es-MX` takes `es-419`), otherwise the base. Once a reader
   picks a language, that pick wins, kept with their settings for this
   game.
+- **A language for the Mac app alone.** A reader can give the game's
+  Mac app a language of its own without changing the Mac's: System
+  Settings, General, Language & Region, Applications, the + button, the
+  app, then the language. From its next launch the app treats that
+  language as the system language: the game starts in it when it has
+  it, and the player's words and the app's menus use it. The list
+  offers all 39 languages of the player's words, not only the game's
+  own, so a reader can have the controls in a language the story lacks
+  (the story then shows the base). A pick on the Esc screen still wins
+  for the game. Windows has no per-program language setting for desktop
+  programs like the exe, so readers there pick on the Esc screen.
 - **Switching keeps everything.** One item has one text in every
   language, so the place, picks, seen items, bookmarks and auto-forward
   stay as they were; the screen on show is drawn again in the new

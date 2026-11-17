@@ -5112,6 +5112,20 @@ truthful: an unchecked box means nothing was accepted.
       launched) and ran `catalogue uilanguages spoken` on both engines,
       all passing; WebKit `window` has the same 2 tab-fullscreen
       partials as the commit before it, checked by the orchestrator.)
+- [x] The Mac app's per-app language (item 7b, the user checking the
+      demo): Info.plist declares the catalogue's languages. (Evidence:
+      `info_plist()` adds `CFBundleDevelopmentRegion` `en` and
+      `CFBundleLocalizations`, the 39 catalogue tags from
+      `apps/host-words.json` (already macOS's canonical forms; a test
+      checks them with `NSLocale`); no `.lproj` folders are needed (test
+      bundles under .tmp showed the settings panel's
+      `normalizedLocalizations` lists the key alone). With
+      `AppleLanguages` written into a test bundle's own defaults domain,
+      as the per-app setting does, the page, the player and the menus
+      followed it (ja). CREATE.md and apps/README.md say how; Windows
+      has no per-program language. Verified by the orchestrator:
+      build_apps tests 137 passed; the built demo app's Info.plist has
+      both keys. The user checks System Settings.)
 - [x] The translator tools (item 8): `tools/translations.py export`,
       `import`, `status`, PO with merge and fuzzy marking. (Evidence:
       `tools/translations.py` with our own standard-library PO module
