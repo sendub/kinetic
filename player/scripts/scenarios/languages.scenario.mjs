@@ -13,8 +13,9 @@
 // a bookmark landing on the same item in each language; a reload keeping
 // the language; the choice kept per storyId; the page title following
 // the language; and a Turkish speaker name upper-cased by Turkish rules.
-// Since item 4 the player's own words follow the browser's language and
-// a pick too, so the checks naming them read the catalogue (`uiText`).
+// Since item 4 the player's own words follow the browser's language, so
+// the checks naming them read the catalogue (`uiText`); since item 7c a
+// pick changes the story alone, never them or the page's `lang`/`dir`.
 // The WebKit driver shows the page only the first of the reader's
 // languages, with a region added (`de-AT, de` reads as `de-DE`), which
 // every check allows.
@@ -372,6 +373,7 @@ async function control({ check, open }) {
   if (!needsDemo(check)) return;
   const { page, cdp } = await open("list", {
     folder: langFolder("list"),
+    languages: ["en-US", "en"],
     hash: "#start=text-speech",
   });
   await page.setViewport({ width: 600, height: 500, deviceScaleFactor: 1 });
@@ -498,6 +500,13 @@ async function control({ check, open }) {
     shown,
   );
   check(
+    "the player's own words stay in the system language (English): the control's name, the page's lang",
+    shown.uiLang === "en" &&
+      shown.controlName ===
+        uiText("en", "lang.control", { language: "Deutsch" }),
+    shown,
+  );
+  check(
     "the Esc screen's heading is the game's name and release in German",
     (await page.evaluate(
       () => document.querySelector(".help-game-text")?.textContent,
@@ -511,8 +520,11 @@ async function control({ check, open }) {
 /** Switching at a decision; the missing line; the route pill. */
 async function decision({ check, open }) {
   if (!needsDemo(check)) return;
+  // A French system: the controls are French, the game (which has no
+  // French) opens in English.
   const { page, cdp } = await open("decision", {
     folder: langFolder("decision"),
+    languages: ["fr-FR", "fr"],
     closeHelp: true,
     manualChoices: true,
     hash: "#start=branch-lead",
@@ -556,12 +568,15 @@ async function decision({ check, open }) {
       after.labels.every((l) => l.lang === "de"),
     after,
   );
-  // The player's own words follow the pick (Phase 54 item 4).
-  const uiLang = await page.evaluate(() => document.documentElement.lang);
+  // The player's own words follow the system, never a pick (item 7c).
+  const root = await page.evaluate(() => ({
+    lang: document.documentElement.lang,
+    dir: document.documentElement.dir,
+  }));
   check(
-    "picking German turns the player's own words German too",
-    uiLang === "de",
-    uiLang,
+    "picking German leaves the player's own words and the page's lang in the system language (French)",
+    root.lang === "fr" && root.dir === "ltr",
+    root,
   );
   // The route pill names the route in German.
   await page.evaluate(() => {
@@ -717,6 +732,7 @@ async function persistence({ check, open }) {
   });
   const { page, cdp } = await open("persist", {
     folder,
+    languages: ["fr-FR", "fr"],
     closeHelp: true,
     hash: "#start=text-speech",
   });
@@ -732,11 +748,11 @@ async function persistence({ check, open }) {
   );
   const reloaded = await page.evaluate(READ_SHOWN);
   check(
-    "a reload keeps the picked language: the line, the control, the title and the player's own words",
+    "a reload keeps the picked language: the line, the control and the title; the player's own words stay the system's (French)",
     reloaded.text?.lang === "ja" &&
       reloaded.text?.text === shownText("ja", reloaded.item) &&
       reloaded.control?.text === "日本語" &&
-      reloaded.uiLang === "ja" &&
+      reloaded.uiLang === "fr" &&
       reloaded.pageTitle === FILES.ja.title.text,
     reloaded,
   );
@@ -842,7 +858,7 @@ async function unavailable({ check, open }) {
   const pills = await page.evaluate(() => window.__langPills);
   const after = await page.evaluate(READ_SHOWN);
   check(
-    "picking it says it could not be loaded, in the UI language, and changes nothing",
+    "picking it says it could not be loaded, in the system language (French), and changes nothing",
     pills.some(
       (p) => p === uiText("fr", "lang.unavailable", { language: "Français" }),
     ) &&

@@ -20,8 +20,11 @@
 // overflow and catalogue audit the `catalogue` and `uilanguages` files use
 // (catalogue.scenario.mjs `INSTALL_AUDIT`). The `live` part starts in
 // English on the language demo, picks Arabic in the Language control and
-// sees the document flip to `rtl` and the Esc screen mirror with no
-// reload, then back to English.
+// sees the story turn right to left (the game's name and the line marked
+// `lang="ar" dir="rtl"`) while the document stays `ltr` in the system's
+// English and the Esc screen keeps its English layout, with no reload
+// (Phase 54 item 7c: a pick changes the story alone), then back to
+// English.
 //
 // KINETIC_RTL_SHOTS=DIR saves Arabic screenshots (Esc screen, Volumes, a
 // decision, the end card at 1280x800) there for a look by eye.
@@ -755,8 +758,9 @@ function partFor(tag) {
 
 /**
  * Live: English on the language demo, Arabic picked in the Language
- * control (the document flips to rtl and the Esc screen mirrors, no
- * reload), then English again.
+ * control (the story turns right to left; the document, the controls and
+ * the Esc screen's layout stay the system's English, no reload), then
+ * English again.
  */
 async function live({ check, open }) {
   if (!langDemoBuilt) {
@@ -764,13 +768,28 @@ async function live({ check, open }) {
     return;
   }
   const folder = langFolder("rtl-live");
-  const { page, cdp } = await open("live", { folder, languages: ["en"] });
+  const { page, cdp } = await open("live", {
+    folder,
+    languages: ["en"],
+    hash: "#start=text-speech",
+  });
   await page.setViewport(WIDE);
   await sleep(150);
   await page.evaluate(() => {
     window.__kSamePage = true;
   });
+  // The story's own marks: the Esc screen's game name and the line.
+  const STORY = () => {
+    const mark = (el) =>
+      el === null ? null : { lang: el.lang, dir: el.dir, text: el.textContent };
+    return {
+      name: mark(document.querySelector("#help .help-game-name")),
+      line: mark(document.getElementById("overlay-text")),
+      title: document.querySelector("#help .help-title")?.textContent ?? null,
+    };
+  };
   const english = await page.evaluate(ESC);
+  const englishStory = await page.evaluate(STORY);
   check(
     "English: left to right, Keys left of Settings, the name left of the hint",
     english.dir === "ltr" &&
@@ -783,41 +802,72 @@ async function live({ check, open }) {
     await clickCenter(cdp, ".help-lang");
     await until(page, SHOWN, 2000, ".help-lang-list");
     await clickCenter(cdp, `.help-lang-option[data-lang="${tag}"]`);
-    await until(page, (t) => document.documentElement.lang === t, 3000, tag);
+    await until(
+      page,
+      (t) => document.querySelector(".help-lang-name")?.lang === t,
+      3000,
+      tag,
+    );
     await sleep(200);
   };
   await pick("ar");
   const arabic = await page.evaluate(ESC);
+  const arabicStory = await page.evaluate(STORY);
   const same = await page.evaluate(() => window.__kSamePage === true);
   check(
-    "Arabic picked: the document is rtl and the Esc screen mirrors, with no reload",
+    "Arabic picked: the story turns right to left, the game's name and the line marked ar and rtl, with no reload",
     same &&
-      arabic.lang === "ar" &&
-      arabic.dir === "rtl" &&
-      arabic.direction === "rtl" &&
-      arabic.keys.l >= arabic.config.r &&
-      arabic.game.l >= arabic.hint.r - 1 &&
-      arabic.hint.l >= arabic.langControl.r &&
-      arabic.rows.every((row) => row.desc.l >= row.key.r),
+      arabicStory.name?.lang === "ar" &&
+      arabicStory.name?.dir === "rtl" &&
+      arabicStory.name?.text !== englishStory.name?.text &&
+      arabicStory.line?.lang === "ar" &&
+      arabicStory.line?.dir === "rtl",
+    { same, story: arabicStory },
+  );
+  // Each key row's words stay where they were in English (left edges:
+  // the Arabic name in the heading may make it a pixel taller).
+  const rowsKept =
+    arabic.rows.length === english.rows.length &&
+    arabic.rows.every(
+      (row, i) =>
+        near(row.desc.l, english.rows[i].desc.l) &&
+        near(row.key.l, english.rows[i].key.l),
+    );
+  check(
+    "Arabic picked: the screen stays left to right in the system's English, laid out as before",
+    arabic.lang === "en" &&
+      arabic.dir === "ltr" &&
+      arabic.direction === "ltr" &&
+      arabicStory.title === englishStory.title &&
+      near(arabic.keys.l, english.keys.l) &&
+      near(arabic.config.l, english.config.l) &&
+      rowsKept,
     {
-      same,
       lang: arabic.lang,
       dir: arabic.dir,
-      keys: arabic.keys,
-      config: arabic.config,
+      direction: arabic.direction,
+      title: arabicStory.title,
+      keys: [arabic.keys, english.keys],
+      config: [arabic.config, english.config],
+      rowsKept,
+      row0: [arabic.rows[0], english.rows[0]],
     },
   );
   await pick("en");
   const back = await page.evaluate(ESC);
+  const backStory = await page.evaluate(STORY);
   check(
-    "English again: left to right, laid out as before",
+    "English again: the story left to right, the screen laid out as before",
     (await page.evaluate(() => window.__kSamePage === true)) &&
+      backStory.name?.lang === "en" &&
+      backStory.name?.dir === "ltr" &&
+      backStory.line?.lang === "en" &&
       back.dir === "ltr" &&
       back.direction === "ltr" &&
       near(back.keys.l, english.keys.l) &&
       near(back.config.l, english.config.l) &&
       near(back.game.l, english.game.l),
-    { dir: back.dir, keys: back.keys, english: english.keys },
+    { story: backStory, dir: back.dir, keys: back.keys, english: english.keys },
   );
 }
 

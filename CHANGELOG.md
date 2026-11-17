@@ -45,20 +45,22 @@ something more of an author.
   Korean lines, which say more per character, are not rushed.
 - The player's own words (the Esc screen and its notes, help, pills,
   confirmation boxes, choice hints, the end card, the branch map, the
-  Volumes sheet) come in 39 languages, following the language the reader
-  picked, otherwise their system language, when Kinetic has it, and
-  English otherwise. The Mac app's menus and window title, both apps'
-  messages before the game loads, and the voice download's messages
-  follow too. The 38 languages besides English are unreviewed drafts;
+  Volumes sheet) come in 39 languages, following the reader's system
+  language when Kinetic has it, and English otherwise; the Language
+  control changes the story only, never them. The Mac app's menus, both
+  apps' messages before the game loads, and the voice download's
+  messages follow too; the window title follows the story's language. The 38 languages besides English are unreviewed drafts;
   corrections are welcome (docs/verify-player.md, "The player's words").
 - A reader can give a game's Mac app a language of its own in System
   Settings (Language & Region, Applications): the app declares the 39
   languages of the player's words, so macOS no longer says it "doesn't
   support additional languages". The game, the player's words and the
-  menus then start in that language.
-- Right to left: in Arabic, Persian, Hebrew and Urdu the text, choices,
-  Esc screen, help, Volumes sheet, end card and pills mirror, and
-  sliders run from the right. The branch map keeps its layout, and the
+  menus then start in that language, and the controls stay in it after
+  a pick of another language for the story.
+- Right to left: under an Arabic, Persian, Hebrew or Urdu system
+  language the text, choices, Esc screen, help, Volumes sheet, end card
+  and pills mirror, and sliders run from the right; a story picked in
+  one of them reads right to left in its own lines. The branch map keeps its layout, and the
   arrow keys keep their direction.
 - Every language is drawn in the reader's system fonts, a readable face
   per writing system, so Chinese, Japanese and Korean each get their own

@@ -97,13 +97,14 @@ is `player/src/render/host.ts`; the macOS side is `KineticHostBridge` in
   settings and uses the Fullscreen API.
 - The page sends `{ type: "language", ui, dir, title? }` (docs/plan.md
   Phase 54 item 7): `ui` the tag of the language its own words are in
-  (the player's UI language, a catalogue language), `dir` `"ltr"` or
-  `"rtl"`, and `title` the game's title as shown, in the language shown,
-  absent when the game has none. It sends it as soon as the host object
-  is there (at load, or at the `kinetic-host` event that brings it), again
-  once the manifest gives the title, and on every change of the UI
-  language or of the game's language; never the same message twice
-  running. The host draws its own words in `ui` and titles its window
+  (the player's UI language, a catalogue language: the best match of the
+  system languages, never the game language the reader picked; item
+  7c), `dir` its direction, `"ltr"` or `"rtl"`, and `title` the game's
+  title as shown, in the language shown, absent when the game has none.
+  It sends it as soon as the host object is there (at load, or at the
+  `kinetic-host` event that brings it), again once the manifest gives the
+  title, and on every change of the game's language (a new `title`, the
+  same `ui`); never the same message twice running. The host draws its own words in `ui` and titles its window
   with `title`, else the game's title it was built with (The apps' own
   words, below).
 

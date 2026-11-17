@@ -3783,10 +3783,13 @@ The orchestrator's choices, within those decisions:
   language (Turkish `i` becomes `İ`).
 - **A stale translation** (its base text changed since) still shows in
   play; the validator warns, and the next PO export marks it for review.
-- **The player's language** is the reader's choice on the Esc screen
-  when the catalogue has it; with no choice made, the system language
-  when the catalogue has it; otherwise English. So a reader of a game
-  with one language still gets controls in their own language.
+- **The player's language** (the user, 2026-11-17, replacing the
+  orchestrator's first rule) follows the reader's system (or app, or
+  browser) language when the catalogue has it, otherwise English. The
+  Language control changes the story only, never the controls: a pick
+  of the original language had pinned the controls to it over a per-app
+  language. So a reader of a game with one language still gets controls
+  in their own language.
 - **Catalogue languages** (39, English included): Arabic, Bulgarian,
   Catalan, Chinese (Simplified and Traditional), Croatian, Czech,
   Danish, Dutch, English, Finnish, French, German, Greek, Hebrew, Hindi,
@@ -3935,6 +3938,17 @@ The orchestrator's choices, within those decisions:
    `navigator.languages` and the menus then follow it. Tests:
    build_apps tests (the keys present, matching the catalogue); a
    driver check that a per-app language preference reaches the page.
+7c. The controls follow the system language only (the user,
+   2026-11-17, after an explicit pick of English kept the demo app's
+   controls English under a per-app Chinese). `uiLanguageFor` ignores
+   the reader's pick: the best catalogue match of the system languages,
+   else English. A pick changes the story's text, speakers, prompts,
+   labels and title, and its per-string `lang` and `dir`, not the
+   controls, the document's `lang`/`dir` or the host's `ui`. Tests:
+   unit tests of the rule; the `languages`, `rtl` (its live part: a
+   pick of Arabic turns the story right to left and leaves the screen
+   left to right), `uilanguages` and `machost` expectations; docs that
+   describe the rule.
 8. The translator tools. `tools/translations.py export <folder> TAG`
    writes `<tag>.po` with one entry per item text, speaker, prompt,
    label, title and version: the id as `msgctxt`, the base text as

@@ -5126,6 +5126,19 @@ truthful: an unchecked box means nothing was accepted.
       has no per-program language. Verified by the orchestrator:
       build_apps tests 137 passed; the built demo app's Info.plist has
       both keys. The user checks System Settings.)
+- [x] The controls follow the system language only (item 7c, the
+      user's decision after checking the demo app). (Evidence:
+      `uiLanguageFor({requested, catalogue})` has no pick input: the
+      best catalogue match of the system languages, else English, set
+      once at start (the pseudo-locale override kept). A pick changes
+      the story and the host's `title` only; the document's `lang`/`dir`
+      and the host's `ui` stay on the system language. Scenario
+      expectations moved in `languages`, `rtl` (live: an Arabic pick
+      turns the story right to left, the screen stays left to right),
+      `machost` and `spoken`; docs and CHANGELOG follow. Verified by the
+      orchestrator: npm test 1723/1723, check clean; `verify --
+      languages rtl` 5590/5590 Chrome, `--webkit languages rtl machost`
+      5645/5645. Demo app rebuilt for the user.)
 - [x] The translator tools (item 8): `tools/translations.py export`,
       `import`, `status`, PO with merge and fuzzy marking. (Evidence:
       `tools/translations.py` with our own standard-library PO module

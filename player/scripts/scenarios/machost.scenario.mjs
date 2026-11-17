@@ -1157,9 +1157,10 @@ async function waitFor(test, timeout = 6000) {
 
 /**
  * The player's language message reaching the app (Phase 54 item 7): at
- * boot in the reader's language (German) with the German title, then
- * Arabic, right to left, after the reader picks Arabic; each time the
- * driver's window takes the title and the app's menu words follow, all
+ * boot in the reader's language (German) with the German title; after
+ * the reader picks Arabic, still German and left to right with the Arabic
+ * title (item 7c: a pick changes the story alone); each time the driver's
+ * window takes the title and the app's menu words follow `ui`, all
  * through the app's own Swift. Then which language the app picks before
  * its page loads, for every shared case and for the driver's own
  * preferred languages, and its alert's words.
@@ -1201,20 +1202,20 @@ async function language({ check, open }) {
   const atBoot = host.languageMessages().length;
 
   await pickLanguage(page, cdp, "ar");
-  await waitFor(() => applied()?.language === "ar");
+  await waitFor(() => applied()?.windowTitle === ar);
   check(
-    "picking Arabic tells the app: ui ar, right to left, the Arabic title",
-    same(latest(), { type: "language", ui: "ar", dir: "rtl", title: ar }),
+    "picking Arabic tells the app the Arabic title, its ui still the system's: de, left to right",
+    same(latest(), { type: "language", ui: "de", dir: "ltr", title: ar }),
     host.languageMessages(),
   );
   check(
-    "the app follows: the Arabic title and Arabic menus",
+    "the app follows: the Arabic title, its menus still German",
     same(applied(), {
-      language: "ar",
+      language: "de",
       windowTitle: ar,
-      menu: menuWords("ar", ar),
+      menu: menuWords("de", ar),
     }),
-    applied(),
+    { applied: applied(), want: menuWords("de", ar) },
   );
   const sent = host.languageMessages();
   check(

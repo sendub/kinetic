@@ -1584,8 +1584,10 @@ contributors, with the translator tools.
   offers all 39 languages of the player's words, not only the game's
   own, so a reader can have the controls in a language the story lacks
   (the story then shows the base). A pick on the Esc screen still wins
-  for the game. Windows has no per-program language setting for desktop
-  programs like the exe, so readers there pick on the Esc screen.
+  for the story, and the controls stay in the app's language. Windows
+  has no per-program language setting for desktop programs like the
+  exe, so readers there pick the story's language on the Esc screen and
+  get the controls in Windows' own.
 - **Switching keeps everything.** One item has one text in every
   language, so the place, picks, seen items, bookmarks and auto-forward
   stay as they were; the screen on show is drawn again in the new
@@ -1599,13 +1601,18 @@ contributors, with the translator tools.
 - **The player's own words** (the Esc screen, help, pills, confirmation
   boxes, choice hints, the end card, the branch map, the Volumes sheet)
   come in 39 languages, and the Mac app's menus and the apps' first
-  messages with them. They follow the language the reader picked when
-  Kinetic has its words, otherwise the system language when Kinetic has
-  that, otherwise English. So a reader whose game has one language
-  still gets the controls in their own.
-- **Right to left.** In Arabic, Persian, Hebrew and Urdu the screens
-  mirror: the text, choices, Esc screen, help, end card and pills read
-  from the right, and sliders run from the right. The branch map keeps
+  messages with them. They follow the system language (or the app's,
+  or the browser's) when Kinetic has its words, otherwise English. The
+  Language control changes the story only, never the controls: a reader
+  who picks the game's original English under a Chinese system keeps
+  Chinese controls. So a reader whose game has one language still gets
+  the controls in their own.
+- **Right to left.** Under an Arabic, Persian, Hebrew or Urdu system
+  language the screens mirror: the text, choices, Esc screen, help, end
+  card and pills read from the right, and sliders run from the right.
+  A story picked in one of those languages under another system
+  language reads right to left in its own lines, names, questions and
+  labels, while the screens keep their layout. The branch map keeps
   its layout (its labels still read right to left), and the arrow keys
   keep their direction on the keyboard.
 - **Spoken lines follow the language shown** (Giving characters

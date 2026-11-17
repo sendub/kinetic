@@ -48,8 +48,9 @@
 // its own (i18n/languages.ts `startingLanguage`); that language's file
 // loads by script tag before the first screen, and every string falls
 // back to the manifest's on its own. The Esc screen's Language control
-// (render/languagecontrol.ts) switches it live, keeping the place, and the
-// player's own words follow the rule of `uiLanguageFor`. The sound controls
+// (render/languagecontrol.ts) switches it live, keeping the place; the
+// player's own words follow the system languages alone (`uiLanguageFor`),
+// never that pick. The sound controls
 // and the voice engine follow what the language shown can play
 // (render/soundcontrols.ts).
 // Composition only — rendering lives in src/render/, timing in
@@ -57,7 +58,6 @@
 
 import {
   localized,
-  onUiLanguageChange,
   setUiLanguage,
   t,
   uiLanguage,
@@ -230,24 +230,20 @@ function start(): void {
   if (root === null) {
     return; // index.html without a mount point: nothing to draw into.
   }
-  // The player's words (src/i18n/catalogue.ts): in the reader's chosen
-  // language when the catalogue has it, else the browser's when it has
-  // that, else English (`uiLanguageFor`, docs/plan.md Phase 54), or the
-  // test-only pseudo-locale when a test launcher asked for it
-  // (src/i18n/pseudo.ts), which nothing else changes; the page's `lang`
-  // follows the UI language.
+  // The player's words (src/i18n/catalogue.ts): in the best catalogue
+  // match of the system languages, else English (`uiLanguageFor`,
+  // docs/plan.md Phase 54, "The player's language"), or the test-only
+  // pseudo-locale when a test launcher asked for it (src/i18n/pseudo.ts).
+  // Set once: the game's Language control changes the story only, never
+  // the controls, the page's `lang` and `dir` or the host's `ui`.
   const pseudo = enablePseudoLocale(window.KINETIC_TEST_LOCALE);
-  const applyUiLanguage = (chosen: string): void => {
-    setUiLanguage(
-      pseudo ??
-        uiLanguageFor({
-          chosen,
-          requested: browserLanguages(),
-          catalogue: uiLanguages(),
-        }),
-    );
-  };
-  applyUiLanguage("");
+  setUiLanguage(
+    pseudo ??
+      uiLanguageFor({
+        requested: browserLanguages(),
+        catalogue: uiLanguages(),
+      }),
+  );
   applyDocumentLanguage(document);
   // A game app's host object (render/host.ts, docs/plan.md Phase 43): read
   // now and on every `kinetic-host` event, since it may arrive after load.
@@ -255,12 +251,12 @@ function start(): void {
   const hostLink = connectHost(window);
   // The host draws its own words (menus, window title) in the page's
   // language (Phase 54 item 7): told now, or when the host arrives, and on
-  // every change of the UI language or of the title shown (drawPageTitle).
+  // every change of the title shown (drawPageTitle), which follows the
+  // story's language while `ui` stays the system's.
   let shownTitle: string | null = null;
   const tellLanguage = tellHostLanguage(hostLink, () =>
     languageMessage(uiLanguage(), shownTitle),
   );
-  onUiLanguageChange(tellLanguage);
   // The manifest contract, with the sources injected so it is testable:
   //   window.KINETIC_MANIFEST ?? await fetch("manifest.json").then(r => r.json())
   // `document.baseURI` is the content folder's own `index.html`, so it is both
@@ -352,9 +348,6 @@ function start(): void {
         loadedFiles.get(shownLanguage) ?? null,
       );
       drawPageTitle();
-      // The player's own words follow the reader's pick when the
-      // catalogue has it (none yet in a game they have not switched).
-      applyUiLanguage(currentSettings.language);
       // The words the machine times and the choice screen counts, and the
       // branch map's (by the machine's decision index), in the language
       // shown.
@@ -669,8 +662,8 @@ function start(): void {
       // its words again (the line on screen, an open choice, the title;
       // the map reads them on its next open) with the place, picks, seen
       // set, bookmarks and auto-forward as they were; the pick is saved
-      // with the settings, and the player's own words follow it. Only the
-      // latest pick applies.
+      // with the settings. The player's own words stay in the system
+      // language. Only the latest pick applies.
       let languagePicks = 0;
       async function pickLanguage(tag: string): Promise<void> {
         languagePicks += 1;
@@ -688,7 +681,6 @@ function start(): void {
         lineVoices = createLineVoices(manifest, file);
         showWords(createGameWords(manifest, file));
         persistUrgently();
-        applyUiLanguage(tag);
       }
       function showWords(next: GameWords): void {
         words = next;

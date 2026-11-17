@@ -1824,6 +1824,7 @@ async function languageRow({ check, open }) {
   });
   const { page, cdp } = await open("lang-row", {
     folder: dir,
+    languages: ["en-US", "en"],
     closeHelp: true,
     voiceHost: { state: "absent", downloadBytes: 3_300_000_000 },
   });
@@ -1848,14 +1849,14 @@ async function languageRow({ check, open }) {
   // Vietnamese has no sound at all: no Volumes... button to open the sheet
   // from (item 6b).
   const vietnamese = await page.evaluate(READ_CONTROLS);
-  // The player's words follow the game's language: German's button is in
-  // German.
+  // The player's words follow the system language, never the game's
+  // (Phase 54 item 7c): German's button is in English too.
   const offers = (r, words) =>
     r.hidden === false && r.state === "absent" && words.test(r.download ?? "");
+  const englishOffer = /^Download voice model \(3\.3\sGB\)$/;
   check(
-    "the Voice row offers the download in the base and in German, whose lines the model would make",
-    offers(english, /^Download voice model \(3\.3\sGB\)$/) &&
-      offers(german, /\(3,3\sGB\)/),
+    "the Voice row offers the download in the base and in German, whose lines the model would make, in the system's English both times",
+    offers(english, englishOffer) && offers(german, englishOffer),
     { english, german },
   );
   check(
@@ -2037,6 +2038,7 @@ async function languageClient({ check, open }) {
   });
   const { page, cdp } = await open("lang-client", {
     folder: dir,
+    languages: ["en-US", "en"],
     closeHelp: true,
     voiceHost: host,
   });
@@ -2070,9 +2072,9 @@ async function languageClient({ check, open }) {
   const offer = await waitRow(page, (r) => r?.state === "absent", 3000);
   const after = await readFakeVoice(page);
   check(
-    "switched to German, whose lines the model would make, the page asks the host its status once and the Voice row offers the download (in German) in place of the slider",
+    "switched to German, whose lines the model would make, the page asks the host its status once and the Voice row offers the download (in the system's English) in place of the slider",
     offer.ok &&
-      /\(3,3\sGB\)/.test(offer.row.download ?? "") &&
+      /^Download voice model \(3\.3\sGB\)$/.test(offer.row.download ?? "") &&
       offer.row.readout === null &&
       after.messages.filter((m) => m.op === "status").length === 1,
     { row: offer.row, messages: after.messages },

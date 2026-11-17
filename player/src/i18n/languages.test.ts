@@ -125,48 +125,42 @@ describe("startingLanguage", () => {
 });
 
 describe("uiLanguageFor: the language of the player's own words", () => {
-  const catalogue = ["en", "de", "pt"];
+  const catalogue = ["en", "de", "pt", "zh-Hans"];
 
-  it("is the reader's choice when the catalogue has it", () => {
-    expect(uiLanguageFor({ chosen: "de", requested: ["pt"], catalogue })).toBe(
-      "de",
-    );
-    expect(
-      uiLanguageFor({ chosen: "pt-BR", requested: ["de"], catalogue }),
-    ).toBe("pt");
+  it("is the best catalogue match of the system languages", () => {
+    expect(uiLanguageFor({ requested: ["de-CH"], catalogue })).toBe("de");
+    expect(uiLanguageFor({ requested: ["pt-BR"], catalogue })).toBe("pt");
+    expect(uiLanguageFor({ requested: ["zh-CN"], catalogue })).toBe("zh-Hans");
   });
 
-  it("is the browser's language when the reader chose one the catalogue lacks", () => {
-    expect(uiLanguageFor({ chosen: "ja", requested: ["de"], catalogue })).toBe(
-      "de",
+  it("takes the system languages in their order", () => {
+    expect(uiLanguageFor({ requested: ["fr", "pt-BR", "de"], catalogue })).toBe(
+      "pt",
     );
-    expect(
-      uiLanguageFor({ chosen: "ja", requested: ["fr", "pt-PT"], catalogue }),
-    ).toBe("pt");
+    expect(uiLanguageFor({ requested: ["zh-CN", "en"], catalogue })).toBe(
+      "zh-Hans",
+    );
+    // English first in the system list wins over a later catalogue match.
+    expect(uiLanguageFor({ requested: ["en-GB", "de"], catalogue })).toBe("en");
   });
 
-  it("is English when neither the choice nor the browser's is in the catalogue", () => {
-    expect(uiLanguageFor({ chosen: "ja", requested: ["ko"], catalogue })).toBe(
-      "en",
-    );
-  });
-
-  it("keeps an explicit pick of English over the browser's language", () => {
-    expect(uiLanguageFor({ chosen: "en", requested: ["de"], catalogue })).toBe(
-      "en",
-    );
-  });
-
-  it("is the browser's language with no choice made", () => {
-    expect(uiLanguageFor({ chosen: "", requested: ["de-CH"], catalogue })).toBe(
-      "de",
-    );
-    expect(uiLanguageFor({ requested: ["fr", "pt-BR"], catalogue })).toBe("pt");
-  });
-
-  it("is English otherwise", () => {
+  it("is English when no system language is in the catalogue", () => {
     expect(uiLanguageFor({ requested: ["ja"], catalogue })).toBe("en");
+    expect(uiLanguageFor({ requested: ["zh-TW"], catalogue })).toBe("en");
     expect(uiLanguageFor({ requested: [], catalogue: ["en"] })).toBe("en");
+  });
+
+  it("takes no game pick: its only inputs are the system's and the catalogue", () => {
+    // A pick of the game's original (English) under a system Chinese once
+    // pinned the controls to English (docs/plan.md Phase 54 item 7c). The
+    // input has no field for a pick, so one cannot reach the result: an
+    // object carrying a stray `chosen` still gives the system's language.
+    const withPick = {
+      chosen: "en",
+      requested: ["zh-Hans-CN"],
+      catalogue,
+    } as Parameters<typeof uiLanguageFor>[0];
+    expect(uiLanguageFor(withPick)).toBe("zh-Hans");
   });
 });
 

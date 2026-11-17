@@ -1,8 +1,9 @@
 // Languages by tag (docs/plan.md Phase 54 item 3): which of a game's
 // languages a reader starts in, which catalogue language the player's own
-// words take, which way a language's text runs, how long its lines are
-// held, and what it calls itself. Pure and DOM-free: `Intl` only, with a
-// small fallback where a browser lacks a part of it.
+// words take (the system's, never the game's pick), which way a
+// language's text runs, how long its lines are held, and what it calls
+// itself. Pure and DOM-free: `Intl` only, with a small fallback where a
+// browser lacks a part of it.
 
 /** One language a reader's browser asks for, in its order of preference. */
 export type RequestedLanguages = readonly string[];
@@ -177,9 +178,7 @@ export function startingLanguage({
 
 /** What decides the language of the player's own words. */
 export interface UiLanguageInput {
-  /** The language the reader picked on the Esc screen; "" or absent: none. */
-  readonly chosen?: string;
-  /** `navigator.languages`. */
+  /** `navigator.languages`: the system's (or app's, or browser's). */
   readonly requested: RequestedLanguages;
   /** The catalogue's languages (`uiLanguages()`), English first. */
   readonly catalogue: readonly string[];
@@ -189,24 +188,18 @@ export interface UiLanguageInput {
 const ENGLISH = "en";
 
 /**
- * The language of the player's own words (docs/plan.md Phase 54 items 3
- * and 4): the language the reader picked when the catalogue has it (a
- * loose match: a pick of `pt-BR` takes a catalogue's `pt-BR`, else its
- * `pt`); else, with no pick made or a pick the catalogue lacks, the
- * browser's language when the catalogue has it (`bestLanguageMatch`);
- * otherwise English. So a reader of French who picks a game's Esperanto
- * keeps French controls.
+ * The language of the player's own words (docs/plan.md Phase 54, "The
+ * player's language"): the best catalogue match of the reader's system
+ * languages, in their order (`bestLanguageMatch`), otherwise English.
+ * The game's Language control has no say: it changes the story only, so
+ * a pick of the game's original language never pins the controls to it
+ * over a per-app system language.
  */
 export function uiLanguageFor({
-  chosen,
   requested,
   catalogue,
 }: UiLanguageInput): string {
-  const picked =
-    chosen === undefined || chosen === ""
-      ? null
-      : bestLanguageMatch([chosen], catalogue);
-  return picked ?? bestLanguageMatch(requested, catalogue) ?? ENGLISH;
+  return bestLanguageMatch(requested, catalogue) ?? ENGLISH;
 }
 
 /** Scripts written right to left (Unicode's RTL scripts in use). */
