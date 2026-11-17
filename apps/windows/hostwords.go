@@ -1,6 +1,6 @@
 package main
 
-// The exe's own words in the reader's language (docs/plan.md Phase 54 item
+// The exe's own words in the reader's language (docs/plan.md Phase 56 item
 // 7): the error box it shows before the page loads, in the language
 // Windows names first among the user's UI languages that the player's
 // catalogue has (the player's own matching rule, bestLanguageMatch), and

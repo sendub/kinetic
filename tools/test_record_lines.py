@@ -543,7 +543,7 @@ def test_refusals(tmp_path, lock_file, helper_cmd, capsys):
     assert record(game, lock_file, helper_cmd) == 0
 
 
-# --- --lang: a language file's lines (docs/plan.md Phase 54 item 6) -----------
+# --- --lang: a language file's lines (docs/plan.md Phase 56 item 6) -----------
 
 GERMAN = {
     "first": "Der Hafen in der Dämmerung.",
@@ -734,7 +734,7 @@ def test_lang_refusals(tmp_path, lock_file, helper_cmd, capsys):
     assert snapshot(game) == before
 
 
-# --- the base language (docs/plan.md Phase 54 item 6b) -----------------------
+# --- the base language (docs/plan.md Phase 56 item 6b) -----------------------
 
 def set_language(game: Path, tag: str) -> None:
     manifest = load(game)

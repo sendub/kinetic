@@ -1,4 +1,4 @@
-// The game app's own words in the reader's language (docs/plan.md Phase 54
+// The game app's own words in the reader's language (docs/plan.md Phase 56
 // item 7), shared by both macOS hosts: the game app (app/main.swift) and
 // the scenario suite's WebKit driver (driver/main.swift), so the suite
 // tests what readers get. The words come from apps/host-words.json, which

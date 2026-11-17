@@ -379,7 +379,7 @@ def test_a_queued_streamed_line_can_be_cancelled(start_helper):
     assert _chunks(helper, queued) == []
 
 
-# Languages (docs/plan.md Phase 54 item 6): `speak` takes the engine's
+# Languages (docs/plan.md Phase 56 item 6): `speak` takes the engine's
 # language id, which reaches the engine and the cache key.
 
 def _pitch_crossings(wav: bytes) -> int:

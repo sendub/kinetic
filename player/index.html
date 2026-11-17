@@ -128,7 +128,7 @@
         color: #b9d4e8;
       }
 
-      /* ==== Writing systems (docs/plan.md Phase 54 item 3) ================
+      /* ==== Writing systems (docs/plan.md Phase 56 item 3) ================
          System fonts only. Every piece of game text carries the language
          it is in (`lang`, render/gamewords.ts), and the page carries the
          player's UI language, so `:lang()` puts the writing system's own
@@ -204,7 +204,7 @@
         font-style: italic;
       }
       /* Faces with no italic, which the browser would slant by itself:
-         Chinese, Japanese and Korean (item 3), and (Phase 54 item 5b) the
+         Chinese, Japanese and Korean (item 3), and (Phase 56 item 5b) the
          Arabic-script, Hebrew, Thai and Indian-script faces. On macOS
          Geeza Pro, Noto Nastaliq Urdu, SF Arabic, SF Hebrew, Arial Hebrew,
          Thonburi, the Kohinoor faces and every Sangam MN and MN face
@@ -369,7 +369,7 @@
         -moz-osx-font-smoothing: grayscale;
       }
       /* Urdu's Nastaliq words stand about 2.25em tall: its capsules
-         (and switches) get the room (Phase 54 item 5). */
+         (and switches) get the room (Phase 56 item 5). */
       :is(#help, #branchmap, #choice, #confirm, #volumes):lang(ur) {
         --k-ctl-h: clamp(30px, 3.6vh, 37px);
       }
@@ -421,7 +421,7 @@
         height: 0.66em;
         background: var(--k-mark) left center / contain no-repeat;
       }
-      /* Right to left (Phase 54 item 5) the mark sits after the title's
+      /* Right to left (Phase 56 item 5) the mark sits after the title's
          words, mirrored, so its symbol still meets them and its rule
          leads in from the outer side. (The map's title stays left to
          right with its chart.) */
@@ -548,10 +548,10 @@
          text rides on the side the knob leaves free, so the switch reads
          its own state, never by position alone. Off: grey track, knob
          at the start. On: gold track, knob at the end, dark text (left
-         and right in left to right; mirrored in right to left, Phase 54
+         and right in left to right; mirrored in right to left, Phase 56
          item 5). The Esc switches say
          "Off" / "On" at a fixed width, which a longer word in another
-         language widens (docs/plan.md Phase 54); the map's says "Spoilers:
+         language widens (docs/plan.md Phase 56); the map's says "Spoilers:
          Off" / "Spoilers: On", so its track is longer. */
       .config-toggle[role="switch"],
       .map-tool[data-act="spoil"] {
@@ -589,7 +589,7 @@
         inset-inline-end: 2px;
         inset-inline-start: auto;
       }
-      /* Urdu's Nastaliq face (Phase 54 item 5) is tall above its
+      /* Urdu's Nastaliq face (Phase 56 item 5) is tall above its
          baseline and its words hang low on a capsule's line, so there
          its words ride higher: padding under them lifts the line box by
          half its amount, centring a word's ink about as other scripts'
@@ -1009,7 +1009,7 @@
          any width ("1.00x (~60 ms/char)"; Phase 24, Phase 43 item 12).
          The Volumes sheet's percentages are the same readout. (Right and
          left here and below are the cell's end and start: right to left
-         mirrors them, Phase 54 item 5.) */
+         mirrors them, Phase 56 item 5.) */
       .config-value {
         flex: none;
         min-width: 0;
@@ -1433,7 +1433,7 @@
         }
       }
 
-      /* ---- The title bar's Language control (docs/plan.md Phase 54 item
+      /* ---- The title bar's Language control (docs/plan.md Phase 56 item
          3), only in a game with more than one language: the hint and the
          control share one bar (render/help.ts `addTitleControl`), the
          control after the hint. It takes no height: its margins cancel
@@ -1826,7 +1826,7 @@
         margin-inline-start: 0;
       }
       /* The download button's words wrap in a narrow sheet or a longer
-         language (docs/plan.md Phase 54) rather than push the line wider;
+         language (docs/plan.md Phase 56) rather than push the line wider;
          on one line it is the capsule's own height. */
       .volume-model .volume-model-download {
         flex: 0 1 auto;
@@ -1849,7 +1849,7 @@
         cursor: default;
       }
       /* Retry and Cancel keep their words' width; a long message (a game
-         app's voice error in a longer language, docs/plan.md Phase 54 item
+         app's voice error in a longer language, docs/plan.md Phase 56 item
          7) wraps beside them instead. */
       .volume-model .volume-model-retry,
       .volume-model .volume-model-cancel {

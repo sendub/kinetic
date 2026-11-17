@@ -1,4 +1,4 @@
-// Languages by tag (docs/plan.md Phase 54 item 3): which of a game's
+// Languages by tag (docs/plan.md Phase 56 item 3): which of a game's
 // languages a reader starts in, which catalogue language the player's own
 // words take (the system's, never the game's pick), which way a
 // language's text runs, how long its lines are held, and what it calls
@@ -158,7 +158,7 @@ export interface StartingLanguageInput {
 }
 
 /**
- * The language a game opens in (docs/plan.md Phase 54): the reader's saved
+ * The language a game opens in (docs/plan.md Phase 56): the reader's saved
  * choice while the game still offers it; else the best match of the
  * browser's languages among the base and the language files; else the
  * base.
@@ -188,7 +188,7 @@ export interface UiLanguageInput {
 const ENGLISH = "en";
 
 /**
- * The language of the player's own words (docs/plan.md Phase 54, "The
+ * The language of the player's own words (docs/plan.md Phase 56, "The
  * player's language"): the best catalogue match of the reader's system
  * languages, in their order (`bestLanguageMatch`), otherwise English.
  * The game's Language control has no say: it changes the story only, so
@@ -263,7 +263,7 @@ function directionOf(tag: string): "rtl" | "ltr" {
 }
 
 /**
- * Reading time per language (docs/plan.md Phase 54; docs/content-format.md
+ * Reading time per language (docs/plan.md Phase 56; docs/content-format.md
  * "Timing"): `msPerChar` is scaled by this factor for a line in that
  * language, because the hold counts code points and these scripts say as
  * much in far fewer of them. The factor is 1 / (characters of the

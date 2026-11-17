@@ -1,5 +1,5 @@
 """A game's language files (docs/content-format.md, "Translations";
-docs/plan.md Phase 54, item 1).
+docs/plan.md Phase 56, item 1).
 
 A folder whose manifest lists `languages` holds, for each tag, a
 language file ``lang/<tag>.json`` and its script ``lang/<tag>.js``, one

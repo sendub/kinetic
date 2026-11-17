@@ -1,4 +1,4 @@
-// The player's own words (docs/plan.md Phase 54 item 2): every string the
+// The player's own words (docs/plan.md Phase 56 item 2): every string the
 // player draws or names for assistive tech comes from here by key, never
 // from a literal in a render module. English (./en.ts) is the source of
 // truth; other languages are compiled from player/locales/<tag>.po into

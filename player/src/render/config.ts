@@ -234,7 +234,7 @@ export interface ConfigOverlay {
   /** Repaints from the settings in force (`v` turned sound on or off). */
   refresh(): void;
   /**
-   * Shows the Sound row (true) or takes it away (docs/plan.md Phase 54 item
+   * Shows the Sound row (true) or takes it away (docs/plan.md Phase 56 item
    * 6b: it follows what the language shown can play). Only with `sound`
    * given; it starts shown.
    */

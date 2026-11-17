@@ -372,7 +372,7 @@ class AssetArchives:
         """The member keys by path without extension and by file name
         (with and without extension), built once from every readable
         archive: what ``candidates`` used to scan every key for on each
-        call (docs/plan.md Phase 54 item 9d)."""
+        call (docs/plan.md Phase 56 item 9d)."""
         if self._by_stem is None or self._by_base is None:
             by_stem: dict[Path, list[tuple[RpaArchive, str]]] = {}
             by_base: dict[str, list[tuple[RpaArchive, str]]] = {}

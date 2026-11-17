@@ -1213,7 +1213,7 @@ const EMULATED_HOST = (kind, display) => {
 /**
  * Gives `page` a recording host before its first navigation, on either
  * engine: `messages()` lists what the page sent but its language messages,
- * `languageMessages()` those (docs/plan.md Phase 54 item 7: the page sends
+ * `languageMessages()` those (docs/plan.md Phase 56 item 7: the page sends
  * one at boot and on each change of language), `waitForMessages(n)` waits
  * until it has sent at least n of the first kind, and `setDisplay(mode)`
  * changes the host's mode as the reader's own control would (the page gets

@@ -128,7 +128,7 @@ describe("parseManifest", () => {
   });
 });
 
-// A game's languages (docs/content-format.md, "Translations"; Phase 54
+// A game's languages (docs/content-format.md, "Translations"; Phase 56
 // item 1): `language` is the base, `languages` the language files present.
 // Bad values play as if absent, as a bad title does: the folder still
 // plays in its base language.

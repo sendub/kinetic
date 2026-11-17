@@ -12,7 +12,7 @@
 // the page never asks for element fullscreen. Every host kind behaves the
 // same from the page's side.
 //
-// The page also tells the host its language (docs/plan.md Phase 54 item
+// The page also tells the host its language (docs/plan.md Phase 56 item
 // 7): `{ type: "language", ui, dir, title? }`, the UI language's tag, its
 // direction and the game's title as shown, once a host is there and again
 // on every change of the UI language or of the game's language

@@ -352,7 +352,7 @@ export interface LanguageFile {
   /** Decision id to its prompt and labels. */
   decisions?: Readonly<Record<string, TranslatedDecision>>;
   /**
-   * This language's own recorded voice lines (docs/plan.md Phase 54 item
+   * This language's own recorded voice lines (docs/plan.md Phase 56 item
    * 6): its tracks, ids of its own, and item id to the track speaking the
    * item's translated text.
    */
@@ -365,7 +365,7 @@ export interface LanguageFile {
 }
 
 /**
- * The manifest's words as the reader is shown them (docs/plan.md Phase 54
+ * The manifest's words as the reader is shown them (docs/plan.md Phase 56
  * item 3): a game's language file may translate an item's text, a
  * decision's prompt and a route's label. The machine times and counts
  * what is drawn, so it reads them through this; without it, the
@@ -387,7 +387,7 @@ export interface MachineWords {
   label(decisionId: string, routeId: string, base: string): string;
   /**
    * Item `index`'s recorded voice line in the language shown (docs/plan.md
-   * Phase 54 item 6; render/linevoice.ts): the track's key in the sound's
+   * Phase 56 item 6; render/linevoice.ts): the track's key in the sound's
    * table and the track, undefined when no table has it; null for none
    * (a translation's line spoken live, or silent). Absent: the item's own
    * `audio.voice` and the manifest's tracks.
@@ -475,7 +475,7 @@ export interface MachineSettings {
   voiceVolume: number;
   /**
    * The game language the reader picked on the Esc screen's Language
-   * control (docs/plan.md Phase 54 item 3), a tag of the base or one of
+   * control (docs/plan.md Phase 56 item 3), a tag of the base or one of
    * the manifest's `languages`; "" (the default) for none picked, when
    * the game opens in the browser's language if it has it. A reader
    * setting stored with the others, per story; the machine never reads it.

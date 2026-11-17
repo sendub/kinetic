@@ -1,4 +1,4 @@
-// Right to left (docs/plan.md Phase 54 item 5; docs/verify-player.md,
+// Right to left (docs/plan.md Phase 56 item 5; docs/verify-player.md,
 // "The player's words"). A browser started with Arabic or Hebrew as the
 // reader's language (`languages`) shows the player's words in it, and the
 // document is `dir="rtl"`: every screen mirrors, read here by measured
@@ -23,7 +23,7 @@
 // sees the story turn right to left (the game's name and the line marked
 // `lang="ar" dir="rtl"`) while the document stays `ltr` in the system's
 // English and the Esc screen keeps its English layout, with no reload
-// (Phase 54 item 7c: a pick changes the story alone), then back to
+// (Phase 56 item 7c: a pick changes the story alone), then back to
 // English.
 //
 // KINETIC_RTL_SHOTS=DIR saves Arabic screenshots (Esc screen, Volumes, a

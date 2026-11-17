@@ -600,7 +600,7 @@ describe("headerLine", () => {
   });
 });
 
-describe("--lang (docs/plan.md Phase 54, item 10)", () => {
+describe("--lang (docs/plan.md Phase 56, item 10)", () => {
   const manifest = {
     language: "en",
     languages: ["de", "ja"],

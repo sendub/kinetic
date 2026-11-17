@@ -26,7 +26,7 @@ Command Line Tools).
 Both apps carry their own words (the Mac menus and alert, the exe's error
 box) in every language of the player's catalogue: apps/host-words.json,
 which `npm run i18n` writes from player/src/i18n/en.ts and
-player/locales/<tag>.po (docs/plan.md Phase 54 item 7). The Mac app
+player/locales/<tag>.po (docs/plan.md Phase 56 item 7). The Mac app
 compiles it in from a generated KineticHostWordsEmbedded.swift (base64,
 never committed, the text player/scripts/webkit/build.mjs also writes);
 the exe embeds it as `hostwords.json` in the package copy with a generated
@@ -143,7 +143,7 @@ MAC_SOURCES = (
 VOICE_DIR = REPO_ROOT / "apps" / "voice"
 VOICE_LOCK_NAME = "lock-macos-arm64.json"
 EMBEDDED_VOICE_NAME = "KineticVoiceEmbedded.swift"
-# The apps' own words in every catalogue language (docs/plan.md Phase 54
+# The apps' own words in every catalogue language (docs/plan.md Phase 56
 # item 7), which `npm run i18n` writes from these sources
 # (player/scripts/i18n.mjs, sourceDigest).
 HOST_WORDS = REPO_ROOT / "apps" / "host-words.json"

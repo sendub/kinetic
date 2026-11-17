@@ -72,7 +72,7 @@
 //   `(Kinetic unknown)` on a copy whose app.js has no version stamp (an
 //   older player), which still walks, exit 0; `--version` prints `Kinetic
 //   <VERSION>` and exits 0 with no browser started.
-// - `--lang TAG` (docs/plan.md Phase 54, item 10) on a copy of the language
+// - `--lang TAG` (docs/plan.md Phase 56, item 10) on a copy of the language
 //   demo: `--lang de --steps all` walks in German (its lines as the German
 //   file has them, the missing floor-2 in English), its first line ending
 //   `, language de`, and reports floor-2 as the one fallback and

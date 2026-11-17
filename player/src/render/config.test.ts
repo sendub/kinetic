@@ -831,7 +831,7 @@ describe("the Sound row (docs/plan.md Phase 47 item 7)", () => {
     expect(changes[1]).toEqual(defaults);
   });
 
-  it("leaves and rejoins its group as the language shown changes (Phase 54 item 6b)", () => {
+  it("leaves and rejoins its group as the language shown changes (Phase 56 item 6b)", () => {
     const { root, overlay } = mount(defaults, { sound: true });
     const hasSound = () =>
       walk(root).some(
@@ -975,7 +975,7 @@ describe("the Esc screen's words follow the host (Phase 52 item 15)", () => {
   });
 });
 
-describe("the settings and the confirm box redraw in a new UI language (Phase 54 item 2)", () => {
+describe("the settings and the confirm box redraw in a new UI language (Phase 56 item 2)", () => {
   // The pseudo-locale stands in for a real language: every word it draws
   // is marked, so a word left in English shows.
   enablePseudoLocale(PSEUDO_LOCALE);

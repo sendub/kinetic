@@ -1,4 +1,4 @@
-// The pseudo-locale, for tests only (docs/plan.md Phase 54 item 2;
+// The pseudo-locale, for tests only (docs/plan.md Phase 56 item 2;
 // docs/verify-player.md, "The player's words"): tag `en-XA`, every English
 // message with its letters accented, padded to about 140% of its length
 // (as German or Finnish may run) and wrapped in ⟦ ⟧, placeholders kept as

@@ -484,7 +484,7 @@ describe("buildMapModel: bands like a score's systems, endings tucked in", () =>
       describeTarget(model, markMap(model, reader), { kind: "route", key })
         .title,
     ).toBe(`3. Unseen route`);
-    // In a shown language (Phase 54): the label through the words, its
+    // In a shown language (Phase 56): the label through the words, its
     // language on the tooltip; hidden, still the placeholder, unmarked.
     const words = {
       prompt: (_d: number, base: string) => ({ text: base, lang: "en" }),

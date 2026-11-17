@@ -4,7 +4,7 @@
 // stuck player, `--steps`, the `--steps all` cap, `--until`), the lines it
 // prints after the walk (with `--trace`, docs/plan.md Phase 54, item 2,
 // the trace summary line), the media check's progress line, its exit code
-// and, with `--lang` (docs/plan.md Phase 54, item 10), the language checks.
+// and, with `--lang` (docs/plan.md Phase 56, item 10), the language checks.
 // check-game.mjs opens the game, presses Space and hands each step's
 // current() reading to the walk.
 import { createHash } from "node:crypto";

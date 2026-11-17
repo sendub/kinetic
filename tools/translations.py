@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Translate a Kinetic game with PO files (docs/plan.md Phase 54, item 8;
+"""Translate a Kinetic game with PO files (docs/plan.md Phase 56, item 8;
 docs/translating.md).
 
 Usage:

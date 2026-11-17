@@ -220,7 +220,7 @@ export interface MachineOptions {
   /** Defaults to the global setTimeout/clearTimeout. */
   scheduler?: Scheduler;
   /**
-   * The words the reader is shown (docs/plan.md Phase 54 item 3): the
+   * The words the reader is shown (docs/plan.md Phase 56 item 3): the
    * text holds and a choice screen's prompt, labels and countdown read
    * them. Absent: the manifest's own.
    */
@@ -571,7 +571,7 @@ export interface Machine {
    */
   setVoiceAudible(audible: boolean): void;
   /**
-   * A new language shown (docs/plan.md Phase 54 item 3): the words the
+   * A new language shown (docs/plan.md Phase 56 item 3): the words the
    * holds and choice screens read (`MachineOptions.words`; null for the
    * manifest's own). The state is emitted again, so an open choice redraws
    * its prompt and labels, and a pending hold re-times as `setSettings`

@@ -845,7 +845,7 @@ describe("streamed lines: the line the reader waits for comes in chunks", () => 
   });
 });
 
-describe("createSpokenLines: the language shown (Phase 54 item 6)", () => {
+describe("createSpokenLines: the language shown (Phase 56 item 6)", () => {
   /** Each line's German: its text marked, spoken in `de`. */
   const german = (index: number): SpokenLine | null => {
     const line = spokenLine(ITEMS[index], CAST, true);

@@ -60,7 +60,7 @@ export function routeStartLabels(
     for (const route of branch.routes) {
       const start = byId.get(route.start);
       if (start === undefined) continue;
-      // The label in the shown language (docs/plan.md Phase 54 item 3).
+      // The label in the shown language (docs/plan.md Phase 56 item 3).
       labels.set(
         start,
         label === undefined
@@ -109,7 +109,7 @@ export interface RouteAnnouncementsOptions {
    */
   quiet?: () => boolean;
   /**
-   * A route's label in the shown language (docs/plan.md Phase 54 item 3);
+   * A route's label in the shown language (docs/plan.md Phase 56 item 3);
    * a new function (a new language) re-reads every label. Absent: the
    * manifest's.
    */

@@ -28,7 +28,7 @@ export const PILL_TOP = "8%";
 export const PILL_CARD_GAP_PX = 8;
 
 /**
- * The #flash pill's `top` (docs/plan.md Phase 54 item 5b). Both it and the
+ * The #flash pill's `top` (docs/plan.md Phase 56 item 5b). Both it and the
  * end card are centred near the top of the window, and the card, which
  * wraps to two or three lines in a narrow window or a long language, can
  * reach past the pill's 8%. While the card shows (`cardBottom`, its box's
@@ -264,7 +264,7 @@ export interface Shell {
    */
   showNotice(message: string): void;
   /**
-   * A new language shown (docs/plan.md Phase 54 item 3): the line on
+   * A new language shown (docs/plan.md Phase 56 item 3): the line on
    * screen is drawn again in it, nothing else moves.
    */
   setWords(words: GameWords): void;

@@ -66,7 +66,7 @@ Known constraints of the browser host, both accepted:
   English in TypeScript as the source, other languages compiled from
   gettext PO files under `player/locales/` into the bundle, plurals by
   `Intl.PluralRules` and numbers by `Intl.NumberFormat`, switchable live
-  with no reload (docs/plan.md Phase 54; docs/verify-player.md, "The
+  with no reload (docs/plan.md Phase 56; docs/verify-player.md, "The
   player's words"). No render module draws a literal.
 - Lint/format: Biome, one tool for both, minimal config.
 - Tests: Vitest for the state machine and pure modules (no DOM). Rendering

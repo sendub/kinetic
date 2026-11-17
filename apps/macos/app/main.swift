@@ -24,7 +24,7 @@
 // voice helper, which the binary carries; it stops the helper at quit.
 //
 // Its own words (the menus, the alert below, the window title) are in the
-// reader's language (docs/plan.md Phase 54 item 7; ../HostWords.swift):
+// reader's language (docs/plan.md Phase 56 item 7; ../HostWords.swift):
 // the system's until the page says its UI language, then the page's.
 
 import AppKit

@@ -47,7 +47,7 @@ describe("overlayContentFor", () => {
   });
 });
 
-describe("overlayContentFor in a shown language (docs/plan.md Phase 54)", () => {
+describe("overlayContentFor in a shown language (docs/plan.md Phase 56)", () => {
   const words = createGameWords(
     { language: "en" },
     {

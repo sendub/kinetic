@@ -385,7 +385,7 @@ async function browserTab({ check, open }) {
   const lateKey = await asks(page, () => pressSpace(cdp));
   const sentLate = await page.evaluate(() => window.__late);
   // The page tells a late host its language as it arrives (docs/plan.md
-  // Phase 54 item 7), before anything else.
+  // Phase 56 item 7), before anything else.
   const late = sentLate.filter((m) => m.type !== "language");
   check(
     "tab: a host that appears after load takes over: told the page's language first, its mode pressed, a half and Exit sent to it, no fullscreen asked",

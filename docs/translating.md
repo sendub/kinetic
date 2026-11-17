@@ -2,7 +2,7 @@
 
 `tools/translations.py` moves a game's text out to translators and their
 work back in, as PO files (gettext), the format Poedit, Weblate, Crowdin
-and every other translation tool read (docs/plan.md Phase 54, item 8).
+and every other translation tool read (docs/plan.md Phase 56, item 8).
 The language files it writes are those of docs/content-format.md,
 "Translations". CREATE.md, "Translating a game", walks an author and a
 contributor through it; this page is the reference. A game converted

@@ -61,7 +61,7 @@ project unless given; the display size is the most common across all.
 The slice options work only with one project. A single project's output
 is unchanged.
 
-Ren'Py translations under ``game/tl/<language>/`` (docs/plan.md Phase 54
+Ren'Py translations under ``game/tl/<language>/`` (docs/plan.md Phase 56
 item 9; docs/extracting.md, "Translations") become language files,
 ``lang/<tag>.json`` and ``lang/<tag>.js``, listed in the manifest's
 ``languages``: dialogue blocks matched to items by Ren'Py's own

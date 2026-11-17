@@ -33,14 +33,14 @@
 // ready. The Voice volume is the only control of spoken lines: at 0 none
 // are made (render/spoken.ts `spokenOn`).
 //
-// A game in several languages (docs/plan.md Phase 54 item 6): what sound
+// A game in several languages (docs/plan.md Phase 56 item 6): what sound
 // there is can change with the language shown (`setContent`), so the sheet
 // builds every row the game may need (`rows`) and shows those the language
 // shown has (a row it lacks leaves the list, so the rows' hairlines and
 // rounded ends stay right); the Voice row offers the model only while that
 // language needs it, and is a plain slider otherwise. A switch while the
 // sheet is open redraws its rows, and one to a language with no sound at
-// all closes it (Phase 54 item 6b).
+// all closes it (Phase 56 item 6b).
 
 import { formatNumber, localized, t } from "../i18n/catalogue.ts";
 import type { MachineSettings } from "../machine/types";

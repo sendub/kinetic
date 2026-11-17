@@ -1,4 +1,4 @@
-// Choosing and showing a game's language (docs/plan.md Phase 54 item 3) on
+// Choosing and showing a game's language (docs/plan.md Phase 56 item 3) on
 // fixtures/lang-demo (the demo's tour with German, Japanese and Arabic
 // language files; German lacks `floor-2`), and fixtures/demo for a game
 // with one language. The Esc screen's Language control: absent with one
@@ -79,7 +79,7 @@ const shownText = (tag, id) => FILES[tag].items[id].text;
 /**
  * The player's message `key` in the catalogue language `tag` (English
  * where it has none), `{name}` placeholders filled from `params`: since
- * Phase 54 item 4 the player's words follow the browser's language.
+ * Phase 56 item 4 the player's words follow the browser's language.
  */
 const uiText = (tag, key, params = {}) =>
   (LOCALES[tag]?.[key] ?? EN[key]).replace(

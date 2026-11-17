@@ -4859,8 +4859,8 @@ truthful: an unchecked box means nothing was accepted.
       Orchestrator: added lines ASCII only; `npm run check` clean;
       tools/test_validate_content.py, test_release_version.py and
       test_build_apps.py 469 passed.)
-- [x] Phase-closer (Phase 54): full suites; VERSION 1.10.0, the
-      CHANGELOG dated, tag v1.10.0, `main` fast-forwarded.
+- [x] Phase-closer (Phase 54): full suites; VERSION 1.11.0, the
+      CHANGELOG dated, tag v1.11.0, `main` fast-forwarded.
       (2026-11-17 on bbc3a07: full pytest 1241 passed; apps/voice 87
       passed; Go test and Windows vet clean; npm test 1539, check clean;
       full `npm run verify` 794/794 on Chrome; package-proof 18/18 with
@@ -4932,9 +4932,9 @@ truthful: an unchecked box means nothing was accepted.
       and pyproject 1.10.1; the CHANGELOG entry dated; tag v1.10.1;
       `main` fast-forwarded.)
 
-## Phase 54: Translations (2026-11-16, user)
+## Phase 56: Translations (2026-11-16, user)
 
-- [x] The format (docs/plan.md Phase 54, item 1). Manifest `language`
+- [x] The format (docs/plan.md Phase 56, item 1). Manifest `language`
       and `languages`, the language file's schema, content-format.md
       "Translations", the validator's checks, `fixtures/lang-demo`.
       (Evidence: docs/lang.schema.json and the two manifest fields in
@@ -5238,11 +5238,11 @@ truthful: an unchecked box means nothing was accepted.
       "Translating a game" (readers, authors, contributors, Ren'Py,
       spoken lines, the player's words, what is not translated) and
       "Checking a translation"; docs/packaging.md; README Languages
-      paragraph; CHANGELOG 1.10.0-dev rewritten in full with one
+      paragraph; CHANGELOG 1.11.0-dev rewritten in full with one
       Upgrading bullet (re-extracting can renumber items after an
       `extend` line or an archived pair). Verified by the orchestrator:
       assemble, upgrade and build_apps tests 172 passed; npm test
       1725/1725, check clean; `verify -- checkgame` 43/43 Chrome and
       WebKit; `--lang xx` exits 2 listing en, de, ja, ar.)
-- [ ] Phase-closer (Phase 54): full suites; VERSION 1.10.0, the
+- [ ] Phase-closer (Phase 56): full suites; VERSION 1.10.0, the
       CHANGELOG dated, tag v1.10.0, `main` fast-forwarded.

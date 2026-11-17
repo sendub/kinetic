@@ -1,4 +1,4 @@
-// The player's catalogue tooling (docs/plan.md Phase 54 item 2;
+// The player's catalogue tooling (docs/plan.md Phase 56 item 2;
 // docs/verify-player.md, "The player's words"). Three generated files,
 // all committed, all rewritten by `npm run i18n` and by every build,
 // and all checked by `npm test` (scripts/i18n.test.mjs), which fails
@@ -19,7 +19,7 @@
 //   on a plain message or none on a plural one, or placeholders not the
 //   English's is left out and reported.
 //
-// - apps/host-words.json, the game apps' own words (docs/plan.md Phase 54
+// - apps/host-words.json, the game apps' own words (docs/plan.md Phase 56
 //   item 7): the `host.*` messages alone, in English and every language,
 //   with `source`, a sha256 over en.ts and the PO files it was made from
 //   (`sourceDigest`), so tools/build_apps.py, which embeds the table in
@@ -216,7 +216,7 @@ export function compilePo(text, en = EN, name = "<po>") {
   return { catalogue, problems };
 }
 
-/** The comment a draft PO file's header carries (docs/plan.md Phase 54). */
+/** The comment a draft PO file's header carries (docs/plan.md Phase 56). */
 export const DRAFT_MARK = /^#.*\bunreviewed draft\b/im;
 
 /** Whole numbers the plural check tries: 0 to 1000 and some millions. */

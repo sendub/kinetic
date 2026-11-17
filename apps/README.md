@@ -96,7 +96,7 @@ is `player/src/render/host.ts`; the macOS side is `KineticHostBridge` in
   one (a browser tab) the page keeps a Display setting with its other
   settings and uses the Fullscreen API.
 - The page sends `{ type: "language", ui, dir, title? }` (docs/plan.md
-  Phase 54 item 7): `ui` the tag of the language its own words are in
+  Phase 56 item 7): `ui` the tag of the language its own words are in
   (the player's UI language, a catalogue language: the best match of the
   system languages, never the game language the reader picked; item
   7c), `dir` its direction, `"ltr"` or `"rtl"`, and `title` the game's
@@ -185,7 +185,7 @@ error when `voice/lock-windows-x64.json` is missing.
 ## The apps' own words
 
 What the apps draw themselves comes from the player's catalogue, in all
-its languages (docs/plan.md Phase 54 item 7; docs/verify-player.md, "The
+its languages (docs/plan.md Phase 56 item 7; docs/verify-player.md, "The
 player's words"): the `host.*` messages of `player/src/i18n/en.ts` and
 `player/locales/<tag>.po`, which `npm run i18n` writes to
 `apps/host-words.json` (committed; `npm test` fails while it is stale).
@@ -222,7 +222,7 @@ message then moves the Mac menus to `ui` and both windows' titles to
 
 The Mac app's Info.plist declares the table's languages
 (`CFBundleLocalizations`, in the table's order, with
-`CFBundleDevelopmentRegion` `en`; docs/plan.md Phase 54 item 7b), so
+`CFBundleDevelopmentRegion` `en`; docs/plan.md Phase 56 item 7b), so
 System Settings (General, Language & Region, Applications) offers the app
 a language of its own; without them it says the app "doesn't support
 additional languages". The table's tags are BCP 47 in the forms macOS
@@ -300,7 +300,7 @@ an error, a greyed button for `unsupported`, or the slider once `ready`).
 | `error` | `id`, `code` (the helper's codes, apps/voice/README.md, plus `not-installed` before the install, `helper-crashed` and `helper-stopped`), `message`. |
 | anything else | A helper event that names a request (`target`), such as a streamed line's chunks, passed on as `{ event, id: <the page's id>, ...the rest }`. |
 
-`lang` is the engine's language for the text (docs/plan.md Phase 54 item
+`lang` is the engine's language for the text (docs/plan.md Phase 56 item
 6): the player sends the language the line is shown in, as the engine
 names it (`de`, `ja`, `ar`, `pt` for `pt-BR`, `no` for `nb`), and the base
 language's for a line shown untranslated, so a German-base game speaks
@@ -319,7 +319,7 @@ install first checks that the volume has the whole download plus 1 GB
 free, and reports `error` saying how much it needs and has.
 
 The page shows the player's words for a status's `code` in the reader's
-language (`voice.code.<code>` in the catalogue; docs/plan.md Phase 54 item
+language (`voice.code.<code>` in the catalogue; docs/plan.md Phase 56 item
 7), never the English `message`; for a code it does not know, or none (an
 app built before the codes), it shows its general words ("could not be
 downloaded", "not available") with the `message` after them. The codes:

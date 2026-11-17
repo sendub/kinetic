@@ -1,4 +1,4 @@
-"""kinetic-extract reads Ren'Py translations (docs/plan.md Phase 54 item
+"""kinetic-extract reads Ren'Py translations (docs/plan.md Phase 56 item
 9; docs/extracting.md, "Translations").
 
 Expected identifiers are computed here from Ren'Py's rule written out by

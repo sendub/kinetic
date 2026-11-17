@@ -1,5 +1,5 @@
 // The sound controls follow the language shown (render/soundcontrols.ts,
-// docs/plan.md Phase 54 item 6b): each language's sound content
+// docs/plan.md Phase 56 item 6b): each language's sound content
 // (render/soundrows.ts `soundContent` with that language's voices), and the
 // switch rule that shows and hides the controls and makes the voice client
 // once, when a language first needs the model.

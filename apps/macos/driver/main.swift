@@ -15,7 +15,7 @@
 // message the page sends becomes a hostmessage line, and `hostDisplay` sets
 // the host's display mode as the reader's green button would, so the page
 // gets its `kinetic-host` event. The page's `language` message (docs/plan.md
-// Phase 54 item 7) is a hostmessage line too, and the driver then does with
+// Phase 56 item 7) is a hostmessage line too, and the driver then does with
 // it what the game app does, through the same ../HostWords.swift: its
 // window takes the title the page shows, and a hostlanguage line reports
 // that title, the catalogue language the words were looked up in and the

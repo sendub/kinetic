@@ -1,4 +1,4 @@
-// The player's words in the pseudo-locale (docs/plan.md Phase 54 item 2):
+// The player's words in the pseudo-locale (docs/plan.md Phase 56 item 2):
 // every screen and sheet the player has, opened with the test-only UI
 // language `en-XA` (../testing/testlocale.mjs; src/i18n/pseudo.ts), in
 // which every word from the catalogue is accented, about 40% longer and
@@ -10,7 +10,7 @@
 // and 600 wide; the audio demo adds the Sound row and the Volumes sheet,
 // a stand-in voice engine (../testing/fakevoice.mjs) the voice model's
 // download, progress, error (each voice code a game app sends, in the
-// player's words: docs/plan.md Phase 54 item 7) and removal; a copy of
+// player's words: docs/plan.md Phase 56 item 7) and removal; a copy of
 // the demo with video segments the segment note; the language demo the
 // Language control and its list (each language named in itself is
 // exempt, as game text is).
@@ -58,7 +58,7 @@ const AUDIO_HINT =
   "fixtures/audio-demo is missing: build it with .venv/bin/python fixtures/build_audio_demo.py";
 
 // The codes a game app sends with a voice error or a machine that cannot
-// run the voices (docs/plan.md Phase 54 item 7; apps/README.md), each with
+// run the voices (docs/plan.md Phase 56 item 7; apps/README.md), each with
 // the player's own words, `voice.code.<code>`; the first five name a
 // machine that cannot run them.
 const VOICE_CODES = Object.keys(EN)

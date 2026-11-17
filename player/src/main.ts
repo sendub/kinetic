@@ -43,7 +43,7 @@
 // recording: the sound then mounts with no audio too, the Volumes sheet's
 // Voice row offers the engine's download, progress and removal, and the
 // Voice volume is the only control of them.
-// Phase 54's translations (render/gamewords.ts): the game opens in the
+// Phase 56's translations (render/gamewords.ts): the game opens in the
 // reader's saved language, else the browser's when the game has it, else
 // its own (i18n/languages.ts `startingLanguage`); that language's file
 // loads by script tag before the first screen, and every string falls
@@ -232,7 +232,7 @@ function start(): void {
   }
   // The player's words (src/i18n/catalogue.ts): in the best catalogue
   // match of the system languages, else English (`uiLanguageFor`,
-  // docs/plan.md Phase 54, "The player's language"), or the test-only
+  // docs/plan.md Phase 56, "The player's language"), or the test-only
   // pseudo-locale when a test launcher asked for it (src/i18n/pseudo.ts).
   // Set once: the game's Language control changes the story only, never
   // the controls, the page's `lang` and `dir` or the host's `ui`.
@@ -250,7 +250,7 @@ function start(): void {
   // None in a browser tab.
   const hostLink = connectHost(window);
   // The host draws its own words (menus, window title) in the page's
-  // language (Phase 54 item 7): told now, or when the host arrives, and on
+  // language (Phase 56 item 7): told now, or when the host arrives, and on
   // every change of the title shown (drawPageTitle), which follows the
   // story's language while `ui` stays the system's.
   let shownTitle: string | null = null;
@@ -269,7 +269,7 @@ function start(): void {
   ).then(
     async (manifest) => {
       // The game's name names the page (docs/plan.md Phase 21), else the
-      // player's own title stays; in the shown language (Phase 54), drawn
+      // player's own title stays; in the shown language (Phase 56), drawn
       // again on each change of it (`showWords`).
       const drawPageTitle = (): void => {
         const title = words?.title()?.text ?? manifest.title;
@@ -309,7 +309,7 @@ function start(): void {
       // reader reads at the pace they left off at. The machine learns
       // settings only here and through setSettings — never from storage.
       let currentSettings = mergeSettings(persisted?.settings);
-      // The game's languages (docs/plan.md Phase 54 item 3): the manifest's
+      // The game's languages (docs/plan.md Phase 56 item 3): the manifest's
       // base and its language files. The game opens in the reader's saved
       // choice, else the browser's language when the game has it, else
       // its base; the file of a language other than the base loads before
@@ -341,7 +341,7 @@ function start(): void {
         }
       }
       words = createGameWords(manifest, loadedFiles.get(shownLanguage) ?? null);
-      // Each item's voice in the language shown (docs/plan.md Phase 54 item
+      // Each item's voice in the language shown (docs/plan.md Phase 56 item
       // 6): its recording, its live line or nothing (render/linevoice.ts).
       let lineVoices: LineVoices = createLineVoices(
         manifest,
@@ -427,7 +427,7 @@ function start(): void {
       });
       const shell = mountShell({ root, manifest, machine, words });
       // What sound the game has, and so which sound controls show (docs/plan.md
-      // Phase 52 item 10), in the language shown (Phase 54 items 6 and 6b):
+      // Phase 52 item 10), in the language shown (Phase 56 items 6 and 6b):
       // decided here for the starting language and again on each switch
       // (render/soundcontrols.ts): the Sound row, Volumes..., `v` and its
       // keys row, and the sheet's rows.
@@ -630,11 +630,11 @@ function start(): void {
           if (command === "toggleMap") runMapKey();
         },
         // A game with sound controls lists `v` (docs/plan.md Phase 47 item 7),
-        // while the language shown has them (Phase 54 item 6b).
+        // while the language shown has them (Phase 56 item 6b).
         sound: sound.shown(),
       });
       help.setHeading(words.title(), words.version());
-      // The Language control (docs/plan.md Phase 54 item 3): in the title
+      // The Language control (docs/plan.md Phase 56 item 3): in the title
       // bar of a game with more than one language, the base first, each
       // named in itself (a file's own `name` where the browser has none).
       const languageName = (tag: string): string =>
@@ -688,7 +688,7 @@ function start(): void {
         routeLabel = routeLabelOf(next);
         shell.setWords(next);
         machine.setWords(machineWordsOf(next, lineVoices)); // an open choice redraws
-        // The voices follow (Phase 54 item 6): the item's voice in the new
+        // The voices follow (Phase 56 item 6): the item's voice in the new
         // language, the Voice row and the model's offer.
         audio?.setVoices(lineVoices);
         // The sound controls follow what it can play (item 6b), the voice

@@ -3689,7 +3689,11 @@ A fix with no new feature, so this phase closes as the patch 1.10.1.
 3. Phase-closer: full suites; VERSION 1.10.1, the CHANGELOG dated, tag,
    `main` fast-forwarded.
 
-## Phase 54: Translations (2026-11-16, user)
+## Phase 56: Translations (2026-11-16, user)
+
+Planned as Phase 54 on the `language` branch and renumbered 56 when
+that branch was rebased onto develop's Phases 54 and 55 (2026-11-17);
+its commits before the rebase say "Phase 54".
 
 A game can be read in more than one language, in one folder, and the
 player's own words come in many languages. The user scheduled
@@ -4025,7 +4029,7 @@ The orchestrator's choices, within those decisions:
     see, and how to correct the player's own catalogue. Tests:
     check-game tests for `--lang`, assemble and upgrade tests for
     `lang/`.
-11. Phase-closer: full suites; VERSION 1.10.0, the CHANGELOG dated, tag,
+11. Phase-closer: full suites; VERSION 1.11.0, the CHANGELOG dated, tag,
     `main` fast-forwarded.
 
 Sequencing: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11,

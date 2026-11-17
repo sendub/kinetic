@@ -49,7 +49,7 @@ the player speaks the base text live (player/src/render/linevoice.ts,
 key without a language, so recordings made before languages existed stay
 valid; any other base's key also holds the language.
 
---lang TAG records one translation's lines instead (docs/plan.md Phase 54,
+--lang TAG records one translation's lines instead (docs/plan.md Phase 56,
 item 6; docs/content-format.md, "Translations"), as the player would speak
 them live with that language shown (player/src/render/linevoice.ts,
 `lineVoice`): every item whose text `lang/<TAG>.json` translates, whose

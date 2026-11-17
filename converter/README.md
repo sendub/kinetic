@@ -182,7 +182,7 @@ and `version` come from the first project unless given. Ledger media sources car
 project's output is unchanged. Details: docs/extracting.md, "Several
 episodes, one game".
 
-Ren'Py translations (docs/plan.md Phase 54 item 9) under
+Ren'Py translations (docs/plan.md Phase 56 item 9) under
 `game/tl/<language>/` become language files, `lang/<tag>.json` and
 `lang/<tag>.js`, listed in the manifest's `languages`, with
 `lang.schema.json` beside the manifest: dialogue blocks matched to items

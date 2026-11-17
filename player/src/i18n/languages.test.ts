@@ -64,7 +64,7 @@ describe("bestLanguageMatch: a reader's languages against a game's", () => {
   });
 });
 
-describe("the game apps' cases (apps/host-language-cases.json, Phase 54 item 7)", () => {
+describe("the game apps' cases (apps/host-language-cases.json, Phase 56 item 7)", () => {
   // The Mac app and the Windows program pick their own words' language by
   // the same rule, from the same cases (hostwords_test.go, the machost
   // scenario).
@@ -152,7 +152,7 @@ describe("uiLanguageFor: the language of the player's own words", () => {
 
   it("takes no game pick: its only inputs are the system's and the catalogue", () => {
     // A pick of the game's original (English) under a system Chinese once
-    // pinned the controls to English (docs/plan.md Phase 54 item 7c). The
+    // pinned the controls to English (docs/plan.md Phase 56 item 7c). The
     // input has no field for a pick, so one cannot reach the result: an
     // object carrying a stray `chosen` still gives the system's language.
     const withPick = {

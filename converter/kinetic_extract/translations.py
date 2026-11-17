@@ -1,4 +1,4 @@
-"""Ren'Py translations read by kinetic-extract (docs/plan.md Phase 54,
+"""Ren'Py translations read by kinetic-extract (docs/plan.md Phase 56,
 items 9 and 9b; docs/extracting.md, "Translations").
 
 A Ren'Py project may ship translations under ``game/tl/<language>/``,

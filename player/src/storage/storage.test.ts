@@ -558,7 +558,7 @@ describe("sanitizeSettings — the settings the shipped adapter reads back", () 
     expect(sanitizeSettings(all)).toEqual(all);
   });
 
-  it("keeps the game language the reader picked (none by default, Phase 54)", () => {
+  it("keeps the game language the reader picked (none by default, Phase 56)", () => {
     expect(DEFAULT_SETTINGS.language).toBe("");
     expect(sanitizeSettings({ language: "de" })).toEqual({ language: "de" });
     expect(sanitizeSettings({ language: 7 })).toBeUndefined();

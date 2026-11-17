@@ -1097,7 +1097,7 @@ names and about a `narrator` when no item has text without a speaker.
 ## Translations
 
 A game can be read in more than one language from one folder
-(docs/plan.md Phase 54). `manifest.json` stays in its base language,
+(docs/plan.md Phase 56). `manifest.json` stays in its base language,
 named by its `language` field (default `"en"`), and each translation
 is a language file beside it. The manifest's `languages` lists the
 tags of the language files present:
@@ -1245,7 +1245,7 @@ Rules of meaning:
 ### Spoken lines per language
 
 What voice an item has depends on the language its text is shown in
-(docs/plan.md Phase 54 item 6; player/src/render/linevoice.ts). When the
+(docs/plan.md Phase 56 item 6; player/src/render/linevoice.ts). When the
 text shown comes from the language file:
 
 1. the file's own recording for the item (`voice.items`), if any;

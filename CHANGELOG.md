@@ -17,7 +17,7 @@ Taking a new release means replacing a game folder's player (CREATE.md,
 "Upgrading to a newer Kinetic"). Bullets marked **Upgrading:** ask
 something more of an author.
 
-## 1.10.0-dev
+## 1.11.0-dev
 
 - Translations: a game can be read in several languages from one
   folder. The manifest keeps the game's own text, and each translation

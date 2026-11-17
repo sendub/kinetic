@@ -100,13 +100,13 @@ export interface HelpOverlay {
   setHeading(title: ShownText | null, version: ShownText | null): void;
   /**
    * Puts a control at the end of the title bar, after the hint (the
-   * Language control, Phase 54 item 3): the hint and the control share
+   * Language control, Phase 56 item 3): the hint and the control share
    * one bar (`.help-bar`), and the panel is marked `help-has-bar` so
    * index.html keeps the control on the title's line at every width.
    */
   addTitleControl(control: HTMLElement): void;
   /**
-   * The keys list `v` (true) or not (docs/plan.md Phase 54 item 6b: the
+   * The keys list `v` (true) or not (docs/plan.md Phase 56 item 6b: the
    * sound controls follow what the language shown can play).
    */
   setSound(sound: boolean): void;
@@ -228,7 +228,7 @@ export function mountHelpOverlay({
       const key = doc.createElement("span");
       key.className = "help-key";
       // The arrow keys keep their physical meaning in every UI language
-      // (docs/plan.md Phase 54 item 5), so their caps keep their physical
+      // (docs/plan.md Phase 56 item 5), so their caps keep their physical
       // order, ← left of →, when the screen is mirrored.
       if (/[←→]/.test(row.keys.join(" "))) key.dir = "ltr";
       row.keys

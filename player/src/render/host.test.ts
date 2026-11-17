@@ -224,7 +224,7 @@ function effects(options: {
   return { fx, log, timers, win };
 }
 
-describe("the language message (docs/plan.md Phase 54 item 7)", () => {
+describe("the language message (docs/plan.md Phase 56 item 7)", () => {
   it("names the UI language, its direction and the title shown", () => {
     expect(languageMessage("de", "Die Reise")).toEqual({
       type: "language",

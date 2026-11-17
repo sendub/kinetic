@@ -4,7 +4,7 @@
 // shows for each status of the voice engine (render/voiceclient.ts).
 //
 // A game app's error or unsupported machine comes with a `code` (docs/plan.md
-// Phase 54 item 7; apps/README.md, "The voice bridge"), which the player
+// Phase 56 item 7; apps/README.md, "The voice bridge"), which the player
 // words from its catalogue (`voice.code.<code>`); the host's `message` is
 // an English detail for its log. Only a code the player does not know (or
 // none, from an older app) shows the general words with that detail.

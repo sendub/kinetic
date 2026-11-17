@@ -76,7 +76,7 @@ def test_write_schema_copy_replaces_an_old_copy(tmp_path: Path) -> None:
 
 
 def test_the_language_copy_names() -> None:
-    """docs/plan.md Phase 54 item 8: lang.schema.json beside the
+    """docs/plan.md Phase 56 item 8: lang.schema.json beside the
     manifest, named from a language file as ../lang.schema.json."""
     assert schema_copy.LANG_COPY_NAME == "lang.schema.json"
     assert schema_copy.LANG_SCHEMA_REF == "../lang.schema.json"

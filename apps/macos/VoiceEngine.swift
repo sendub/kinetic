@@ -32,7 +32,7 @@
 import CryptoKit
 import Foundation
 
-/// A failure as the page gets it (docs/plan.md Phase 54 item 7;
+/// A failure as the page gets it (docs/plan.md Phase 56 item 7;
 /// apps/README.md, "The voice bridge"): `code` names it, which the page
 /// words from the player's catalogue; `message` is an English detail for
 /// the log; `fields` are the code's own numbers (`version`; `needBytes` and

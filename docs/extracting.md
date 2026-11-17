@@ -74,7 +74,7 @@ One function decides it, `walked_scripts` in
 `converter/kinetic_extract/parser.py`, and both the story walk and the
 translation identifiers (Translations, below) use it, so a script the
 walk does not read neither hides another nor feeds identifiers
-(docs/plan.md Phase 54 item 9d):
+(docs/plan.md Phase 56 item 9d):
 
 - **In scope**: the loose `.rpy` and `.rpyc` files at the top level of
   `game/`, the loose files `--files` reaches (its pattern with either
@@ -1453,7 +1453,7 @@ re-extract an updated game, or readers' progress will not follow it.
 
 A Ren'Py project may ship translations under `game/tl/<language>/`
 (Ren'Py's "Generate Translations"), as loose files or inside its `.rpa`
-archives. kinetic-extract reads them by default (docs/plan.md Phase 54
+archives. kinetic-extract reads them by default (docs/plan.md Phase 56
 items 9 and 9b) and writes one language file per language, `lang/<tag>.json` and its `lang/<tag>.js`, in the format of
 docs/content-format.md, "Translations"; `--no-translations` leaves them
 out. The code is `converter/kinetic_extract/translations.py`.

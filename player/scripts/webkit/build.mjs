@@ -36,7 +36,7 @@ const SOURCES = [
 const VOICE_DIR = join(repoRoot, "apps", "voice");
 const VOICE_LOCK_NAME = "lock-macos-arm64.json";
 const EMBEDDED_VOICE_NAME = "KineticVoiceEmbedded.swift";
-// The game apps' own words (docs/plan.md Phase 54 item 7), from the
+// The game apps' own words (docs/plan.md Phase 56 item 7), from the
 // catalogue by `npm run i18n`.
 const HOST_WORDS = join(repoRoot, "apps", "host-words.json");
 const EMBEDDED_HOST_WORDS_NAME = "KineticHostWordsEmbedded.swift";

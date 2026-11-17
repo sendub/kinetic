@@ -1,5 +1,5 @@
 // A small gettext PO reader and writer for the player's catalogue
-// (docs/plan.md Phase 54 item 2; scripts/i18n.mjs uses it). It reads what
+// (docs/plan.md Phase 56 item 2; scripts/i18n.mjs uses it). It reads what
 // translators' tools write: the header entry, `msgctxt`, multi-line
 // strings, C escapes, comments (`#.` extracted, `#:` references, `# `
 // translator, `#|` previous), flags (`#, fuzzy`), plural entries

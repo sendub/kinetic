@@ -1,4 +1,4 @@
-// The Esc screen's Language control (docs/plan.md Phase 54 item 3): a
+// The Esc screen's Language control (docs/plan.md Phase 56 item 3): a
 // capsule at the end of the title bar, after "Esc or Space closes", shown
 // only when the game has more than one language (main.ts). It reads a
 // globe, the shown language named in itself and a chevron; a click, or
@@ -86,7 +86,7 @@ export interface ListPlacement {
   /**
    * Its inline-end edge from the window's (`inset-inline-end`): aligned to
    * the button's end, the right in left to right, the left in right to
-   * left (docs/plan.md Phase 54 item 5).
+   * left (docs/plan.md Phase 56 item 5).
    */
   readonly end: number;
   /** The tallest it may be; it scrolls inside itself past this. */

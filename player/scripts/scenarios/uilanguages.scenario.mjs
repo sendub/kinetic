@@ -1,4 +1,4 @@
-// The player's words in every catalogue language (docs/plan.md Phase 54
+// The player's words in every catalogue language (docs/plan.md Phase 56
 // item 4; docs/verify-player.md, "The player's words"). For each language
 // of player/locales/, a browser started with that language as the reader's
 // (`languages`, Chrome's --lang and the WebKit driver's AppleLanguages)
@@ -18,7 +18,7 @@
 // shows up here, while a message the PO keeps identical ("Kinetic") is
 // the language's own. Game text, key caps and a language named in itself
 // are exempt as in `catalogue`. Each voice code a game app sends shows the
-// language's words for it in the voice model's row (docs/plan.md Phase 54
+// language's words for it in the voice model's row (docs/plan.md Phase 56
 // item 7).
 //
 // Glyphs: on the Esc screen, every character of the language's catalogue

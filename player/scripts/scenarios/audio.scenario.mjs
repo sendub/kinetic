@@ -39,7 +39,7 @@
 //   carries the setting);
 // - fixtures/demo, a game without audio, makes no <audio> element and no
 //   hook, and openGame's current() reports `audio` (null there);
-// - the Volumes sheet per language (docs/plan.md Phase 54 item 6b), on a
+// - the Volumes sheet per language (docs/plan.md Phase 56 item 6b), on a
 //   copy with music only and two language files: the Sound row stays in
 //   every language (music is the same in each), and the Voice row joins
 //   the Music row only while the language with recorded lines is shown.

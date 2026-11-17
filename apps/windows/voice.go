@@ -97,7 +97,7 @@ func absoluteUnlessOff(path string, absolute func(string) string) string {
 }
 
 // The codes the page gets with an error or an unsupported machine
-// (docs/plan.md Phase 54 item 7; apps/README.md, "The voice bridge"),
+// (docs/plan.md Phase 56 item 7; apps/README.md, "The voice bridge"),
 // which it words from the player's catalogue; the message beside each is
 // an English detail for the log.
 const (

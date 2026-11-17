@@ -3385,7 +3385,7 @@ def test_language_checks_survive_malformed_manifests(tmp_path: Path) -> None:
             manifest, tmp_path), tuple)
 
 
-# A language file's own recorded lines, `voice` (docs/plan.md Phase 54
+# A language file's own recorded lines, `voice` (docs/plan.md Phase 56
 # item 6): tracks under a manifest track's rules, and items naming them.
 
 def add_voice(folder: Path, data: dict[str, Any], lines: dict[str, str],

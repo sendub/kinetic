@@ -1,4 +1,4 @@
-// The UI language on the page (docs/plan.md Phase 54 items 2 and 5): the
+// The UI language on the page (docs/plan.md Phase 56 items 2 and 5): the
 // root element's `lang` follows the catalogue's language, so assistive tech
 // reads the player's words in it and the browser picks fitting fonts and
 // hyphenation, and its `dir` follows that language's direction

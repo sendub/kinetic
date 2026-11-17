@@ -1,4 +1,4 @@
-// A game's words in the shown language (docs/plan.md Phase 54 item 3;
+// A game's words in the shown language (docs/plan.md Phase 56 item 3;
 // docs/content-format.md, "Translations"). The manifest holds the base
 // language's text; a language file, `lang/<tag>.js`, translates some or
 // all of it. `createGameWords` answers, for each string the player draws

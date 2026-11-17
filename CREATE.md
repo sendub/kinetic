@@ -2379,7 +2379,7 @@ German readers see them, and after the walk two lines count the lines
 it met (the items it showed that have text):
 
 ```text
-webkit: /Users/you/lang-demo-play (Kinetic 1.10.0), language de
+webkit: /Users/you/lang-demo-play (Kinetic 1.11.0), language de
   0: intro-title "Kinetic-Demo. Jede Zeile erklärt, was Sie sehen. Die Leer..."
   ...
 story ended at step 35

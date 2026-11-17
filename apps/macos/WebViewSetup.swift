@@ -108,7 +108,7 @@ protocol KineticVoiceHost: AnyObject {
 /// gets a `kinetic-host` event. The user script is swapped on every change,
 /// so a reload starts with the mode in force.
 ///
-/// `{ type: "language", ui, dir, title? }` (docs/plan.md Phase 54 item 7)
+/// `{ type: "language", ui, dir, title? }` (docs/plan.md Phase 56 item 7)
 /// goes to `onLanguage` as a HostLanguage (HostWords.swift): the page's UI
 /// language and the title it shows, for the host's own words.
 ///

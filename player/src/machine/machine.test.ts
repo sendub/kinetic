@@ -170,7 +170,7 @@ describe("hold computation (docs/content-format.md Timing)", () => {
     expect(itemHoldMs(image("a".repeat(40)), SETTINGS, true)).toBe(2400);
   });
 
-  it("scales msPerChar by the shown language's factor (docs/plan.md Phase 54)", () => {
+  it("scales msPerChar by the shown language's factor (docs/plan.md Phase 56)", () => {
     // 20 code points of Japanese at factor 2.17: 20 * 60 * 2.17 = 2604.
     expect(textHoldMs("あ".repeat(20), SETTINGS, 2.17)).toBeCloseTo(2604);
     // The factor scales before the floor: 10 * 60 * 2 = 1200 < 1500.
@@ -197,7 +197,7 @@ describe("hold computation (docs/content-format.md Timing)", () => {
   });
 });
 
-describe("words shown (docs/plan.md Phase 54 item 3)", () => {
+describe("words shown (docs/plan.md Phase 56 item 3)", () => {
   const items: Item[] = [
     { id: "a", type: "image", file: "a.jpg", text: "a".repeat(40) },
     { id: "b", type: "text", text: "Short." },

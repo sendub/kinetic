@@ -13,7 +13,7 @@ fixtures/build_demo.py.
 The folder is fixtures/demo's tour (the same items, media and branches,
 drawn and encoded by build_demo's `demo_manifest`) with its own
 `storyId`, title and `version`, the base `language` "en", and three
-language files (docs/plan.md Phase 54, item 1): German, Japanese and
+language files (docs/plan.md Phase 56, item 1): German, Japanese and
 Arabic, each with `lang/<tag>.json` and its `lang/<tag>.js`, a speaker
 table, both decisions' prompts and route labels, the title and the
 version. Two faults are deliberate, so the validator's translation

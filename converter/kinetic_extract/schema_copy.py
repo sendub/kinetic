@@ -1,5 +1,5 @@
 """The schema copies beside a folder's manifest.json (docs/plan.md
-Phase 51, item 5; Phase 54, item 8).
+Phase 51, item 5; Phase 56, item 8).
 
 kinetic-extract writes `manifest.schema.json`, a byte copy of
 docs/content-schema.json, into every content folder and opens the

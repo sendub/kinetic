@@ -1,5 +1,5 @@
 """The language file helper (docs/content-format.md, "Translations";
-docs/plan.md Phase 54, item 1): tag casing, the base hash, and the
+docs/plan.md Phase 56, item 1): tag casing, the base hash, and the
 writer of a language file with its script."""
 
 from __future__ import annotations

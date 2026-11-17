@@ -80,7 +80,7 @@ describe("modelHelp (the ? beside the download)", () => {
   });
 });
 
-describe("voiceProblem: a host's error in the player's words (Phase 54 item 7)", () => {
+describe("voiceProblem: a host's error in the player's words (Phase 56 item 7)", () => {
   afterEach(() => setUiLanguage("en"));
 
   it("has catalogue words for every code a host sends", () => {

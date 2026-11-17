@@ -18,7 +18,7 @@
 // stand-in that streams chunks.
 //
 // `language` runs the player itself on the language demo under the app's
-// bridge (docs/plan.md Phase 54 item 7): the page's `language` message
+// bridge (docs/plan.md Phase 56 item 7): the page's `language` message
 // reaches the Swift side, which retitles the driver's window and works out
 // the app's menu words through the app's own apps/macos/HostWords.swift,
 // and the driver answers which language the app would pick from a list of
@@ -536,7 +536,7 @@ async function install({ check }) {
         wav,
       },
     );
-    // The line's language reaches the helper (docs/plan.md Phase 54 item
+    // The line's language reaches the helper (docs/plan.md Phase 56 item
     // 6): the same text in German is made again, not served from the
     // English line's cache (the fake engine's pitch follows the language),
     // and a language the engine lacks is refused.
@@ -1156,7 +1156,7 @@ async function waitFor(test, timeout = 6000) {
 }
 
 /**
- * The player's language message reaching the app (Phase 54 item 7): at
+ * The player's language message reaching the app (Phase 56 item 7): at
  * boot in the reader's language (German) with the German title; after
  * the reader picks Arabic, still German and left to right with the Arabic
  * title (item 7c: a pick changes the story alone); each time the driver's

@@ -1,4 +1,4 @@
-// What an item's voice is in the language shown (docs/plan.md Phase 54
+// What an item's voice is in the language shown (docs/plan.md Phase 56
 // item 6; docs/content-format.md, "Translations"): a recording, a line
 // the voice engine speaks live, or nothing. One pure rule (`lineVoice`),
 // which the machine's voice hold, the sound, spoken lines and the Volumes

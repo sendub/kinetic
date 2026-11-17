@@ -288,7 +288,7 @@ describe("the Voice row when the model is needed (docs/plan.md Phase 52 item 10)
     });
     const { root } = mountSheet(modelOnly, host);
     expect(shownActions(root)).toEqual(["volume-model-retry"]);
-    // The player's words for the host's code (Phase 54 item 7).
+    // The player's words for the host's code (Phase 56 item 7).
     expect(byClass(voiceRow(root), "volume-model-message").textContent).toBe(
       "A download failed. Try again to continue it.",
     );
@@ -565,7 +565,7 @@ describe("soundMessage (the v pill)", () => {
   });
 });
 
-describe("the rows follow the language shown (docs/plan.md Phase 54 item 6b)", () => {
+describe("the rows follow the language shown (docs/plan.md Phase 56 item 6b)", () => {
   const all = content({ music: true, effects: true, recordedVoice: true });
   const shownRows = (root: FakeElement): (string | null)[] =>
     walk(root)

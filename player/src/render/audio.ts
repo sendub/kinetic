@@ -92,7 +92,7 @@
 // start tells render/spoken.ts how long it has left, for the auto-forward
 // hold. Without a voice host such a game mounts nothing, as before.
 //
-// Per language (docs/plan.md Phase 54 item 6; render/linevoice.ts): the
+// Per language (docs/plan.md Phase 56 item 6; render/linevoice.ts): the
 // voice of an item is the one `LineVoices` gives for the language shown, a
 // recording (the manifest's, or the language file's own, whose tracks join
 // the table under `languageTrackKey`) or a live line in the shown text and
@@ -100,7 +100,7 @@
 // is on, a voice of the old language stops and the new one starts. A game
 // with language files mounts the sound even with no `audio`, as a file may
 // carry recordings. Its voice client may come later (`setVoiceClient`,
-// Phase 54 item 6b): main.ts makes one only once a language that needs the
+// Phase 56 item 6b): main.ts makes one only once a language that needs the
 // voice model is shown, and its spoken lines start then, on the item the
 // reader is on.
 //
@@ -315,13 +315,13 @@ export interface AudioPlayer {
    */
   sample(group: "effects" | "voice"): void;
   /**
-   * The language shown changed (docs/plan.md Phase 54 item 6): each item's
+   * The language shown changed (docs/plan.md Phase 56 item 6): each item's
    * voice is `voices`'s now. On the item the reader is on, a voice of the
    * old language stops and the new one starts.
    */
   setVoices(voices: LineVoices): void;
   /**
-   * The voice client arrived after the mount (docs/plan.md Phase 54 item
+   * The voice client arrived after the mount (docs/plan.md Phase 56 item
    * 6b: made once a language needing the voice model is shown): spoken
    * lines start, the item on show asked for at once. A second client, or
    * one for a game without voices, changes nothing.

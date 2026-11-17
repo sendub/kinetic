@@ -1,4 +1,4 @@
-// The test-only UI language flag (docs/plan.md Phase 54 item 2;
+// The test-only UI language flag (docs/plan.md Phase 56 item 2;
 // docs/verify-player.md, "The player's words"): a page script that runs
 // before the player, as the sound flag does (./testaudio.mjs), and asks
 // for a catalogue language no reader can pick. Today only the

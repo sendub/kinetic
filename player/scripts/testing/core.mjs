@@ -94,7 +94,7 @@ function withTestAudio(context) {
  * does (it otherwise allows it, as the macOS app does); headless Chrome
  * always requires one, as Chrome does. `languages` (BCP 47 tags, most
  * wanted first) are the reader's languages the page sees as
- * `navigator.languages` (docs/plan.md Phase 54): Chrome's `--lang` and
+ * `navigator.languages` (docs/plan.md Phase 56): Chrome's `--lang` and
  * `--accept-lang`, the WebKit driver's AppleLanguages; absent, the
  * system's. Each browser is tracked until
  * closeBrowser or killBrowser, so killLiveBrowsers can reap it.

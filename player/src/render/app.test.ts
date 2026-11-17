@@ -577,7 +577,7 @@ describe("mountShell: the stage video's clock steps segments (Phase 49)", () => 
 });
 
 // --------------------------------------------------------------------------
-// The pill clear of the end card (docs/plan.md Phase 54 item 5b): while the
+// The pill clear of the end card (docs/plan.md Phase 56 item 5b): while the
 // card shows, the #flash pill stands under it; otherwise at its 8%.
 // scripts/scenarios/branches.scenario.mjs and rtl.scenario.mjs measure it
 // in both browsers.

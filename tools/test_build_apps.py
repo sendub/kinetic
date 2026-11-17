@@ -329,7 +329,7 @@ def test_info_plist_contents() -> None:
 def test_info_plist_declares_every_catalogue_language() -> None:
     """The keys System Settings (Language & Region, Applications) reads to
     offer the app a language of its own: the catalogue's languages, base
-    first, in apps/host-words.json's order (docs/plan.md Phase 54 item
+    first, in apps/host-words.json's order (docs/plan.md Phase 56 item
     7b)."""
     ident = build_apps.identity({"storyId": "rainy-day"}, Path("x"))
     info = build_apps.info_plist(ident)
@@ -701,7 +701,7 @@ def test_the_driver_build_generates_the_same_embedded_source() -> None:
     assert proc.stdout == build_apps.embedded_voice_source()
 
 
-# --- the apps' own words (docs/plan.md Phase 54 item 7) ---------------------
+# --- the apps' own words (docs/plan.md Phase 56 item 7) ---------------------
 
 HOST_WORDS = REPO_ROOT / "apps" / "host-words.json"
 

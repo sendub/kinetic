@@ -205,7 +205,7 @@ def test_the_language_schema_copy_comes_with_the_manifest_s(
         tmp_path: Path, dist: Path,
         capsys: pytest.CaptureFixture[str]) -> None:
     """A folder with language files and the manifest's copy gets
-    lang.schema.json refreshed beside it (docs/plan.md Phase 54 item 8);
+    lang.schema.json refreshed beside it (docs/plan.md Phase 56 item 8);
     a folder with only the language copy has that one refreshed."""
     folder = game(tmp_path)
     (folder / COPY_NAME).write_text('{"old": "schema"}\n')
@@ -355,7 +355,7 @@ LANG_DEMO = REPO_ROOT / "fixtures" / "lang-demo"
 def test_a_translated_folder_keeps_its_languages_byte_for_byte(
         tmp_path: Path, dist: Path,
         capsys: pytest.CaptureFixture[str]) -> None:
-    """lang/ (docs/plan.md Phase 54): the language files, their scripts
+    """lang/ (docs/plan.md Phase 56): the language files, their scripts
     and a language's recorded lines (shipped as scripts, the audio left
     out, as tools/assemble_folder.py leaves it) are the author's content:
     the upgrade replaces only the player, and the folder validates."""

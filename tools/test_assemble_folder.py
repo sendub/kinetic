@@ -213,7 +213,7 @@ def test_the_schema_copy_is_left_out_the_manifest_kept(
 def test_the_language_schema_copy_is_left_out(
         tmp_path: Path, fake_dist: Path) -> None:
     """lang.schema.json, the language files' copy for an author's editor
-    (docs/plan.md Phase 54 item 8), is left out as the manifest's is."""
+    (docs/plan.md Phase 56 item 8), is left out as the manifest's is."""
     folder = content(tmp_path, None)
     (folder / "lang.schema.json").write_text('{"title": "copy"}\n')
     out = tmp_path / "play"
@@ -250,7 +250,7 @@ needs_lang_demo = pytest.mark.skipif(
 
 
 def translated(tmp_path: Path) -> Path:
-    """A copy of the language demo (docs/plan.md Phase 54 item 1): three
+    """A copy of the language demo (docs/plan.md Phase 56 item 1): three
     language files with their scripts, the schema copies beside them."""
     import shutil
     folder = tmp_path / "content"

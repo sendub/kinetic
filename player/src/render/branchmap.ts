@@ -351,7 +351,7 @@ export function describeTarget(
           count: total,
         })
       : t("map.decision.notReached");
-    // The game's question, marked with its language (Phase 54) unless
+    // The game's question, marked with its language (Phase 56) unless
     // hidden (then the catalogue's placeholder, in the UI language).
     const lang = promptShown(model, marks, target.decision)?.lang;
     return {
@@ -780,7 +780,7 @@ export function mountBranchMap({
   panel.className = "branchmap";
   panel.hidden = true;
   // The map's layout stays left to right in every UI language (docs/plan.md
-  // Phase 54 item 5): its tree, axis and tools read as a chart, not as
+  // Phase 56 item 5): its tree, axis and tools read as a chart, not as
   // text. Its words still come from the catalogue, and its labels keep
   // their own `dir` per string (gamewords.ts).
   panel.dir = "ltr";
@@ -1463,7 +1463,7 @@ export function mountBranchMap({
       tip.textContent = "";
       const strong = doc.createElement("strong");
       strong.textContent = full;
-      // Game text in its own language (Phase 54): lang and direction.
+      // Game text in its own language (Phase 56): lang and direction.
       if (lang !== undefined) markLanguage(strong, lang);
       tip.append(strong);
       if (status !== undefined) {

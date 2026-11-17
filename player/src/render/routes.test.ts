@@ -93,7 +93,7 @@ describe("routeStartLabels (the entry lookup)", () => {
     expect(new Map(routeStartLabels(broken))).toEqual(new Map([[4, "Here"]]));
   });
 
-  it("names each route in the shown language, the manifest's label as the fallback (Phase 54)", () => {
+  it("names each route in the shown language, the manifest's label as the fallback (Phase 56)", () => {
     const shown = routeStartLabels(MANIFEST, (_decision, _route, base) =>
       base === "Route A" ? "Route A, übersetzt" : base,
     );

@@ -508,7 +508,7 @@ func TestVoiceInstallSpeakAndRemove(t *testing.T) {
 		t.Errorf("a reread = %v", e)
 	}
 
-	// The line's language reaches the helper (docs/plan.md Phase 54 item
+	// The line's language reaches the helper (docs/plan.md Phase 56 item
 	// 6): the same text in German is made again, then cached as German,
 	// and a language the engine lacks is refused.
 	h.send(`{"type":"voice","op":"speak","id":5,"voiceId":"` + voiceID + `","text":"Hello there.","priority":1,"lang":"de"}`)

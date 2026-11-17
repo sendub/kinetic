@@ -1710,7 +1710,7 @@ export interface MapReader {
    * the text of every decision not reached is hidden (`MapMarks.hidden`).
    */
   readonly spoilers?: boolean;
-  /** The words shown (Phase 54); absent: the manifest's. */
+  /** The words shown (Phase 56); absent: the manifest's. */
   readonly words?: MapWords;
 }
 

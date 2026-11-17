@@ -249,7 +249,7 @@ To settle:
 
 ## Per-language pictures (maybe, 2026-11-16)
 
-Phase 54 keeps pictures the same in every language. Words drawn into a
+Phase 56 keeps pictures the same in every language. Words drawn into a
 picture (a phone screen, a sign, a title card) stay in the original
 language; an author can put them in a text item instead. Ren'Py can
 replace a file per language (`game/tl/<language>/`), but no game in the
@@ -270,7 +270,7 @@ To settle:
 ## Ren'Py auto-voice files (maybe, 2026-11-17)
 
 Ren'Py's `config.auto_voice` plays `voice/<identifier>.ogg` for a line,
-named by the line's translation identifier. Phase 54's converter now
+named by the line's translation identifier. Phase 56's converter now
 computes those identifiers (on a converted corpus game 3,978 of its
 lines matched such files), so kinetic-extract could ship them as the
 items' recorded voice lines.

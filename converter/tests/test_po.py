@@ -1,4 +1,4 @@
-"""The PO reader and writer (docs/plan.md Phase 54, item 8;
+"""The PO reader and writer (docs/plan.md Phase 56, item 8;
 converter/kinetic_extract/po.py)."""
 
 from __future__ import annotations

@@ -106,7 +106,7 @@ func setterScript(display string) string {
 
 // hostMessage is a message the page sent: {type: "quit"}, {type:
 // "display", mode}, or {type: "language", ui, dir, title?} (docs/plan.md
-// Phase 54 item 7: the page's UI language, its direction, and the game's
+// Phase 56 item 7: the page's UI language, its direction, and the game's
 // title as shown).
 type hostMessage struct {
 	Type  string `json:"type"`

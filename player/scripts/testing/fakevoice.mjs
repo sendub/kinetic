@@ -8,7 +8,7 @@
 //
 // It starts in `state` ("absent", "ready", "error" or "unsupported" with
 // `message` and `problem`, the status's `code` and its numbers, as the apps
-// send them: docs/plan.md Phase 54 item 7). `install` runs from absent (or
+// send them: docs/plan.md Phase 56 item 7). `install` runs from absent (or
 // error) through installing, reporting progress every 100 ms over
 // `installMs`, to ready, or to error (`download-failed`) while
 // `failInstalls` is above 0 (each failure counts it down); `cancel`

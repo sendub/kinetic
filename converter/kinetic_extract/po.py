@@ -1,4 +1,4 @@
-"""A small gettext PO reader and writer (docs/plan.md Phase 54, item 8;
+"""A small gettext PO reader and writer (docs/plan.md Phase 56, item 8;
 docs/translating.md).
 
 tools/translations.py exports a game's strings to PO for translators and

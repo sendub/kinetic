@@ -1,5 +1,5 @@
 // What an item's voice is in the language shown (render/linevoice.ts,
-// docs/plan.md Phase 54 item 6): the rule's every branch, the tag-to-engine
+// docs/plan.md Phase 56 item 6): the rule's every branch, the tag-to-engine
 // mapping and the per-language table the sound and the machine read.
 
 import { describe, expect, it } from "vitest";

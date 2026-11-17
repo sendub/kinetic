@@ -263,7 +263,7 @@ export interface ChoiceOverlayOptions {
   /** The "Return to main route" row: `machine.chooseContinue()`. */
   onContinue(): void;
   /**
-   * The words shown (docs/plan.md Phase 54 item 3): the machine already
+   * The words shown (docs/plan.md Phase 56 item 3): the machine already
    * hands over the prompt and labels in the shown language; this says
    * which language each is in, so the prompt and every label are marked
    * with their own `lang` (a label the language file lacks carries the

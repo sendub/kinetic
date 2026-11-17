@@ -12,7 +12,7 @@
 //   rule (render/spoken.ts `spokenLine`) speaks, so with text, a cast voice
 //   and no recorded line. The model is offered only then (`needsModel`).
 //
-// With a game's language shown (docs/plan.md Phase 54 item 6), the Voice
+// With a game's language shown (docs/plan.md Phase 56 item 6), the Voice
 // row and the model follow what that language would play: each item's
 // voice as render/linevoice.ts `lineVoice` gives it, a recording (the
 // manifest's, under `keepOriginalVoice` or a fallback line, or the language

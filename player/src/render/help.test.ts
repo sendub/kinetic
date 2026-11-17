@@ -341,7 +341,7 @@ describe("the Esc screen holds the settings (docs/plan.md Phase 26)", () => {
     expect(descriptions).toContain("sound on / off");
   });
 
-  it("adds and drops the sound key's row as the language shown changes (Phase 54 item 6b)", () => {
+  it("adds and drops the sound key's row as the language shown changes (Phase 56 item 6b)", () => {
     const root = new FakeDocument().createElement("div");
     const help = mountHelpOverlay({ root: root as unknown as HTMLElement });
     const list = () =>
@@ -406,7 +406,7 @@ describe("the M entry is a control (m from the Esc screen)", () => {
   });
 });
 
-describe("the heading in a shown language (docs/plan.md Phase 54 item 3)", () => {
+describe("the heading in a shown language (docs/plan.md Phase 56 item 3)", () => {
   it("draws the name and release as given, each marked with its language", () => {
     const root = new FakeDocument().createElement("div");
     const help = mountHelpOverlay({

@@ -11,7 +11,7 @@
 // with no speaker (absent or empty), the `narrator`. A thought is spoken in
 // its speaker's voice. The text goes as written; the speaker's name is not
 // spoken. Each line carries the engine's language it is spoken in, and is
-// asked for in it (Phase 54 item 6). With a game's language shown, the line
+// asked for in it (Phase 56 item 6). With a game's language shown, the line
 // of each item is the one render/linevoice.ts `lineVoice` gives: the text
 // shown and its language, or none (a recording plays, or the engine lacks
 // the language); the options' `line` gives it, and `setLines` changes it on

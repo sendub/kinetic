@@ -1,4 +1,4 @@
-// The sound controls follow the language shown (docs/plan.md Phase 54 item
+// The sound controls follow the language shown (docs/plan.md Phase 56 item
 // 6b): the Esc screen's Sound row with its Volumes... button, `v` and the
 // keys' row for it show while the language shown has a sound the reader
 // can turn (render/soundrows.ts `soundContent`: music, effects or a video's

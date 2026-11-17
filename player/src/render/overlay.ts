@@ -11,7 +11,7 @@
 // touching this module (docs/plan.md Phase 7b).
 //
 // The line and the name are drawn in the shown language (docs/plan.md
-// Phase 54 item 3, render/gamewords.ts), each element marked with the
+// Phase 56 item 3, render/gamewords.ts), each element marked with the
 // language its string is in (`lang`, and `dir` for right to left), so a
 // line the language file lacks carries the base's tag, the speaker's name
 // is upper-cased by its own language's rules (index.html's

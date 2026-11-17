@@ -40,7 +40,7 @@
 //   screen holds it mid-line and it plays on from there, chunks that came
 //   meanwhile joining; leaving stops it, chunks still to come never sound;
 //   auto-forward waits for its end, never cutting it at 20 s;
-// - spoken lines per language (Phase 54 item 6), on a copy with language
+// - spoken lines per language (Phase 56 item 6), on a copy with language
 //   files written here (de, ja, ar, vi, fr): the stand-in host is asked for
 //   the text shown in the engine's language (de, ja, ar), a line the
 //   language lacks for the base text in `en`; a switch drops the pending
@@ -51,7 +51,7 @@
 //   Volumes sheet's Voice row follows the language shown (the download
 //   offered, a slider alone when every line is recorded, no Volumes...
 //   button at all when the language has no sound);
-// - the sound controls per language (Phase 54 item 6b): in a browser tab, a
+// - the sound controls per language (Phase 56 item 6b): in a browser tab, a
 //   game with no sound in its base gains the Sound row, Volumes..., `v` and
 //   the keys' V row on a switch to a language with recorded lines and
 //   loses them on a switch back (`v` doing nothing there); with a voice
@@ -1499,7 +1499,7 @@ async function recordedMix({ check, open }) {
   );
 }
 
-// --- spoken lines per language (Phase 54 item 6) -----------------------------
+// --- spoken lines per language (Phase 56 item 6) -----------------------------
 
 /** The language files of the language parts: item id -> its text. */
 const TRANSLATED = {
@@ -1850,7 +1850,7 @@ async function languageRow({ check, open }) {
   // from (item 6b).
   const vietnamese = await page.evaluate(READ_CONTROLS);
   // The player's words follow the system language, never the game's
-  // (Phase 54 item 7c): German's button is in English too.
+  // (Phase 56 item 7c): German's button is in English too.
   const offers = (r, words) =>
     r.hidden === false && r.state === "absent" && words.test(r.download ?? "");
   const englishOffer = /^Download voice model \(3\.3\sGB\)$/;

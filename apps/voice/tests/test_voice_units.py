@@ -147,7 +147,7 @@ def test_real_lock_engine_settings():
         "limitSeconds"]
 
 
-# The engine's languages (docs/plan.md Phase 54 item 6).
+# The engine's languages (docs/plan.md Phase 56 item 6).
 
 def test_engine_languages_are_chatterbox_multilingual_s():
     from kinetic_voice.engine import LANGUAGES

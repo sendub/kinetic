@@ -1282,7 +1282,7 @@ async function urlStartUnknownSession({ check, open }) {
   if (warned.length === 1 && kept >= 0) errors.splice(kept, 1);
 }
 
-// ---- The route pill and the end card (docs/plan.md Phase 54 item 5b) ----
+// ---- The route pill and the end card (docs/plan.md Phase 56 item 5b) ----
 // On an ending the #flash pill (the route pill a pick shows, or any other)
 // sits clear of the end card's box: under it while the card shows, at its
 // usual 8% of the window otherwise. Read at 1280x800, 700x600 and 600x900
