@@ -265,7 +265,7 @@ def read_cache(plat_dir: Path) -> str | None:
 
 def write_cache(plat_dir: Path, key: str) -> None:
     (plat_dir / CACHE_FILE).write_text(json.dumps({"key": key}) + "\n",
-                                       "utf-8")
+                                       "utf-8", newline="\n")
 
 
 def mismatch_error(lines: list[str]) -> MediaToolsError:

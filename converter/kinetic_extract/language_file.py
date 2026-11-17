@@ -113,7 +113,7 @@ def write_language_file(folder: Path, data: dict[str, Any], *,
     text = json.dumps(data, indent=2, ensure_ascii=ensure_ascii) + "\n"
     target = Path(folder) / json_path(tag)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
+    target.write_text(text, encoding="utf-8", newline="\n")
     (Path(folder) / script_path(tag)).write_text(
-        script_text(tag, text), encoding="utf-8")
+        script_text(tag, text), encoding="utf-8", newline="\n")
     return target

@@ -124,9 +124,12 @@ python3 -m venv ~/kinetic-venv
 
 It needs Python 3.12 or later; `kinetic check` also needs Node.js 22.12
 or later (and Chrome for its `chrome` engine), and the Mac app needs
-macOS. Media tools are pinned for Apple silicon Macs only so far, so
-`kinetic setup`, and with it converting, works there alone; every other
-subcommand runs on any system.
+macOS. Media tools are pinned for `macos-arm64` (Apple silicon),
+`windows-x86_64` and `linux-x86_64`, so `kinetic setup`, and with it
+converting, works on those; on `linux-arm64`, not pinned yet, setup
+stops and says so, and every other subcommand runs on any system. A
+folder's media verify with `kinetic media rebuild` on the platform that
+made them (its ledger's `mediaTools.platform`; exit 3 elsewhere).
 
 `kinetic --help` lists the subcommands: `setup`, `extract`, `media`
 (`ship`, `rebuild`, `posters`), `validate`, `assemble`, `apps`,

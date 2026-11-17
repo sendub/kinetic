@@ -103,9 +103,15 @@ something more of an author.
   thousands of decisions (20,000 decisions: the validator's branch
   checks from 35 s to under a second), and stop with a message on
   malformed branches instead of running on.
-- Media tools: Intel Macs are dropped from the pins (the Mac app is
-  arm64 only), and Windows has a pin entry; only Apple silicon Macs are
-  pinned so far, and setup elsewhere names the platforms that are.
+- Media tools: converting now works on 64-bit Windows and 64-bit Linux
+  on Intel or AMD as well as on Apple silicon Macs; Linux on Arm is not
+  pinned yet, and setup there says so. Intel Macs are dropped from the
+  pins (the Mac app is arm64 only). A few recipes give other bytes on
+  an Intel or AMD processor than on Apple silicon, so a folder's ledger
+  records the platform that made it and `kinetic media rebuild`
+  verifies it there; elsewhere it stops with `made on <platform>;
+  rebuild there to verify` (exit 3). Files the tools write have LF line
+  ends on every system.
 - **Upgrading:** a checkout's venv that has Kinetic installed under its
   old name needs `.venv/bin/pip uninstall kinetic-extract` before
   `.venv/bin/pip install -e ./converter --cache .tmp/pip-cache`. From
@@ -121,6 +127,12 @@ something more of an author.
   follow speaker names, so check both before shipping a converted game
   again under the same `storyId`, and read the summary's `walk:` lines
   for anything that should come back with `--also-label`.
+- **Upgrading:** a folder converted before this release names no
+  platform in its ledger and counts as made on an Apple silicon Mac:
+  rebuild it there, since elsewhere `kinetic media rebuild` exits 3. A
+  script that reads rebuild's exit status meets that new code. The
+  reuse cache now keys on the platform, so the first conversion after
+  upgrading encodes everything once more.
 - **Upgrading:** check-game now walks a game at its own size, so a line
   that fitted at 1280 x 720 may be reported as overflowing at a smaller
   game size; a test that reads check-game's output also meets the new

@@ -1,0 +1,3 @@
+# Every checkout, Windows included, keeps LF line ends, so files the
+# tools copy or rewrite match the Mac byte for byte (Phase 57 item 8b).
+* text=auto eol=lf

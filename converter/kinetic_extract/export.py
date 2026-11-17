@@ -452,7 +452,7 @@ def run(args: argparse.Namespace) -> int:
     try:
         out.mkdir(parents=True, exist_ok=True)
         for name, text in files.items():
-            (out / name).write_text(text, encoding="utf-8")
+            (out / name).write_text(text, encoding="utf-8", newline="\n")
     except OSError as exc:
         print(f"kinetic export: cannot write {out}: {exc}", file=sys.stderr)
         return 2

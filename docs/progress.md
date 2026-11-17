@@ -5547,10 +5547,11 @@ truthful: an unchecked box means nothing was accepted.
       (34, each tool in a child process with a 30 s limit, 400 fuzzed
       shapes); the 20,000-decision bound raised to 10 s for load.
       Subagent and orchestrator: the six files 555 passed.)
-- [ ] Media tools for Windows and Linux (item 8). Windows and
+- [x] Media tools for Windows and Linux (item 8). Windows and
       linux-x86_64 pinned against the shared goldens, `macos-x86_64`
       dropped, AGENTS.md's pin rule rewritten.
-      (2026-11-17, open: the pins wait on the user. Every x86_64 build
+      (2026-11-17: the pins waited on the user, then item 8b recorded
+      them with per-platform goldens. Every x86_64 build
       differs from the shared goldens on the same 6 cases
       (ffmpeg.audio-loop-aac, audio-transcode-opus, poster-frame,
       transcode-mp4, transcode-odd-mp4, pillow.poster-jpeg): gyan.dev
@@ -5572,11 +5573,10 @@ truthful: an unchecked box means nothing was accepted.
       test_setup_media_tools 23 passed, 2 skipped; PC and WSL cleaned.
       Orchestrator: setup, media_tools, media_ship and poster tests 84
       passed; Mac setup self-test 22 cases passed.)
-- [ ] Per-platform goldens (item 8b). A platform holds its own golden
+- [x] Per-platform goldens (item 8b). A platform holds its own golden
       for a case a CPU difference changes; rebuild names the platform
       that can verify; Windows and linux-x86_64 pinned.
-      (2026-11-17, open for a Windows line-ending fix and the docs:
-      code in a3bfba7: `selftest.cpuDependent` (the 6 cases, the user's
+      (2026-11-17: code in a3bfba7: `selftest.cpuDependent` (the 6 cases, the user's
       to extend) and `selftest.platformGolden.<platform>.<case>`,
       checked by `check_platform_goldens`; only the `--pin` that first
       pins a platform's archives records its goldens, refusing any
@@ -5602,8 +5602,19 @@ truthful: an unchecked box means nothing was accepted.
       transcode-mp4 29ff47bbf0a4c42fa7fa8a83a2cfcd271a5edc30a79f30c76ad4c2bc671ffdd4,
       transcode-odd-mp4 58ac83951bba95dd9e2f961687ad79341205ce727d84984d3b0a048d1e1b7f88.
       Plain setup then passed 22 cases on Windows, in WSL and on the
-      Mac; PC and WSL cleaned. Found: setup writes the pin file with
-      CRLF on Windows (normalised by hand here). Subagent: touched
+      Mac; PC and WSL cleaned. Found: setup wrote the pin file with
+      CRLF on Windows (normalised by hand here); now all 19
+      `write_text` calls in the package and tools/translations.py pass
+      `newline="\n"`, test_lf_output.py (a Windows-text-mode fixture over
+      setup, extract and ship, plus a static check of every writer), a
+      scratch Windows `--pin` byte-identical to the committed file, and
+      `.gitattributes` `* text=auto eol=lf` (the orchestrator's call;
+      every indexed file was already LF) so Windows checkouts copy LF
+      schemas. Docs: macos-arm64, windows-x86_64 and linux-x86_64
+      pinned, linux-arm64 not, rebuild on the making platform (CREATE.md,
+      README.md, packaging.md, the CHANGELOG media bullet and a new
+      Upgrading bullet). Follow-up: LF tests 4, converter and tools
+      1982; orchestrator: LF, setup and media_tools tests 72. Subagent: touched
       tests 128, converter and tools 1978; scratch pins and a
       renpy_demo extract and rebuild (15/15, exit 3 for a foreign
       ledger) on both platforms. Orchestrator: touched tests 128 then

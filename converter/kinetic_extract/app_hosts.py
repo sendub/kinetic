@@ -357,9 +357,11 @@ def compile_mac(binary: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="embedded-",
                                      dir=MODULE_CACHE.parent) as work:
         embedded = Path(work) / EMBEDDED_VOICE_NAME
-        embedded.write_text(embedded_voice_source(), encoding="utf-8")
+        embedded.write_text(embedded_voice_source(), encoding="utf-8",
+                            newline="\n")
         words = Path(work) / EMBEDDED_HOST_WORDS_NAME
-        words.write_text(embedded_host_words_source(), encoding="utf-8")
+        words.write_text(embedded_host_words_source(), encoding="utf-8",
+                         newline="\n")
         _run(mac_command(binary, [embedded, words]), "compiling the Mac app host")
 
 
@@ -569,10 +571,10 @@ def prepare_windows_package(package: Path, go_notice: bytes) -> None:
         shutil.copyfile(source, voice / "kinetic_voice" / source.name)
     shutil.copyfile(WINDOWS_VOICE_LOCK, voice / WINDOWS_VOICE_LOCK.name)
     (package / WINDOWS_EMBED_SOURCE).write_text(embedded_voice_go(),
-                                                encoding="utf-8")
+                                                encoding="utf-8", newline="\n")
     shutil.copyfile(HOST_WORDS, package / WINDOWS_HOST_WORDS)
-    (package / WINDOWS_HOST_WORDS_SOURCE).write_text(embedded_host_words_go(),
-                                                     encoding="utf-8")
+    (package / WINDOWS_HOST_WORDS_SOURCE).write_text(
+        embedded_host_words_go(), encoding="utf-8", newline="\n")
     (package / SYSO_NAME).write_bytes(
         windows_resources.coff_object(host_resources(go_notice)))
 

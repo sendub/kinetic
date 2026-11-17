@@ -74,10 +74,20 @@ setup_media_tools: media tools ready in .../Kinetic/media-tools/macos-arm64
 
 The converter uses only these tools, never the ffmpeg on your PATH,
 and `kinetic extract` and `kinetic media` refuse to run until this
-self-test has passed. So far only Apple silicon Macs have pinned
-tools: on Windows and Linux setup stops and says the platform is not
-pinned yet, so converting needs an Apple silicon Mac, while every other
-subcommand runs on any system. Intel Macs are not supported.
+self-test has passed. The tools are pinned for Apple silicon Macs
+(`macos-arm64`), 64-bit Windows on Intel or AMD (`windows-x86_64`) and
+64-bit Linux on Intel or AMD (`linux-x86_64`), so you can convert on
+any of those. Linux on Arm (`linux-arm64`) is not pinned yet: there
+setup stops and says so, and every subcommand but `setup`, `extract`
+and `media` still runs. Intel Macs are not supported.
+
+A few media recipes give other bytes on an Intel or AMD processor than
+on Apple silicon (some audio encodes, video posters and H.264
+transcodes), so a folder's media are reproducible on the platform that
+made it. Its ledger records that platform, and `kinetic media rebuild`
+verifies the folder there; on another platform it stops with `made on
+<platform>; rebuild there to verify` (exit 3; Checking a folder with
+rebuild).
 
 An installed Kinetic keeps the media tools and its caches in folders of
 your own: `~/Library/Application Support/Kinetic` and
@@ -138,8 +148,8 @@ either:
 
 - `--pin`: the first setup on a platform whose archive checksums are
   still null (the pin file lists `macos-arm64`, `linux-x86_64`,
-  `linux-arm64` and `windows-x86_64`; only `macos-arm64` is pinned so
-  far). It records the archives' sha256s once they match the
+  `linux-arm64` and `windows-x86_64`; all but `linux-arm64` are pinned).
+  It records the archives' sha256s once they match the
   publisher's checksums. The golden values are shared by every
   platform and must still match, with one exception: a few recipes
   give other bytes on x86_64 than on arm64 (the cases listed in

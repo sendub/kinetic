@@ -535,16 +535,17 @@ def write_outputs(out_dir: Path, manifest: dict[str, Any],
     gets lang.schema.json), the schema copies and the ledger."""
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_json = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
-    (out_dir / "manifest.json").write_text(manifest_json, encoding="utf-8")
+    (out_dir / "manifest.json").write_text(manifest_json, encoding="utf-8",
+                                           newline="\n")
     shim = ("window.KINETIC_MANIFEST = "
             + json.dumps(manifest, ensure_ascii=False) + ";\n")
-    (out_dir / "manifest.js").write_text(shim, encoding="utf-8")
+    (out_dir / "manifest.js").write_text(shim, encoding="utf-8", newline="\n")
     for data in languages or []:
         write_language_file(out_dir, data)
     write_schema_copy(out_dir)
     (out_dir / "build-ledger.json").write_text(
         json.dumps(ledger, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
 
 
 def print_summary(result: TimelineResult, reports: list[Report],

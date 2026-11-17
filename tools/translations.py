@@ -452,7 +452,7 @@ def export(folder: Path, tag: str, out: str | None, force: bool) -> int:
         raise Refusal(1, f"{target} exists; pass --force to replace it (it "
                          "may hold translations not yet imported)")
     try:
-        target.write_text(text, encoding="utf-8")
+        target.write_text(text, encoding="utf-8", newline="\n")
     except OSError as exc:
         raise Refusal(1, f"cannot write {target}: {exc}") from None
     print(f"wrote {target}: {summary}")

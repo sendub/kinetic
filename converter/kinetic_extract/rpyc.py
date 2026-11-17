@@ -100,5 +100,5 @@ def decompile_text(rpyc: Path, cache_dir: Path | None = None) -> str:
         raise RpycError(f"unrpyc produced empty output for {rpyc}")
 
     cache.mkdir(parents=True, exist_ok=True)
-    cache_file.write_text(text, encoding="utf-8")
+    cache_file.write_text(text, encoding="utf-8", newline="\n")
     return text

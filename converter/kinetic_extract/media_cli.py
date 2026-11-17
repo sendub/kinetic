@@ -187,7 +187,8 @@ def ship_requests(root: Path, out_dir: Path,
     ledger["requests"] = sorted_keys(requests_out)
     text = json.dumps(ledger, indent=2, ensure_ascii=False) + "\n"
     write_whole(out_dir / LEDGER_NAME,
-                lambda tmp: tmp.write_text(text, encoding="utf-8"))
+                lambda tmp: tmp.write_text(text, encoding="utf-8",
+                                           newline="\n"))
     if delete_unreferenced:
         delete_posters(out_dir, stale)
     _print_summary(records, entries, skipped)
@@ -271,7 +272,8 @@ def rebuild_cmd(args: argparse.Namespace) -> int:
 
 def _write_json(path: Path, value: Any) -> None:
     text = json.dumps(value, indent=2, ensure_ascii=False) + "\n"
-    write_whole(path, lambda tmp: tmp.write_text(text, encoding="utf-8"))
+    write_whole(path, lambda tmp: tmp.write_text(text, encoding="utf-8",
+                                                 newline="\n"))
 
 
 def posters_cmd(args: argparse.Namespace) -> int:

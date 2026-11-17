@@ -102,7 +102,8 @@ def write_shim(out: Path) -> bool:
         json.loads(text)  # the shim must embed parseable JSON
     except json.JSONDecodeError as exc:
         fail(1, f"{MANIFEST_NAME} is not valid JSON: {exc}")
-    shim.write_text(f"{SHIM_PREFIX}{text.strip()};\n", encoding="utf-8")
+    shim.write_text(f"{SHIM_PREFIX}{text.strip()};\n", encoding="utf-8",
+                    newline="\n")
     return True
 
 
@@ -142,7 +143,7 @@ def write_language_scripts(out: Path) -> int:
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             continue
         script.write_text(language_file.script_text(tag, text),
-                          encoding="utf-8")
+                          encoding="utf-8", newline="\n")
         written += 1
     return written
 

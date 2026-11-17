@@ -77,7 +77,7 @@ def sha256_file(path: Path) -> str:
 
 def save_pins(pins: dict[str, Any], path: Path) -> None:
     tmp = path.with_name(path.name + ".part")
-    tmp.write_text(json.dumps(pins, indent=2) + "\n", "utf-8")
+    tmp.write_text(json.dumps(pins, indent=2) + "\n", "utf-8", newline="\n")
     os.replace(tmp, path)
 
 
@@ -414,7 +414,7 @@ def setup(*, pin: bool, force: bool, fetch: Fetch, pin_path: Path,
                                  f"pinned {ff['version']}")
     installed_path.write_text(json.dumps(
         {"platform": plat, "version": ff["version"], "tools": records},
-        indent=2) + "\n", "utf-8")
+        indent=2) + "\n", "utf-8", newline="\n")
     hashes = {name: rec["binarySha256"] for name, rec in records.items()}
     # Archive checksums recorded above reach the pin file only once the
     # self-test has passed (run_selftest saves when it records).
