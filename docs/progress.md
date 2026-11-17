@@ -5448,9 +5448,21 @@ truthful: an unchecked box means nothing was accepted.
       rename. Orchestrator: flow, parser, translations, episodes,
       presentation, rpa 237; converter suite with validate and assemble
       tests 1485 passed.)
-- [ ] Python-picked scenes read in place (item 4f). Each candidate
+- [x] Python-picked scenes read in place (item 4f). Each candidate
       label goes to the computed site nearest where its name is
       written, not to the first site the walk meets.
+      (2026-11-17: a candidate goes to the sites tied to it (the site's
+      own expression, or the Python that sets its variable: assignments
+      in the site's label or outside all labels, a screen's
+      SetVariable, functions they call, variables they read, 4 steps
+      deep), else the nearest site in its file, else the first reached,
+      settled by silent re-walks; multi-line assignments joined and
+      their literals counted. Ledger `walk.dynamic[].own`. Corpus: game
+      1's nightly-scene call walks 29 of its 30 tied scenes (the 30th
+      reached earlier), the gallery-replay call 1 unowned label; game 1
+      3524 items, 0 errors, 60 unreached lines; game 2 unchanged; game
+      3 19086 items, 93 unreached lines. Subagent: test_flow 25,
+      converter suite 1065. Orchestrator: converter suite 1065 passed.)
 - [x] `kinetic report` (item 5). Reading time per route, speakers,
       unused files, longest lines, unknown tags; check-game reports
       overflowing lines.

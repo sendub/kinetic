@@ -153,23 +153,33 @@ game whose story order differs from its file order read out of order.
 - **Computed targets**: `jump expression`, `call expression` and `$
   renpy.jump(var)`/`renpy.call(var)` name their label when the game
   runs, often from a list or table in Python (a scene picked by a
-  function, an event system). Their candidates are the labels their own
-  expression names as string literals (`call expression
-  renpy.random.choice(["a", "b"])`), then the labels named by a string
-  literal anywhere in the game's code (Python blocks, `$` lines,
+  function, an event system). The candidates are the labels named by a
+  string literal anywhere in the game's code (Python blocks, `$` lines,
   `define` and `default` values, screen code, lists and dicts; not
-  dialogue, menu choices or f-strings), in file order, leaving out the
-  labels literal flow reaches anyway (found by a first walk that follows
-  no computed target) and Ren'Py's entry labels (below). At the site the
-  candidates not yet walked are walked in that order: a `call
-  expression` calls each in turn, returning to the site after each, and
-  goes on; a `jump expression` reads each as a path of its own, one after
-  another (a fork whose paths share no join), and its own path ends
-  after them, as a jump's does. The first site the walk meets takes
-  every candidate of the shared pool not walked yet, so a scene picked
-  in several places reads at the first of them. Each site is reported
-  with how many candidates it walked; one with none is reported as not
-  followed.
+  dialogue, menu choices or f-strings), leaving out the labels literal
+  flow reaches anyway (found by a first walk that follows no computed
+  target) and Ren'Py's entry labels (below). They are shared out among
+  the sites (docs/plan.md Phase 57 item 4f), each label to:
+  - the sites tied to it: a site whose own expression names it, or whose
+    variable is set by Python that names it, followed through
+    assignments in the site's own label or outside every label (init
+    and python blocks, `define`, `default`, a screen's `SetVariable`),
+    the functions that Python calls (`$ next_label = pick_scene(2)`,
+    where `def pick_scene` names the scenes) and the variables those
+    read, a few steps deep;
+  - else the nearest site, by line, in the label's own file;
+  - else, as does a label whose sites the walk never reaches, the first
+    site the walk reaches.
+
+  A site tries the labels its own expression names first (written
+  order, even ones literal flow reaches), then its share, then the
+  labels nobody owns, each group in file order, and walks those not
+  walked yet: a `call expression` calls each in turn, returning to the
+  site after each, and goes on; a `jump expression` reads each as a path
+  of its own, one after another (a fork whose paths share no join), and
+  its own path ends after them, as a jump's does. Each site is reported
+  with how many candidates it had and walked; one with none is reported
+  as not followed.
 - **Not followed, and reported**: a target no walked script defines as
   a label, a computed target with no candidate, and anything Python
   decides without naming the label in a literal.
@@ -208,7 +218,9 @@ added; the entry labels not walked), and the ledger's `walk` holds:
 - `rejoins`, `callsNotRepeated` (`{"source", "statement"}` each) and
   `notFollowed` (`{"source", "statement", "reason"}`, also in `report`);
 - `dynamic`: each computed jump or call reached, `{"source",
-  "statement", "candidates", "walked"}` (also in `report`);
+  "statement", "candidates", "own", "walked"}`, `own` the candidates its
+  expression names or its share holds, `candidates` those plus the
+  labels nobody owns (also in `report`);
 - `entryLabelsUnreached`: the entry labels the game has that were not
   walked;
 - `alsoLabels` (the `--also-label` names) and `appendedUnreached` (the

@@ -108,6 +108,13 @@ _SCREEN_ACTION_RE = re.compile(
     r"""\b(Jump|Call)\(\s*(?:"([^"]*)"|'([^']*)')\s*[,)]""")
 _SCREEN_USE_RE = re.compile(r"use\s+([A-Za-z_]\w*)")
 _SCREEN_HEAD_RE = re.compile(r"screen\s+([A-Za-z_]\w*)")
+# An assignment to a plain name, and a screen's SetVariable action.
+_ASSIGN_RE = re.compile(
+    r"(?:\$\s*|define\s+(?:[+-]?\d+\s+)?|default\s+)?(?:store\.)?"
+    r"([A-Za-z_]\w*)\s*=(?!=)\s*(.+)")
+_SET_VARIABLE_RE = re.compile(
+    r"""SetVariable\(\s*["']([A-Za-z_]\w*)["']\s*,\s*([^)]*)\)""")
+_DEF_RE = re.compile(r"def\s+([A-Za-z_]\w*)\s*\(")
 # A named menu, `menu name:`, which is also a label.
 _NAMED_MENU_RE = re.compile(r"menu\s+(" + _LABEL_NAME_RE.pattern + r")\s*:")
 # `$ renpy.jump("x")` and `$ renpy.call("x")` with a literal label.
@@ -327,8 +334,10 @@ class FlowStep:
     alternatives: list[list["FlowStep"]] = field(default_factory=list)
     # A computed jump or call: the label-like string literals written in
     # its own expression (`call expression choice(["a", "b"])`), which
-    # kinetic_extract.flow tries first.
+    # kinetic_extract.flow tries first, and the global label it is in
+    # (whose assignments to its variables tie labels to it).
     candidates: list[str] = field(default_factory=list)
+    scope: str | None = None
 
 
 @dataclass
@@ -422,6 +431,16 @@ class FileParse:
     # The label-like string literals written anywhere in the file's code
     # (name_literals), candidates for a computed jump or call.
     literals: set[str] = field(default_factory=set)
+    # Every assignment the code makes, ``(variable, scope, expression)``:
+    # `$ x = ...`, `x = ...` in a python block, `define`/`default x =
+    # ...` and a screen's `SetVariable("x", ...)`; the scope is the global
+    # label the line is in, None outside labels (init and python blocks,
+    # screens). kinetic_extract.flow follows a computed target's variable
+    # through them.
+    assignments: list[tuple[str, str | None, str]] = field(
+        default_factory=list)
+    # Function name -> the text of its body (`def name(...):` in Python).
+    functions: dict[str, str] = field(default_factory=dict)
     # Screen name -> its literal `Jump`/`Call` actions as jump and call
     # steps, in order, and the screens it includes with `use`.
     screens: dict[str, tuple[list[FlowStep], list[str]]] = field(
@@ -609,7 +628,7 @@ def flow_statement(line: str, source: str, cur_global: str | None
             return FlowStep(m.group(1), source, line,
                             full_label(target, cur_global))
         return FlowStep(m.group(1), source, line, None,
-                        candidates=name_literals(line))
+                        candidates=name_literals(line), scope=cur_global)
     if keyword not in ("jump", "call"):
         return None
     words = line[len(keyword):].strip().split()
@@ -617,7 +636,7 @@ def flow_statement(line: str, source: str, cur_global: str | None
         return f"{keyword} without a target"
     if words[0] == "expression":
         return FlowStep(keyword, source, line, None,
-                        candidates=name_literals(line))
+                        candidates=name_literals(line), scope=cur_global)
     if keyword == "call" and words[0] == "screen":
         return CALL_SCREEN
     m = _LABEL_NAME_RE.match(words[0])
@@ -643,6 +662,12 @@ def name_literals(line: str) -> list[str]:
     text = line.strip()
     if text.startswith(("\"", "'")) or _SAY_LINE_RE.fullmatch(text):
         return []
+    return code_literals(text)
+
+
+def code_literals(text: str) -> list[str]:
+    """The label-like string literals in a piece of code (an expression,
+    a function body), in order; none from an f-string."""
     out: list[str] = []
     for m in _LITERAL_RE.finditer(text):
         if m.group(1) in ("f", "F"):
@@ -973,13 +998,14 @@ def _bracket_depth(text: str) -> int:
     return depth
 
 
-def _continued(raw_lines: list[str], n: int, line: str) -> tuple[str, int]:
+def _continued(raw_lines: list[str], n: int, line: str,
+               limit: int = 50) -> tuple[str, int]:
     """``line`` (raw line ``n``, stripped) joined with the lines its open
     brackets run onto, as Ren'Py joins them, and the index of the line
-    after the last one used (at most 50 more)."""
+    after the last one used (at most ``limit`` more)."""
     depth = _bracket_depth(line)
     k = n
-    while depth > 0 and k + 1 < len(raw_lines) and k - n < 50:
+    while depth > 0 and k + 1 < len(raw_lines) and k - n < limit:
         k += 1
         more = strip_comment(raw_lines[k]).strip()
         line += " " + more
@@ -1009,10 +1035,31 @@ def _scan_settings(raw_lines: list[str], relname: str,
     statement walk skips, so every line is scanned, block or not: the
     story id, title and version config, the voice file format,
     `define audio.x` names and registered channels."""
+    scope: str | None = None
     for n, raw in enumerate(raw_lines):
         text = strip_comment(raw)
         if "'" in text or "\"" in text:
             result.literals.update(name_literals(text))
+        _scan_code(raw_lines, n, text, relname, result)
+        stripped = text.strip()
+        if stripped and not text[:1].isspace():
+            head = _LABEL_FULL_RE.match(stripped)
+            scope = (None if head is None else
+                     full_label(head.group(1), scope).split(".", 1)[0])
+        if stripped:
+            assigned = _ASSIGN_RE.fullmatch(stripped)
+            if assigned:
+                # A list or table may run over many lines.
+                whole = _ASSIGN_RE.fullmatch(
+                    _continued(raw_lines, n, stripped, 5000)[0])
+                value = (whole or assigned).group(2)
+                result.assignments.append((assigned.group(1), scope, value))
+                # Its continued lines (`"label": "x",`) start with a
+                # quote, as a say line does, so name_literals skips them.
+                result.literals.update(code_literals(value))
+            for act in _SET_VARIABLE_RE.finditer(stripped):
+                result.assignments.append((act.group(1), None,
+                                           act.group(2)))
         m = _CONFIG_STRING_RE.match(text)
         if m and m.group(1) not in result.config and _whole_enough(m, text):
             value = m.group(3) if m.group(3) is not None else m.group(4)
@@ -1032,6 +1079,20 @@ def _scan_settings(raw_lines: list[str], relname: str,
                     "literals: channel not read"))
             else:
                 result.channels[channel.name] = channel
+
+
+def _scan_code(raw_lines: list[str], n: int, text: str, relname: str,
+               result: FileParse) -> None:
+    """Record a Python function's body (``def name(...):`` on line ``n``)
+    as its lines joined, for kinetic_extract.flow's computed targets."""
+    m = _DEF_RE.match(text.strip())
+    if m is None:
+        return
+    indent = len(text) - len(text.lstrip(" \t"))
+    block, _j = _gather_block(raw_lines, n + 1, indent)
+    body = "\n".join(t for _l, t, _i in block)
+    result.functions.setdefault(m.group(1), body)
+    result.literals.update(code_literals(body))
 
 
 def _read_character(line: str, source: str, result: FileParse) -> None:

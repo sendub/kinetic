@@ -174,7 +174,7 @@ def test_call_expression_walks_labels_named_in_code(tmp_path: Path) -> None:
     assert texts(result) == ["One.", "A.", "B.", "Two.", "quiet", "Three."]
     assert result.walk["dynamic"] == [{
         "source": "game/script.rpy:4", "statement": "call expression pick",
-        "candidates": 2, "walked": 2}]
+        "candidates": 2, "own": 2, "walked": 2}]
     assert ("call expression: the target is computed when the game runs; "
             "walked 2 of 2 candidate labels named in the game's code"
             ) in reasons(parses)
@@ -183,6 +183,78 @@ def test_call_expression_walks_labels_named_in_code(tmp_path: Path) -> None:
     assert result.walk["entryLabelsUnreached"] == ["splashscreen"]
     assert any("entry labels not walked: splashscreen" in line
                for line in result.walk_summary)
+
+
+def test_each_site_reads_the_labels_tied_to_it(tmp_path: Path) -> None:
+    """Two computed calls, each with its own labels: one picks a scene
+    through a helper function whose body names the scenes, the other from
+    a literal list defined elsewhere. The first site the walk reaches no
+    longer takes them all; a label tied to no site goes to the nearest
+    site in its file, and one in a file with no site to the first site
+    reached."""
+    game = project(tmp_path, {
+        "functions.rpy": (
+            'init python:\n'
+            '    def pick_night(level):\n'
+            '        scenes = ["night_1", "night_2"]\n'
+            '        return scenes[level]\n'
+            'define gallery_list = [\n    {"id": 1,\n'
+            '     "label": "gallery_1"},\n]\n'
+            'define spare = "loose_scene"\n'),
+        "scenes.rpy": (
+            'label gallery_1:\n    "Gallery one."\n    return\n'
+            'label night_1:\n    "Night one."\n    return\n'
+            'label night_2:\n    "Night two."\n    return\n'
+            'label loose_scene:\n    "Loose."\n    return\n'),
+        "script.rpy": (
+            'label start:\n    "Day."\n    call gallery\n'
+            '    call night\n    "End."\n    return\n'
+            'label gallery:\n'
+            '    $ replay = renpy.random.choice(gallery_list)\n'
+            '    call expression replay\n    return\n'
+            'label night:\n    $ scene = pick_night(0)\n'
+            '    call expression scene from _call_night\n    return\n'),
+    })
+    result, _parses = walk(game)
+    assert texts(result) == ["Day.", "Gallery one.", "Loose.", "Night one.",
+                             "Night two.", "End."]
+    assert [(d["statement"], d["own"], d["candidates"], d["walked"])
+            for d in result.walk["dynamic"]] == [
+        ("call expression replay", 1, 2, 2),
+        ("call expression scene from _call_night", 2, 3, 2)]
+
+
+def test_untied_label_goes_to_nearest_site_in_its_file(
+        tmp_path: Path) -> None:
+    game = project(tmp_path, {
+        "a.rpy": ('define names = ["a_scene", "b_scene"]\n'
+                  'label first_site:\n    call expression x\n    return\n'
+                  'label a_scene:\n    "A."\n    return\n'),
+        "b.rpy": ('label second_site:\n    call expression y\n'
+                  '    return\n'
+                  'label b_scene:\n    "B."\n    return\n'),
+        "script.rpy": ('label start:\n    call first_site\n'
+                       '    "Middle."\n    call second_site\n'
+                       '    return\n'),
+    })
+    result, _parses = walk(game)
+    assert texts(result) == ["A.", "Middle.", "B."]
+
+
+def test_label_of_an_unreached_site_goes_to_the_first(
+        tmp_path: Path) -> None:
+    """A label tied only to a site the walk never reaches is read at the
+    first site it does reach."""
+    game = project(tmp_path, {"script.rpy": (
+        'define names = ["lost", "found"]\n'
+        'label start:\n    $ t = "found"\n    call expression t\n'
+        '    "End."\n    return\n'
+        'label never:\n    $ u = "lost"\n    call expression u\n'
+        '    return\n'
+        'label found:\n    "Found."\n    return\n'
+        'label lost:\n    "Lost."\n    return\n')})
+    result, _parses = walk(game)
+    assert texts(result) == ["Found.", "Lost.", "End."]
 
 
 def test_own_literal_list_comes_first_and_jump_ends(tmp_path: Path) -> None:

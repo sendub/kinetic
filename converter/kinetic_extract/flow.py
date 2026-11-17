@@ -11,34 +11,19 @@ story events in that order, each statement once:
 - A `jump` or `call` to a label goes there; a target that is no label of
   the walked scripts is reported and not followed.
 - A computed target (`jump expression`, `call expression`, `$
-  renpy.jump(var)`) has candidates: the labels its own expression names
-  as string literals, then the labels named by a string literal anywhere
-  in the game's code (parser.name_literals: not dialogue, menu choices or
-  f-strings), in file order, leaving out labels literal flow reaches
-  (found by a first walk without candidates) and Ren'Py's entry labels.
-  The candidates not yet walked are walked there, in that order: for a
-  call each as a call returning to the site, for a jump each as a path
-  of its own (a fork with no join), the site's path ending after them,
-  as a jump's does. With no candidate it is reported, not followed.
-- A label reached a second time is not walked again. A jump to it ends
-  the path there, as the converter's routes rejoin the line they left
-  (a loop back, or a scene shared by two paths, is read once); a call to
-  it goes on after the call. The ledger counts both (`rejoins`, also
-  counting the jumps to where a fork's paths meet, and
-  `callsNotRepeated`).
-- A fork (the blocks of an `if` chain or a `while`, or the choices of a
-  menu the converter does not make a decision of, which jump or call)
-  walks each block's own jumps and calls in turn, up to the statement all
-  of them reach (the fork's immediate post-dominator), then goes on from
-  there: so alternatives that rejoin read one after the other, then the
-  shared rest once, as the file-order join read them. The blocks' other
-  statements stay skipped, as before; a label inside such a block is a
-  place a jump lands, running the block's jumps and calls from there.
-- `show screen x` and `call screen x` are a fork of the screen's literal
-  `Jump("label")` and `Call("label")` actions (and those of the screens
-  it `use`s), in the screen's order, and of going on past it: a hub
-  whose buttons jump reads each place they lead.
-
+  renpy.jump(var)`) has candidates: the labels named by a string literal
+  anywhere in the game's code (parser.name_literals: not dialogue, menu
+  choices or f-strings), leaving out labels literal flow reaches (found
+  by a first walk without candidates) and Ren'Py's entry labels, shared
+  out among the sites (item 4f): each label to the sites tied to it
+  (their own expression, or the Python that sets their variable, names
+  it: _tied_names), else the nearest site in its file, else the first
+  site the walk reaches. A site tries its own expression's labels, then
+  its share, then the unowned labels; those not yet walked are walked
+  there: for a call each as a call returning to the site, for a jump
+  each as a path of its own (a fork with no join), the site's path
+  ending after them, as a jump's does. With no candidate it is reported,
+  not followed.
 - The end of a file returns, as a `return` does. (In Ren'Py falling off
   the end of a file inside a call ends the game; a return keeps the
   content after the call.)
@@ -59,7 +44,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .parser import Event, FileParse, FlowStep, Report
+import re
+
+from .parser import Event, FileParse, FlowStep, Report, code_literals
 
 _FLOW_KINDS = frozenset({"jump", "call", "return", "fork", "screen"})
 # Story events whose file counts as reached or not.
@@ -83,6 +70,7 @@ class _Op:
     to: int = -1
     alts: list[int] = field(default_factory=list)
     candidates: list[str] = field(default_factory=list)
+    scope: str | None = None
 
 
 @dataclass
@@ -143,7 +131,7 @@ def _program(parses: list[tuple[str, FileParse]]
             pending.append((len(ops), alternatives))
         ops.append(_Op(kind, f, event, step.source, step.statement,
                        step.target, to=len(ops) + 1,
-                       candidates=list(step.candidates)))
+                       candidates=list(step.candidates), scope=step.scope))
 
     for f, (_rel, parsed) in enumerate(parses):
         for event in parsed.events:
@@ -274,6 +262,69 @@ def entry_label(name: str) -> bool:
     return name in ENTRY_LABELS or name.startswith("_")
 
 
+_STRING_RE = re.compile(r"""\w?(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')""")
+_NAME_USE_RE = re.compile(r"([A-Za-z_][\w.]*)(\s*\()?")
+# Words of a computed jump's statement and of Python that are not the
+# game's own variables or functions.
+_NOT_NAMES = frozenset({
+    "jump", "call", "expression", "pass", "from", "renpy", "store", "and",
+    "or", "not", "in", "is", "if", "else", "elif", "for", "while", "return",
+    "lambda", "None", "True", "False", "def", "global", "self", "len",
+    "str", "int", "list", "dict", "range", "random", "choice", "min", "max",
+    "get", "append", "format"})
+_TIE_DEPTH = 4
+
+
+def _names_used(code: str) -> tuple[list[str], list[str]]:
+    """The variables and the functions called in a piece of code, the
+    last part of a dotted name (`store.x` is `x`), string literals and
+    Python's own words left out."""
+    variables: list[str] = []
+    functions: list[str] = []
+    for m in _NAME_USE_RE.finditer(_STRING_RE.sub(" ", code)):
+        name = m.group(1).rsplit(".", 1)[-1]
+        if not name or name in _NOT_NAMES or name[0].isdigit():
+            continue
+        (functions if m.group(2) else variables).append(name)
+    return variables, functions
+
+
+def _tied_names(statement: str, scope: str | None,
+                assignments: dict[str, list[tuple[str | None, str]]],
+                functions: dict[str, str]) -> list[str]:
+    """The label-like literals a computed jump or call is tied to: those
+    of the Python that sets the variables its expression reads (an
+    assignment in the same label or outside every label: init and python
+    blocks, `define`, `default`, screens), of the functions that Python
+    or its expression calls, and of the variables those read, a few
+    steps deep."""
+    expr = re.sub(r"\s+from\s+\w+\s*$", "", statement)
+    out: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    todo: list[tuple[str, str, int]] = []
+
+    def follow(code: str, depth: int) -> None:
+        variables, called = _names_used(code)
+        todo.extend(("var", v, depth) for v in variables)
+        todo.extend(("def", f, depth) for f in called)
+
+    follow(expr, 0)
+    while todo:
+        kind, name, depth = todo.pop(0)
+        if (kind, name) in seen or depth >= _TIE_DEPTH:
+            continue
+        seen.add((kind, name))
+        if kind == "var":
+            for where, value in assignments.get(name, []):
+                if where is None or where == scope:
+                    out += code_literals(value)
+                    follow(value, depth + 1)
+        elif name in functions:
+            out += code_literals(functions[name])
+            follow(functions[name], depth + 1)
+    return out
+
+
 def follow_labels(parses: list[tuple[str, FileParse]],
                   start_label: str | None = None,
                   also_labels: list[str] | None = None,
@@ -402,18 +453,70 @@ def follow_labels(parses: list[tuple[str, FileParse]],
     first = bytearray(exit_)
     run([(labels[start], frozenset(), -1)], {},
         _post_dominators(_successors(ops, labels, {})), first, False)
-    # 2. Each computed jump or call's candidates: the labels its own
-    # expression names, then the labels named by a string literal
-    # anywhere in the game's code, in file order, that literal flow does
-    # not reach and Ren'Py does not run itself.
-    pool = [n for name, n in in_order if name in literals
-            and not first[n] and not entry_label(name)]
-    cands: dict[int, list[int]] = {}
+    # 2. Each computed jump or call's candidates. The labels named by a
+    # string literal anywhere in the game's code that literal flow does
+    # not reach and Ren'Py does not run itself are shared out: a label
+    # goes to the sites tied to it (their expression, or the Python that
+    # sets their variables, names it), else to the nearest site in its
+    # own file, else to whichever site the walk reaches first. A site
+    # tries the labels its own expression names first, then its share,
+    # then the unowned ones, each group in file order.
+    eligible = [n for name, n in in_order if name in literals
+                and not first[n] and not entry_label(name)]
+    assigned: dict[str, list[tuple[str | None, str]]] = {}
+    functions: dict[str, str] = {}
+    for parsed in parsed_of:
+        for var, where, value in parsed.assignments:
+            assigned.setdefault(var, []).append((where, value))
+        for name, body in parsed.functions.items():
+            functions.setdefault(name, body)
+    own_of: dict[int, list[int]] = {}
+    tied: dict[int, set[int]] = {}
     for d in dynamic_ops:
-        own = [labels[x] for x in dict.fromkeys(ops[d].candidates)
-               if x in labels]
-        cands[d] = own + [n for n in pool if n not in own]
-    ipdom = _post_dominators(_successors(ops, labels, cands))
+        own_of[d] = [labels[x] for x in dict.fromkeys(ops[d].candidates)
+                     if x in labels]
+        tied[d] = {labels[x] for x in _tied_names(
+            ops[d].statement, ops[d].scope, assigned, functions)
+            if x in labels}
+    owners: dict[int, list[int]] = {}   # label op -> its sites; [] all
+    for n in eligible:
+        sites = [d for d in dynamic_ops if n in tied[d] or n in own_of[d]]
+        if not sites:
+            rel, line = _line(ops[n].source)
+            near = [(abs(_line(ops[d].source)[1] - line), d)
+                    for d in dynamic_ops if _line(ops[d].source)[0] == rel]
+            sites = [min(near)[1]] if near else []
+        owners[n] = sites
+
+    def candidates() -> tuple[dict[int, list[int]], dict[int, int]]:
+        cands: dict[int, list[int]] = {}
+        share: dict[int, int] = {}
+        unowned = [n for n in eligible if not owners[n]]
+        for d in dynamic_ops:
+            own = own_of[d]
+            mine = [n for n in eligible if d in owners[n] and n not in own]
+            first_part = own + mine
+            share[d] = len(first_part)
+            cands[d] = first_part + [n for n in unowned
+                                     if n not in first_part]
+        return cands, share
+
+    entries = [(labels[start], frozenset(), -1)] + [
+        (labels[name], frozenset(), -1) for name in also_labels or []]
+    # A label whose sites the walk never reaches goes to whichever site
+    # it reaches first, until that settles.
+    for _round in range(len(dynamic_ops) + 1):
+        cands, share = candidates()
+        ipdom = _post_dominators(_successors(ops, labels, cands))
+        trial = bytearray(exit_)
+        reached = set(run(entries, cands, ipdom, trial, False)["sites"])
+        moved = False
+        for n, sites in owners.items():
+            if sites and not trial[n] and not reached.intersection(sites):
+                owners[n] = []
+                moved = True
+        if not moved:
+            break
     visited = bytearray(exit_)
     main = run([(labels[start], frozenset(), -1)], cands, ipdom, visited,
                True)
@@ -466,7 +569,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 Report(op.source, op.statement, reason))
             dynamic.append({"source": op.source, "statement": op.statement,
                             "candidates": len(cands.get(site, [])),
-                            "walked": got})
+                            "own": share.get(site, 0), "walked": got})
 
     start_desc = f"label {start}" if start_label is None \
         else f"--label {start}"
