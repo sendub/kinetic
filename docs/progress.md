@@ -340,7 +340,7 @@ truthful: an unchecked box means nothing was accepted.
 - [x] External re-report (2026-11-01): skip-all reportedly still waits
       for `minPlaySeconds` at chain exit on a video with BOTH
       `holdSeconds: 8` and `minPlaySeconds: 8` + 2 text + image
-      (reproduced on 32fd872, which predates the c7e844f skip
+      (reproduced on c2473dc, which predates the da81ceb skip
       exclusion). Reproduce at HEAD with that exact config + skipAll
       ON; fix if real; add the config as a permanent machine regression
       test either way. (VERDICT: stale report - the repro commit
@@ -633,9 +633,9 @@ truthful: an unchecked box means nothing was accepted.
       and the navigation/media scenarios.
       (skipDwellMs 120 -> 25 ms; a stored dwell is ignored so saved profiles get the new pace; clamp tests pinned to an explicit 120 ms; navigation/media scenarios judge the burst by total time; green twice in a row. 2026-11-01)
 - [x] Skip-all + play-all keeps skipping across route changes (external
-      conversion agent, 2026-11-01, on aa7a9df: after the "Back in time"
+      conversion agent, 2026-11-01, on 81bb008: after the "Back in time"
       screen the skip stopped on the next route's first item until Tab
-      was pressed again). Fixed in 9abd6d2: an interstitial that ELAPSES
+      was pressed again). Fixed in 44ee39b: an interstitial that ELAPSES
       resumes the skip burst (a press during it still means stop); unit
       test in branches.test.ts, and the playall scenario requires the
       whole burst on ONE Tab press (green).
@@ -701,7 +701,7 @@ truthful: an unchecked box means nothing was accepted.
       report, 2026-11-02): when a nested pure choice's region runs to the
       end of its enclosing route, closing it ends that route (re-offer,
       join or close), never falling into the parent's next route.
-      (316ccb2: closeIfPureAndComplete hands off to handleRouteEnd; two
+      (8a6ece8: closeIfPureAndComplete hands off to handleRouteEnd; two
       branches tests red before, green after; branches scenario 39/39.
       2026-11-02)
 - [x] Play all routes shows the choice (user, 2026-11-02): with play-all
@@ -718,7 +718,7 @@ truthful: an unchecked box means nothing was accepted.
       reader's; a replayed one waits. Turning play-all on over a live
       choice starts its countdown; off cancels it. Unit tests, playall
       scenario, README/docs.
-      (7bd9529: machine autoPick on the open choice, countdown max(2.5 s,
+      (580a393: machine autoPick on the open choice, countdown max(2.5 s,
       reading time of prompt + labels + ended route), 0.7 s highlight;
       reload onto a live choice re-arms it (subagent review fix);
       interstitial removed. vitest 475, playall scenario 19/19, branches
@@ -728,7 +728,7 @@ truthful: an unchecked box means nothing was accepted.
       play-all countdown frozen and restarted on close) and over the Esc
       help (replacing it). Only the reset box blocks it. Tests, scenario,
       README/help text.
-      (cdd1660: toggleConfig gated only by the reset box, closes help first;
+      (dfcc19e: toggleConfig gated only by the reset box, closes help first;
       digits inert under a panel; #config z 6 over #choice. playall
       scenario 3 new checks, screens check rewritten (t still inert behind
       help). vitest 475, playall+screens 59 pass + 2 headless-fullscreen
@@ -738,7 +738,7 @@ truthful: an unchecked box means nothing was accepted.
       a "When Tab skips" heading over "Skip unseen content too" and "Play
       videos in full"; Play all routes gets a one-line note. Tests,
       scenario, README.
-      (b598d72: heading + indented options, controls in one column (measured
+      (87d89b1: heading + indented options, controls in one column (measured
       1280x720 and 700x900, screenshot checked); config.test layout tests;
       screens scenario check. vitest 477, screens 41 pass + 2 headless
       fullscreen partials, media 22/22, playall 19/19. 2026-11-02)
@@ -1369,7 +1369,7 @@ truthful: an unchecked box means nothing was accepted.
       with the walk's route lit; pure choices walk into the last pick and
       on past the region; `e` = highest seen item. Migration in
       sanitizeContext drops history/historyPos/pass/gap and derives last
-      picks; fixture is a real export from 3302fe9. vitest 587, check
+      picks; fixture is a real export from f352298. vitest 587, check
       clean; branches 43/43, navigation 21/21, screens 57 + 2 headless-
       fullscreen partials, progress 6/6, playall 27/27 x3 plus two early
       aborts at configure (clickCenter .config-play-all not visible in
@@ -1644,7 +1644,7 @@ truthful: an unchecked box means nothing was accepted.
       check read once a few ms after the click and pressed Space at
       once, so it sampled before the timer or its Space re-opened the
       one-item route's decision first, which rightly cancels the queued
-      pill; 7 of 18 traced runs. 41dd8c6 not involved. The check now
+      pill; 7 of 18 traced runs. 74f290b not involved. The check now
       records pill/choice transitions page-side, waits for the pill
       before Space, and requires closed,pill,no-pill,open with no
       covered frame. Fault injection (gate off; route pill never shown)
@@ -1774,9 +1774,9 @@ truthful: an unchecked box means nothing was accepted.
 
 - [x] `fixtures/build_demo.py` fails in a clean clone with
       `KeyError: 'videoPath'` (reported by another agent; reproduced in
-      a fresh clone of a1580be). Cause: its hand-rolled
+      a fresh clone of 469cc7f). Cause: its hand-rolled
       `check_manifest` still reads an extension pattern from
-      `$defs.videoPath`, which Phase 26 (5c83d78) removed; checkouts
+      `$defs.videoPath`, which Phase 26 (a01bebb) removed; checkouts
       with an old gitignored `fixtures/demo/` never re-ran the builder,
       so tests stayed green. Fix the cause, not the lookup: the builder
       checks its output with `tools/validate_content.py` (the shared
@@ -2138,10 +2138,10 @@ truthful: an unchecked box means nothing was accepted.
       continueroute 8/8, screens 67 pass, 2 PARTIAL; both demos opened
       headless with no errors. Layout 22.5-24.4 ms against a's 17.3-18.9 at
       570 decisions with 180 bookmarks. Reverted; the working tree is a's
-      f3f6a4f.)
+      1b1de3f.)
 - [x] Phase-closer (Phase 42): full scenario suite, package-proof
       (rebuilds the demo); pytest not needed unless tools change.
-      (2026-11-08, on 7473c10: npm test 749 pass; full `npm run verify`
+      (2026-11-08, on 893f078: npm test 749 pass; full `npm run verify`
       14 scenarios, 336 checks, 334 pass, 2 PARTIAL (headless fullscreen
       Escapes), 0 fail, branchmap with no throw; package-proof 18/18. The
       user accepted the slower cold open at Fit on perf:map's 180-bookmark
@@ -2531,12 +2531,12 @@ truthful: an unchecked box means nothing was accepted.
       WKWebView), 0 fail, 183 s; pytest 638 passed in 40 s; package-proof
       18/18. The user's first play check found the held-Esc exit on macOS
       and the Edge faults on Windows, fixed by the three items above.
-      The second (`.tmp/p43play2/demo`, cb59105) passed on both apps but
+      The second (`.tmp/p43play2/demo`, a241ed2) passed on both apps but
       for the export notice and the Esc screen's uneven columns, fixed
       above; ⌘H still does nothing in the macOS app, which the user does
       not mind. The look at `.tmp/p43play3/demo` asked for the follow-up
       above. The user's look at `.tmp/p43play4/demo` (both apps, built on
-      9f5d523): "Looks good now". Final automated runs on 9f5d523: full
+      48f12cf): "Looks good now". Final automated runs on 48f12cf: full
       Chrome suite 16 scenarios, 408 checks, 408 pass, 0 fail; full WebKit
       suite 406 pass, 5 PARTIAL (element fullscreen, off in WKWebView), 0
       fail; pytest 639 passed in 69 s; package-proof 18/18.)
@@ -2598,7 +2598,7 @@ truthful: an unchecked box means nothing was accepted.
       that is the existing media checks on the external volume; folder
       unchanged.)
 - [x] Phase-closer (Phase 44): full pytest, package-proof.
-      (2026-11-09 on 98172e8: full pytest 673 passed in 55 s;
+      (2026-11-09 on b592f89: full pytest 673 passed in 55 s;
       package-proof 18/18 after regenerating the deleted
       .tmp/extract-demo with kinetic-extract on fixtures/renpy_demo. No
       player change, so no scenario runs. Phase 44 names of the game the
@@ -2635,7 +2635,7 @@ truthful: an unchecked box means nothing was accepted.
       17.8, and 30.3 among the 128 that start at 0 (median 84.9).
       AGENTS.md's posters bullet now names `--items`.)
 - [x] Phase-closer (Phase 45): full pytest, package-proof.
-      (2026-11-09 on 9c93899: full pytest 683 passed in 81 s;
+      (2026-11-09 on 1f3f703: full pytest 683 passed in 81 s;
       package-proof 18/18, with .tmp/extract-demo regenerated from
       fixtures/renpy_demo. There was no player change, so no scenario
       runs.)
@@ -2886,7 +2886,7 @@ truthful: an unchecked box means nothing was accepted.
       `npm run verify -- --webkit`, package-proof; a timed
       `check-game --steps all` walk of the synthetic 160,000-item game on
       both engines.
-      (2026-11-10 on 702e7dd: full pytest 683 passed in 87 s; full
+      (2026-11-10 on 8fb364b: full pytest 683 passed in 87 s; full
       `npm run verify` 483/483 on Chrome; `npm run verify -- --webkit`
       481 pass and 5 partial (the headless fullscreen checks), 0 fail;
       package-proof 18/18 with .tmp/extract-demo regenerated from
@@ -3755,13 +3755,13 @@ truthful: an unchecked box means nothing was accepted.
       becomes a fix first.
       (2026-11-14, the user's report after the Web Audio items: the
       listening checklist in docs/verify-player.md, run on the audio demo
-      assembled from a97409c with its Mac app, matched in Safari, Chrome
+      assembled from a906630 with its Mac app, matched in Safari, Chrome
       and the app: "All as described". Before it, the validator passed
       the folder and check-game showed 35 of 35 items in Chrome and
       WebKit with no errors.)
 - [x] Phase-closer (Phase 47): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof.
-      (2026-11-14 on a97409c: full pytest 931 passed in 88 s; full
+      (2026-11-14 on a906630: full pytest 931 passed in 88 s; full
       `npm run verify` 585/585 on Chrome; `npm run verify -- --webkit`
       600 pass and 5 partial (the headless fullscreen checks), 0 fail;
       package-proof 18/18 with .tmp/extract-demo regenerated from
@@ -3915,7 +3915,7 @@ truthful: an unchecked box means nothing was accepted.
       `npm run verify -- --webkit`, package-proof; a timed `--steps all`
       walk of a 160,000-item synthetic game on both engines, media check
       included.
-      (2026-11-14 on 3968354: full pytest 942 passed in 107 s; full
+      (2026-11-14 on cbbd104: full pytest 942 passed in 107 s; full
       `npm run verify` 601/601 on Chrome; `npm run verify -- --webkit` 616
       pass and 5 partial (the headless fullscreen checks), 0 fail;
       package-proof 18/18 with .tmp/extract-demo regenerated. A 160,000-
@@ -4066,7 +4066,7 @@ truthful: an unchecked box means nothing was accepted.
       named.)
 - [x] Phase-closer (Phase 49): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof.
-      (2026-11-14 on a81ea3c: full pytest 992 passed in 86 s; full
+      (2026-11-14 on ea8f222: full pytest 992 passed in 86 s; full
       `npm run verify` 627/627 on Chrome in 276 s; `npm run verify --
       --webkit` 642 pass and 5 partial (the headless fullscreen checks),
       0 fail; package-proof 18/18 with .tmp/extract-demo regenerated.
@@ -4219,7 +4219,7 @@ truthful: an unchecked box means nothing was accepted.
       no game named.)
 - [x] Phase-closer (Phase 50): full pytest, the full `npm run verify`
       and `npm run verify -- --webkit`, package-proof.
-      (2026-11-15 on b7de2ec: full pytest 992 passed in 89 s; full `npm run
+      (2026-11-15 on fa24512: full pytest 992 passed in 89 s; full `npm run
       verify` 678/678 on Chrome in 366 s; `npm run verify -- --webkit`
       691 pass, 5 partial (the headless fullscreen checks) and 2 fail, both
       in bookmarkmap (map drags, a card click) while the load average
@@ -4399,7 +4399,7 @@ truthful: an unchecked box means nothing was accepted.
       touched test file passes with synthetic names; a grep for every
       corpus game name and corpus subpath finds nothing outside
       vendored files.
-      (2026-11-15, 6e598d0 and this commit: a list of 844 corpus file and
+      (2026-11-15, 3d0c253 and this commit: a list of 844 corpus file and
       folder names with their variants plus 93 titles, characters and
       initials, kept only in .tmp and deleted, grepped over every tracked
       file: no hit left apart from AGENTS.md's corpus-root line, kept on
@@ -4426,7 +4426,7 @@ truthful: an unchecked box means nothing was accepted.
 - [x] Phase-closer (Phase 51): full pytest, the full `npm run verify` and
       `npm run verify -- --webkit`, package-proof; VERSION 1.8.0, the
       CHANGELOG dated, tag v1.8.0, `main` fast-forwarded.
-      (2026-11-15 on 5b8ba62: full pytest 1114 passed in 96 s; full `npm
+      (2026-11-15 on 3283d80: full pytest 1114 passed in 96 s; full `npm
       run verify` 694/694 on Chrome; `npm run verify -- --webkit` 709
       pass and 5 partial (the headless fullscreen checks), 0 fail;
       package-proof 18/18 with .tmp/extract-demo regenerated; load
@@ -4751,7 +4751,7 @@ truthful: an unchecked box means nothing was accepted.
       fsck after a reboot (load 48); they go again in the full suites.)
 - [x] Phase-closer (Phase 52): full suites; VERSION 1.9.0, the CHANGELOG
       dated, tag v1.9.0, `main` fast-forwarded.
-      (2026-11-16 on 90dcaaf, Moonlight idle, macOS still checking the Data
+      (2026-11-16 on 639a6cc, Moonlight idle, macOS still checking the Data
       disk after a reboot, load average 3 to 5: full pytest 1240 passed
       and one stale-metadata failure in test_version.py, which passed
       after the converter's editable install was rerun at 1.9.0;
@@ -4786,7 +4786,7 @@ truthful: an unchecked box means nothing was accepted.
       dash or curly-quote characters added; `npm run check` clean.)
 - [x] Phase-closer (Phase 53): full suites; VERSION 1.9.1, the CHANGELOG
       dated, tag v1.9.1, `main` fast-forwarded.
-      (2026-11-16 on a93a838, with Moonlight streaming and macOS still
+      (2026-11-16 on 5802937, with Moonlight streaming and macOS still
       checking the Data disk, load average up to 24: full pytest 1240
       passed in 748 s with one skip, tools/test_upgrade_folder.py's
       stale player/dist, which passed 21/21 after `npm run build`;
@@ -4861,7 +4861,7 @@ truthful: an unchecked box means nothing was accepted.
       test_build_apps.py 469 passed.)
 - [x] Phase-closer (Phase 54): full suites; VERSION 1.11.0, the
       CHANGELOG dated, tag v1.11.0, `main` fast-forwarded.
-      (2026-11-17 on bbc3a07: full pytest 1241 passed; apps/voice 87
+      (2026-11-17 on d40338c: full pytest 1241 passed; apps/voice 87
       passed; Go test and Windows vet clean; npm test 1539, check clean;
       full `npm run verify` 794/794 on Chrome; package-proof 18/18 with
       .tmp/extract-demo regenerated. `npm run verify -- --webkit` ran
@@ -4923,7 +4923,7 @@ truthful: an unchecked box means nothing was accepted.
       fail.)
 - [x] Phase-closer (Phase 55): full suites; VERSION 1.10.1, the
       CHANGELOG dated, tag v1.10.1, `main` fast-forwarded.
-      (2026-11-17 on 77faec0, load average 3-13: full pytest 1241
+      (2026-11-17 on c5b8244, load average 3-13: full pytest 1241
       passed; apps/voice 87 passed; Go test and Windows vet clean; npm
       test 1539, check clean; full `npm run verify` 795/795 on Chrome;
       `npm run verify -- --webkit` 855 pass, 5 partial (the headless
