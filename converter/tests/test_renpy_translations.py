@@ -503,16 +503,22 @@ def test_demo_german_language_file(demo: dict) -> None:
         (REPO_ROOT / "docs" / "lang.schema.json").read_bytes()
 
 
-def test_demo_output_validates_with_coverage(demo: dict) -> None:
+def validator_coverage(out: Path) -> dict[str, tuple[int, int, int, int]]:
+    """Each language's (translated, strings, stale, unchecked) from
+    `validate --json`, which exits 0."""
     proc = subprocess.run(
         [sys.executable, str(REPO_ROOT / "tools" / "validate_content.py"),
-         str(demo["out"])], capture_output=True, text=True, check=False)
+         str(out), "--json"], capture_output=True, text=True, check=False)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert proc.stdout.strip() == ""
-    assert "de: 12 of 28 strings (42.8%), 0 stale, 0 unchecked" in \
-        proc.stderr
-    assert "zh-Hans: 1 of 28 strings (3.5%), 0 stale, 0 unchecked" in \
-        proc.stderr
+    report = json.loads(proc.stdout)
+    assert report["problems"] == []
+    return {tag: (c["translated"], c["strings"], c["stale"], c["unchecked"])
+            for tag, c in report["coverage"].items()}
+
+
+def test_demo_output_validates_with_coverage(demo: dict) -> None:
+    assert validator_coverage(demo["out"]) == {
+        "de": (12, 28, 0, 0), "zh-Hans": (1, 28, 0, 0)}
 
 
 def test_demo_report(demo: dict) -> None:
@@ -819,12 +825,8 @@ def test_base_language_names_the_games_own_language(
     assert en["speakers"] == {"Kenji": "Kenji"}
     assert ("warning: translations: game/tl language 'japanese' is ja, the "
             "manifest's base language: skipped") in printed
-    proc = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "tools" / "validate_content.py"),
-         str(out)], capture_output=True, text=True, check=False)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
     # Of the title, the speaker and the two lines.
-    assert "en: 2 of 4 strings (50.0%), 0 stale, 0 unchecked" in proc.stderr
+    assert validator_coverage(out) == {"en": (2, 4, 0, 0)}
 
 
 def test_without_base_language_english_is_skipped(tmp_path: Path) -> None:

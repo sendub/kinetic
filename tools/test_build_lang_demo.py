@@ -70,12 +70,16 @@ def test_validator_reports_only_the_two_deliberate_warnings(
         ["lang/de.json", "items.floor-2"],
         ["lang/de.json", "items.text-thought.from"]]
     assert "stale" in warnings[1]
-    assert lines[2:] == [
-        f"{built}: de: 43 of 44 strings (97.7%), 1 stale, 0 unchecked",
-        f"{built}: ja: 44 of 44 strings (100%), 0 stale, 0 unchecked",
-        f"{built}: ar: 44 of 44 strings (100%), 0 stale, 0 unchecked",
-        f"{built}: 2 translation warnings",
-    ]
+    assert lines[2:] == [f"{built}: 2 translation warnings"]
+    strict = subprocess.run(
+        [sys.executable, str(TOOLS_DIR / "validate_content.py"), str(built),
+         "--strict", "--json"], cwd=REPO_ROOT, capture_output=True, text=True)
+    assert (strict.returncode, strict.stderr) == (3, "")
+    report = json.loads(strict.stdout)
+    assert report["warnings"]["translation"] == warnings
+    assert {tag: (c["translated"], c["strings"], c["missing"], c["stale"])
+            for tag, c in report["coverage"].items()} == {
+        "de": (43, 44, 1, 1), "ja": (44, 44, 0, 0), "ar": (44, 44, 0, 0)}
 
 
 def test_story_id_title_version_and_languages(manifest: dict) -> None:

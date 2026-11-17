@@ -1,6 +1,6 @@
-"""`kinetic report <folder>` (docs/plan.md Phase 57 item 5): the report on
-a synthetic folder holding each finding, its text and JSON output, its
-exit codes, and the demo."""
+"""`kinetic report <folder>` (docs/plan.md Phase 57 items 5 and 11b): the
+report on a synthetic folder holding each finding, its text and JSON
+output, its exit codes, the translation coverage, and the demos."""
 
 from __future__ import annotations
 
@@ -11,7 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from kinetic_extract import kinetic_cli, report
+from kinetic_extract import (
+    kinetic_cli,
+    language_file,
+    report,
+    validate_content,
+)
 from kinetic_extract.version import version_line
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -187,6 +192,66 @@ def test_language_files_and_their_lines_are_referenced(tmp_path: Path
     assert [(p["file"], p["where"], p["tag"]) for p in data["textTags"]] \
         == [("manifest.json", "item right-1", "{foo}"),
             ("lang/de.json", "item ask", "{bad}")]
+
+
+def with_languages(tmp_path: Path) -> Path:
+    """The synthetic folder listing de, partly translated, and fr, whose
+    file is missing."""
+    folder = synthetic(tmp_path)
+    manifest = json.loads((folder / "manifest.json").read_text())
+    manifest["languages"] = ["de", "fr"]
+    (folder / "manifest.json").write_text(json.dumps(manifest))
+    sha = language_file.base_hash
+    lang = {"language": "de",
+            "title": {"text": "Synthetisch", "from": sha("Synthetic")},
+            "speakers": {"Mei": "Mei"},
+            "items": {
+                # Long: over 1.5 times its base and the longest base text.
+                "intro": {"text": "Z" * 200, "from": sha("A" * 50)},
+                "ask": {"text": "Wohin?", "from": "00000000"},  # stale
+                "left-1": {"text": "b" * 10},  # unchecked
+            }}
+    language_file.write_language_file(folder, lang)
+    return folder
+
+
+def test_coverage_per_language(tmp_path: Path) -> None:
+    """14 base strings: the title, 4 speakers, 6 item texts, the prompt
+    and 2 labels; de translates 5. The validator's own counts."""
+    folder = with_languages(tmp_path)
+    data = report.build_report(folder)
+    assert data["language"] == "en"
+    assert data["languages"] == ["de", "fr"]
+    assert data["coverage"] == {"de": {
+        "strings": 14, "translated": 5, "missing": 9, "stale": 1,
+        "unchecked": 1, "long": 1, "percent": 35.7}}
+    manifest = json.loads((folder / "manifest.json").read_text())
+    assert data["coverage"] == validate_content.language_coverage(
+        manifest, folder)
+
+
+def test_coverage_text(tmp_path: Path,
+                       capsys: pytest.CaptureFixture[str]) -> None:
+    folder = with_languages(tmp_path)
+    code, out, err = run_cli(["report", str(folder)], capsys)
+    assert code == 0 and err == ""
+    assert out.splitlines()[-4:] == [
+        "",
+        "Translation coverage: 2 languages, base en",
+        "  de: 5 of 14 strings (35.7%); 9 missing, 1 stale, 1 unchecked, "
+        "1 long",
+        "  fr: no readable lang/fr.json",
+    ]
+    code, out, _err = run_cli(["report", str(folder), "--json"], capsys)
+    assert json.loads(out)["coverage"]["de"]["translated"] == 5
+
+
+def test_no_coverage_section_without_languages(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    folder = synthetic(tmp_path)
+    assert report.build_report(folder)["coverage"] == {}
+    _code, out, _err = run_cli(["report", str(folder)], capsys)
+    assert "Translation coverage" not in out
 
 
 def test_longest_lines(tmp_path: Path) -> None:
@@ -411,3 +476,25 @@ def test_the_demo_reports(capsys: pytest.CaptureFixture[str]) -> None:
     assert data["transitions"]["dissolve"] >= 1
     assert data["transitions"]["fade"] >= 1
     assert data["characters"]["entries"] >= 1
+    assert data["coverage"] == {}
+
+
+LANG_DEMO = REPO_ROOT / "fixtures" / "lang-demo"
+
+
+@pytest.mark.skipif(not (LANG_DEMO / "manifest.json").is_file(),
+                    reason="fixtures/lang-demo not built "
+                           "(fixtures/build_lang_demo.py)")
+def test_the_lang_demo_reports_its_coverage(
+        capsys: pytest.CaptureFixture[str]) -> None:
+    code, out, _err = run_cli(["report", str(LANG_DEMO)], capsys)
+    assert code == 0
+    assert out.splitlines()[-4:] == [
+        "Translation coverage: 3 languages, base en",
+        "  de: 43 of 44 strings (97.7%); 1 missing, 1 stale, 0 unchecked, "
+        "0 long",
+        "  ja: 44 of 44 strings (100%); 0 missing, 0 stale, 0 unchecked, "
+        "0 long",
+        "  ar: 44 of 44 strings (100%); 0 missing, 0 stale, 0 unchecked, "
+        "0 long",
+    ]

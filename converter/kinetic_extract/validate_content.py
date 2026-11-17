@@ -3,21 +3,55 @@
 Usage:
 
     kinetic validate <content-dir> [--schema docs/content-schema.json]
-        [--ledger FILE]
+        [--ledger FILE] [--strict] [--json]
     python tools/validate_content.py ...   (the same, from a checkout)
 
-Exit status: 0 when the folder is valid, 1 when it has problems, 2 when the
-arguments, the schema file or the `--ledger` file are unusable. Each problem
-is printed as one line on stdout: `<file>: <location>: <reason>`, where the
-location is a manifest JSON path such as `items[2].frames[1]`.
+A clean folder prints nothing at all and exits 0, so a gate can rely on
+silence. Each problem is printed as one line on stdout: `<file>:
+<location>: <reason>`, where the location is a manifest JSON path such as
+`items[2].frames[1]`, then a count on stderr. Each warning kind below
+prints its lines on stderr, then a count, and only when it has warnings.
+Each language's coverage is not printed: `--json` and `kinetic report`
+give it.
+
+Exit status: 0 when the folder is valid, 1 when it has problems, 2 when
+the arguments, the schema file or the `--ledger` file are unusable.
+Warnings, of every kind below, leave it 0 unless `--strict` is given:
+then a folder with warnings and no problems exits 3 (problems still
+exit 1).
+
+`--json` prints one JSON object on stdout and nothing else, and nothing
+on stderr unless the folder cannot be read (exit 2, as above):
+
+    {
+      "problems": ["manifest.json: items[1].fps: must be ..."],
+      "warnings": {"unreachable": [], "audio": [], "voice": [],
+                   "character": [], "textTag": [], "translation": [
+                     "warning: lang/de.json: items.floor-2: no ..."],
+                   "poster": []},
+      "coverage": {"de": {"strings": 44, "translated": 43, "missing": 1,
+                          "stale": 1, "unchecked": 0, "long": 0,
+                          "percent": 97.7}},
+      "exitStatus": 0
+    }
+
+`problems` holds the stdout lines; `warnings` every kind of
+WARNING_KINDS, in that order, each a list (empty when none; `poster` is
+empty without `--ledger`) of the lines a plain run prints, count lines
+left out; `coverage` maps each listed language whose file loads, the base
+language left out, to its base strings, the translated ones, the missing
+rest, and the stale, unchecked (no `from`) and long ones among the
+translated, with the percentage rounded down to 0.1 so that only a
+complete language reads 100 (`{}` without languages); `exitStatus` is
+the status the run exits with, `--strict` respected.
 
 `--ledger FILE` (a build-ledger.json or media-ledger.json) adds poster
 warnings, `poster_warnings`: one `warning: <file>: <location>: <reason>` line
 on stderr per video item whose poster the ledger does not record as made at
-the item's `startSeconds` from the item's video source, then a count. It
-reads JSON only and decodes nothing; warnings never change the exit status.
-Without `--ledger` the output is as before. See docs/extracting.md, "The
-validator's cheap check".
+the item's `startSeconds` from the item's video source, then a count,
+printed last. It reads JSON only and decodes nothing. Without `--ledger`
+the output is as before. See docs/extracting.md, "The validator's cheap
+check".
 
 Unreachable item warnings, `reach_warnings`, need no flag: one `warning:
 manifest.json: items[N]: item '<id>' is never shown: <why>` line on stderr
@@ -27,24 +61,22 @@ own forward flow (player/src/machine/machine.ts), so it catches an item
 inside a decision's region (after its `after` item, before its
 `continueAt` or, for a pure choice, up to its last route end) in none of
 its routes, a decision that never fires, and what lies past a route end
-the walk reaches with no decision open. They never change the exit
-status, and a manifest without branches prints none, nor does one whose
-decisions break the span rules (`folder_model.span_problems`: a route
-not after its `after` item, overlapping routes, a `continueAt` not past
-every route end), which are problems and leave no reading to walk.
+the walk reaches with no decision open. A manifest without branches
+prints none, nor does one whose decisions break the span rules
+(`folder_model.span_problems`: a route not after its `after` item,
+overlapping routes, a `continueAt` not past every route end), which are
+problems and leave no reading to walk.
 
 Audio warnings, `audio_warnings`, need no flag: one `warning: <file>:
 <location>: <reason>` line on stderr per Ogg track file, per looping track
 in a format whose decode shifts a loop's start (MP3, Opus in WebM, Vorbis
 in Ogg), and per track no item uses, then a count, printed before any
-poster warnings. They never change the exit status, and a manifest
-without audio prints none.
+poster warnings. A manifest without audio prints none.
 
 Voice warnings, `voice_warnings`, need no flag: one such line per voice
 in `voices` that no item's `speaker` names, and one for a `narrator`
 when no item has text without a speaker, then a count, printed between
-the audio and poster warnings. They never change the exit status, and a
-manifest without voices prints none.
+the audio and poster warnings. A manifest without voices prints none.
 
 Character warnings, `character_warnings`, follow the voice warnings: one
 such line per `characters` key no item's `speaker` names and per colour
@@ -53,8 +85,8 @@ whose WCAG contrast ratio with the text band (`BAND_BACKGROUND`) is below
 one line per unknown tag, unclosed or crossed `{i}`, `{b}`, `{u}`, `{s}` or
 `{alt}`, closer with nothing open, and `{` that never ends, in item texts,
 prompts and labels and in those of each listed language file, at most 20
-per file, then a count. Neither changes the exit status
-(docs/content-format.md, Characters and Text tags).
+per file, then a count (docs/content-format.md, Characters and Text
+tags).
 
 Translation warnings, `language_warnings`, need no flag and follow the
 voice warnings: one such line per lang/*.json the manifest's
@@ -62,12 +94,12 @@ voice warnings: one such line per lang/*.json the manifest's
 string its file lacks, per stale translation (its `from` is not the
 hash of the base text now) and per item text over 1.5 times its base
 or longer than the game's longest base text, each kind capped at 20
-lines and a count of the rest; then one coverage line per language
-(`<dir>: de: 31 of 32 strings (96.8%), 1 stale, 0 unchecked`) and a
-count. A language file's recorded voice lines add the track warnings
-(an Ogg file, a track no item names) and one per line for an item the
-file gives no text, which never plays. They never change the exit status, and a manifest without
-`languages` prints none.
+lines and a count of the rest; then a count. A language file's
+recorded voice lines add the track warnings (an Ogg file, a track no
+item names) and one per line for an item the file gives no text, which
+never plays. A manifest without `languages` prints none. The coverage
+counts come from the same pass (`language_coverage`, which `kinetic
+report` shares).
 
 Two layers of checking, per docs/content-format.md §Rules and validator
 invariants:
@@ -1781,33 +1813,50 @@ def _capped(lines: list[str], file: str, what: str) -> list[str]:
         "<root>", f"and {rest} more {what}", file)]
 
 
-def _percent(done: int, total: int) -> str:
+def percent(done: int, total: int) -> float:
     """Coverage as a percentage, rounded down to 0.1 so that only a
-    complete language reads 100%."""
+    complete language reads 100."""
     if total == 0 or done == total:
-        return "100%"
-    return f"{done * 1000 // total / 10:.1f}%"
+        return 100.0
+    return done * 1000 // total / 10
+
+
+def percent_text(done: int, total: int) -> str:
+    """`percent` as text: `100%` or `97.7%`."""
+    value = percent(done, total)
+    return "100%" if value == 100 else f"{value:.1f}%"
 
 
 class LanguageReport:
     """One listed language's translation warnings and coverage counts
     (language_reports): `total` base strings, `done` of them translated,
-    `stale` and `unchecked` among those, `missing` the rest."""
+    `stale` and `unchecked` among those, `long` item texts among those,
+    `missing` the rest."""
 
     def __init__(self, tag: str) -> None:
         self.tag = tag
         self.warnings: list[str] = []
         self.total = self.done = self.stale = self.unchecked = 0
+        self.long = 0
 
     @property
     def missing(self) -> int:
         return self.total - self.done
 
     def coverage(self) -> str:
-        """The validator's coverage line, without the folder."""
+        """The coverage line tools/translations.py prints."""
         return (f"{self.tag}: {self.done} of {self.total} strings "
-                f"({_percent(self.done, self.total)}), {self.stale} stale, "
+                f"({percent_text(self.done, self.total)}), {self.stale} stale, "
                 f"{self.unchecked} unchecked")
+
+    def counts(self) -> dict[str, Any]:
+        """The coverage as `validate --json` and `kinetic report` give
+        it: strings, translated, missing, stale, unchecked, long and
+        percent (rounded down to 0.1, 100 only when complete)."""
+        return {"strings": self.total, "translated": self.done,
+                "missing": self.missing, "stale": self.stale,
+                "unchecked": self.unchecked, "long": self.long,
+                "percent": percent(self.done, self.total)}
 
 
 def language_reports(manifest: Any, content_dir: Path
@@ -1877,6 +1926,7 @@ def language_reports(manifest: Any, content_dir: Path
                     reasons.append("longer than the game's longest base "
                                    f"text ({base.longest})")
                 if reasons:
+                    report.long += 1
                     long.append(WARNING_PREFIX + _line(
                         f"{loc}.text",
                         f"{len(translated)} characters, "
@@ -1891,25 +1941,40 @@ def language_reports(manifest: Any, content_dir: Path
     return unlisted, reports
 
 
-def language_warnings(manifest: Any, content_dir: Path
-                      ) -> tuple[list[str], list[str]]:
-    """(warning lines, coverage lines) for the folder's language files.
+def language_warnings(manifest: Any, content_dir: Path) -> list[str]:
+    """The warning lines for the folder's language files.
 
-    Warnings, per listed language whose file loads: each base string it
-    lacks (title, version, speaker, item text, prompt, route label); each
+    Per listed language whose file loads: each base string it lacks
+    (title, version, speaker, item text, prompt, route label); each
     translation whose `from` is not the hash of the base text now
     (stale); each item text longer than 1.5 times its base text or than
     the game's longest base text, in code points. Each kind lists at most
     LIST_MAX lines per language and then counts the rest. Before them,
-    one line per lang/*.json the manifest does not list. One coverage
-    line per listed language: strings translated of the base's, stale,
-    and unchecked (a translation with no `from`). A manifest without
-    `languages` and without language files gets nothing."""
-    unlisted, reports = language_reports(manifest, content_dir)
+    one line per lang/*.json the manifest does not list. A manifest
+    without `languages` and without language files gets none."""
+    return _language_lines(*language_reports(manifest, content_dir))
+
+
+def _language_lines(unlisted: list[str], reports: list[LanguageReport]
+                    ) -> list[str]:
     warnings = list(unlisted)
     for report in reports:
         warnings += report.warnings
-    return warnings, [report.coverage() for report in reports]
+    return warnings
+
+
+def coverage_of(reports: list[LanguageReport]) -> dict[str, dict[str, Any]]:
+    """Tag -> LanguageReport.counts(), in `languages` order."""
+    return {report.tag: report.counts() for report in reports}
+
+
+def language_coverage(manifest: Any, content_dir: Path
+                      ) -> dict[str, dict[str, Any]]:
+    """Each listed language's coverage (LanguageReport.counts()), for
+    each whose file loads, other than the base language: what
+    `validate --json` and `kinetic report` print. Empty for a folder
+    without languages."""
+    return coverage_of(language_reports(manifest, content_dir)[1])
 
 
 # ---------------------------------------------------------------------------
@@ -2098,84 +2163,112 @@ def poster_warnings(manifest: Any, media: dict[str, Any]) -> list[str]:
     return warnings
 
 
+# Warning kinds, in the order the validator prints them, each with the
+# words of its count line; `--json` groups its warnings under these names.
+WARNING_KINDS = {
+    "unreachable": "unreachable item warning",
+    "audio": "audio warning",
+    "voice": "voice warning",
+    "character": "character warning",
+    "textTag": "text tag warning",
+    "translation": "translation warning",
+    "poster": "poster warning",
+}
+
+EXIT_PROBLEMS = 1
+EXIT_USAGE = 2
+EXIT_WARNINGS = 3   # --strict: warnings and no problems
+
+
+def warnings_by_kind(manifest: Any, content_dir: Path,
+                     media: dict[str, Any] | None = None,
+                     reports: list[LanguageReport] | None = None,
+                     unlisted: list[str] | None = None
+                     ) -> dict[str, list[str]]:
+    """Every warning line, grouped under WARNING_KINDS in their order.
+    `poster` is empty without a ledger's `media`; `reports` and
+    `unlisted`, language_reports' result, spare reading the language
+    files again."""
+    if reports is None or unlisted is None:
+        unlisted, reports = language_reports(manifest, content_dir)
+    return {
+        "unreachable": reach_warnings(manifest),
+        "audio": audio_warnings(manifest, content_dir),
+        "voice": voice_warnings(manifest),
+        "character": character_warnings(manifest),
+        "textTag": text_tag_warnings(manifest, content_dir),
+        "translation": _language_lines(unlisted, reports),
+        "poster": (poster_warnings(manifest, media)
+                   if media is not None else []),
+    }
+
+
 def main(argv: list[str] | None = None, prog: str | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog=prog,
-        description="Validate a Kinetic content folder against the content format.")
+        description="Validate a Kinetic content folder against the content "
+                    "format. A clean folder prints nothing and exits 0.")
     parser.add_argument("content_dir", type=Path,
                         help="folder holding manifest.json and its media")
     parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA,
                         help=f"manifest JSON Schema (default: {DEFAULT_SCHEMA})")
     parser.add_argument("--ledger", type=Path, metavar="FILE",
-                        help="also warn, on stderr and without changing the "
-                             "exit status, about video items whose poster "
-                             "this build or media ledger does not record as "
-                             "made at the item's startSeconds")
+                        help="also warn, on stderr, about video items whose "
+                             "poster this build or media ledger does not "
+                             "record as made at the item's startSeconds")
+    parser.add_argument("--strict", action="store_true",
+                        help="exit 3 when there are warnings but no problems "
+                             "(0 clean, 1 problems)")
+    parser.add_argument("--json", action="store_true",
+                        help="print problems, warnings by kind, each "
+                             "language's coverage and the exit status as "
+                             "one JSON object on stdout")
     add_version_option(parser)
     args = parser.parse_args(argv)
 
     if not args.content_dir.is_dir():
         print(f"{args.content_dir}: not a directory", file=sys.stderr)
-        return 2
+        return EXIT_USAGE
     if not args.schema.is_file():
         print(f"{args.schema}: no such schema file", file=sys.stderr)
-        return 2
+        return EXIT_USAGE
     media = None
     if args.ledger is not None:
         media, why = read_ledger_media(args.ledger)
         if media is None:
             print(why, file=sys.stderr)
-            return 2
+            return EXIT_USAGE
 
     manifest, problems = _validate(args.content_dir, args.schema)
+    unlisted, reports = language_reports(manifest, args.content_dir)
+    warnings = warnings_by_kind(manifest, args.content_dir, media,
+                                reports, unlisted)
+    if problems:
+        status = EXIT_PROBLEMS
+    elif args.strict and any(warnings.values()):
+        status = EXIT_WARNINGS
+    else:
+        status = 0
+
+    if args.json:
+        sys.stdout.write(json.dumps({
+            "problems": problems,
+            "warnings": warnings,
+            "coverage": coverage_of(reports),
+            "exitStatus": status,
+        }, indent=2, ensure_ascii=False) + "\n")
+        return status
+
     for problem in problems:
         print(problem)
     if problems:
         print(f"{args.content_dir}: {len(problems)} problem"
               f"{'s' if len(problems) != 1 else ''}", file=sys.stderr)
-    unreachable = reach_warnings(manifest)
-    for warning in unreachable:
-        print(warning, file=sys.stderr)
-    if unreachable:
-        print(f"{args.content_dir}: {len(unreachable)} unreachable item "
-              f"warning{'s' if len(unreachable) != 1 else ''}",
-              file=sys.stderr)
-    sound = audio_warnings(manifest, args.content_dir)
-    for warning in sound:
-        print(warning, file=sys.stderr)
-    if sound:
-        print(f"{args.content_dir}: {len(sound)} audio warning"
-              f"{'s' if len(sound) != 1 else ''}", file=sys.stderr)
-    spoken = voice_warnings(manifest)
-    for warning in spoken:
-        print(warning, file=sys.stderr)
-    if spoken:
-        print(f"{args.content_dir}: {len(spoken)} voice warning"
-              f"{'s' if len(spoken) != 1 else ''}", file=sys.stderr)
-    looks = character_warnings(manifest)
-    for warning in looks:
-        print(warning, file=sys.stderr)
-    if looks:
-        print(f"{args.content_dir}: {len(looks)} character warning"
-              f"{'s' if len(looks) != 1 else ''}", file=sys.stderr)
-    tags = text_tag_warnings(manifest, args.content_dir)
-    for warning in tags:
-        print(warning, file=sys.stderr)
-    if tags:
-        print(f"{args.content_dir}: {len(tags)} text tag warning"
-              f"{'s' if len(tags) != 1 else ''}", file=sys.stderr)
-    translated, coverage = language_warnings(manifest, args.content_dir)
-    for warning in translated:
-        print(warning, file=sys.stderr)
-    for line in coverage:
-        print(f"{args.content_dir}: {line}", file=sys.stderr)
-    if translated:
-        print(f"{args.content_dir}: {len(translated)} translation warning"
-              f"{'s' if len(translated) != 1 else ''}", file=sys.stderr)
-    if media is not None:
-        warnings = poster_warnings(manifest, media)
-        for warning in warnings:
+    for kind, words in WARNING_KINDS.items():
+        lines = warnings[kind]
+        for warning in lines:
             print(warning, file=sys.stderr)
-        print(f"{args.content_dir}: {len(warnings)} poster warning"
-              f"{'s' if len(warnings) != 1 else ''}", file=sys.stderr)
-    return 1 if problems else 0
+        if lines:
+            print(f"{args.content_dir}: {len(lines)} {words}"
+                  f"{'s' if len(lines) != 1 else ''}", file=sys.stderr)
+    return status

@@ -1669,8 +1669,8 @@ Ogg track file (Audio says why), a looping track in a format that is
 not loop-safe (Audio, Loop-safe formats; a WebM or Ogg file's codec is
 read from its head), and a track no item uses. Each warning is one
 `warning: manifest.json: <location>: <reason>` line on stderr, followed
-by a count. Warnings leave stdout and the exit status alone, and a
-manifest without audio prints none.
+by a count. Warnings leave stdout alone and, unless `--strict` is given
+(below), the exit status; a manifest without audio prints none.
 
 After the audio warnings it warns, in the same form, about a voice in
 `voices` no item's `speaker` names (`no item's speaker is '<name>'`)
@@ -1695,7 +1695,7 @@ opening reaches it`: the routes of a decision whose `after` item the
 flow never settles on, or what lies past a route end the flow reaches
 with no decision of it open (a join that lands inside another
 decision's route), where the story ends (Branches). The warning leaves
-stdout and the exit status alone, and a manifest without branches
+stdout alone, as every warning does, and a manifest without branches
 prints none, nor does one where a decision the player keeps breaks the
 span rules (a route not after its `after` item, two routes of one
 decision overlapping, a `continueAt` not after every route end): those
@@ -1724,8 +1724,7 @@ warnings`). The reasons read:
 - `'{oops' starts a text tag that never ends: the player shows it as
   text` (the `{` and at most 19 characters after it).
 
-Neither changes stdout or the exit status, and a manifest without
-`characters` or tags prints none.
+A manifest without `characters` or tags prints none.
 
 After the text tag warnings it warns about translations, in the same
 form with the language file's path in place of `manifest.json`:
@@ -1742,11 +1741,29 @@ form with the language file's path in place of `manifest.json`:
   the game's longest base item text, counted in code points.
 
 Each kind lists at most 20 lines per language, then one line counting
-the rest. Then comes one coverage line per listed language, such as
-`my-novel: de: 412 of 415 strings (99.2%), 3 stale, 0 unchecked`: the
-base strings it translates of all of them (the percentage rounded down,
-so only a complete language reads 100%), how many of those are stale,
-and how many carry no `from` and so cannot be checked, which is not a
-warning. A count of the warnings follows (`N translation warnings`).
-These leave stdout and the exit status alone, and a manifest without
-`languages` and without language files prints none.
+the rest. A count of the warnings follows (`N translation warnings`).
+A manifest without `languages` and without language files prints none.
+
+Each language's coverage is not printed: a complete translation is no
+news. `kinetic report` has a section for it, and `--json` (below)
+carries it: per listed language, the base strings, how many it
+translates (the percentage rounded down, so only a complete language
+reads 100), how many it lacks, and how many of the translated ones are
+stale, carry no `from` and so cannot be checked (which is not a
+warning), or are long.
+
+So a clean folder, languages and all, prints nothing at all and exits
+0, and a gate can rely on that silence. The exit status is 0 without
+problems, 1 with problems and 2 for unusable arguments, schema or
+`--ledger` file. Warnings leave it 0 unless `--strict` is given: then a
+folder with warnings of any kind (unreachable item, audio, voice,
+character, text tag, translation, and poster with `--ledger`) and no
+problems exits 3; problems still exit 1. `--json` prints one JSON object
+on stdout and nothing else (stderr stays empty unless the folder cannot
+be read, exit 2): `problems`, the problem lines; `warnings`, the warning
+lines under `unreachable`, `audio`, `voice`, `character`, `textTag`,
+`translation` and `poster`, each a list, empty when there are none,
+count lines left out; `coverage`, each listed language's counts as
+`{"strings", "translated", "missing", "stale", "unchecked", "long",
+"percent"}` (`{}` without languages); and `exitStatus`, the status the
+run exits with, as without `--json` and respecting `--strict`.

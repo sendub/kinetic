@@ -1711,7 +1711,7 @@ def test_matching_posters_give_no_warning(folder: Path) -> None:
     proc = run_with_ledger(folder, matching_ledger(read_manifest(folder)))
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert proc.stdout == ""
-    assert proc.stderr == f"{folder}: 0 poster warnings\n"
+    assert proc.stderr == ""
 
 
 def test_later_start_poster_made_at_zero_warns(folder: Path) -> None:
@@ -2241,8 +2241,13 @@ def test_audio_warnings_come_before_poster_warnings(folder: Path) -> None:
     write_manifest(folder, manifest)
     proc = run_with_ledger(folder, matching_ledger(manifest))
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert proc.stderr.splitlines()[1:] == [
-        f"{folder}: 1 audio warning", f"{folder}: 0 poster warnings"]
+    assert proc.stderr.splitlines()[1:] == [f"{folder}: 1 audio warning"]
+    ledger = matching_ledger(manifest)
+    poster_entry(ledger, manifest, RANGE_B)["steps"][0]["startSeconds"] = 0.0
+    lines = run_with_ledger(folder, ledger).stderr.splitlines()
+    assert lines[1] == f"{folder}: 1 audio warning"
+    assert lines[2].startswith("warning: manifest.json: items[15].poster: ")
+    assert lines[3:] == [f"{folder}: 1 poster warning"]
 
 
 @pytest.mark.parametrize("path", [DEMO_DIR, BRANCH_EXAMPLE])
@@ -2909,13 +2914,14 @@ def write_language(folder: Path, data: dict[str, Any],
 
 
 def lang_warnings(folder: Path) -> list[str]:
-    return validate_content.language_warnings(read_manifest(folder),
-                                              folder)[0]
+    return validate_content.language_warnings(read_manifest(folder), folder)
 
 
 def coverage_of(folder: Path) -> list[str]:
-    return validate_content.language_warnings(read_manifest(folder),
-                                              folder)[1]
+    """Each language's coverage as tools/translations.py prints it."""
+    _unlisted, reports = validate_content.language_reports(
+        read_manifest(folder), folder)
+    return [report.coverage() for report in reports]
 
 
 def test_schema_tag_patterns_match_the_helper() -> None:
@@ -2940,17 +2946,18 @@ def test_a_full_translation_passes_with_full_coverage(folder: Path) -> None:
     assert coverage_of(folder) == [
         "de: 44 of 44 strings (100%), 0 stale, 0 unchecked",
         "ja: 44 of 44 strings (100%), 0 stale, 0 unchecked"]
-    proc = run_cli(folder)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert proc.stdout == ""
-    assert f"{folder}: de: 44 of 44 strings (100%), 0 stale, 0 unchecked" \
-        in proc.stderr.splitlines()
-    assert "translation warning" not in proc.stderr
+    assert validate_content.language_coverage(read_manifest(folder),
+                                              folder) == {
+        tag: {"strings": 44, "translated": 44, "missing": 0, "stale": 0,
+              "unchecked": 0, "long": 0, "percent": 100.0}
+        for tag in ("de", "ja")}
 
 
 def test_language_fields_absent_print_nothing(demo: Path) -> None:
     assert validate_content.language_warnings(read_manifest(demo), demo) \
-        == ([], [])
+        == []
+    assert validate_content.language_coverage(read_manifest(demo), demo) \
+        == {}
 
 
 def test_an_explicit_base_language_passes(folder: Path) -> None:
@@ -3366,16 +3373,180 @@ def test_translation_warnings_print_with_a_count(folder: Path) -> None:
     assert proc.stderr.splitlines() == [
         "warning: lang/de.json: items.floor-2: no translation (base: 'Short "
         "line two.')",
-        f"{folder}: de: 42 of 43 strings (97.6%), 0 stale, 0 unchecked",
         f"{folder}: 1 translation warning",
     ]
 
 
+# The validator as a gate (docs/plan.md Phase 57 item 11b): silent when
+# clean, `--strict` fails on warnings, `--json` for a program to read.
+
+def add_one_warning(folder: Path) -> None:
+    """A full German translation but for one missing line: a
+    translation warning and no problem."""
+    _manifest, files = add_languages(folder, "de")
+    del files["de"]["items"]["floor-2"]
+    write_language(folder, files["de"])
+
+
+def add_one_problem(folder: Path) -> None:
+    """The one-warning folder, plus a problem: an item's fps of 0."""
+    add_one_warning(folder)
+    manifest = read_manifest(folder)
+    animation = next(item for item in manifest["items"]
+                     if item["type"] == "animation")
+    animation["fps"] = 0
+    write_manifest(folder, manifest)
+
+
+def run_json(folder: Path, *args: str
+             ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
+    proc = run_cli(folder, "--json", *args)
+    assert proc.stderr == ""
+    return proc, json.loads(proc.stdout)
+
+
+def test_a_clean_language_folder_prints_nothing(folder: Path) -> None:
+    """Complete coverage in two languages: no coverage line, nothing on
+    either stream, plain or strict, through both entry points."""
+    add_languages(folder, "de", "ja", version="Episode 1")
+    for args in ((), ("--strict",)):
+        proc = run_cli(folder, *args)
+        assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+    proc = subprocess.run(
+        [sys.executable, "-m", "kinetic_extract.kinetic_cli", "validate",
+         str(folder), "--strict"], capture_output=True, text=True)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+def test_a_matching_ledger_prints_nothing(folder: Path) -> None:
+    proc = run_with_ledger(folder, matching_ledger(read_manifest(folder)))
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+
+
+def test_warnings_alone_exit_0_plain_and_3_strict(folder: Path) -> None:
+    add_one_warning(folder)
+    plain = run_cli(folder)
+    assert (plain.returncode, plain.stdout) == (0, "")
+    assert plain.stderr.splitlines()[-1] == f"{folder}: 1 translation warning"
+    strict = run_cli(folder, "--strict")
+    assert (strict.returncode, strict.stdout, strict.stderr) == (
+        3, "", plain.stderr)
+
+
+def strict_codes(folder: Path, *args: str) -> tuple[int, int]:
+    """(plain, --strict) exit status; asserts no problem."""
+    _proc, report = run_json(folder, *args)
+    assert report["problems"] == [], report["problems"]
+    return (run_cli(folder, *args).returncode,
+            run_cli(folder, "--strict", *args).returncode)
+
+
+def test_strict_fails_on_an_unreachable_item(branch_folder: Path) -> None:
+    insert_gap(branch_folder, "home-009")
+    assert strict_codes(branch_folder) == (0, 3)
+
+
+def test_strict_fails_on_an_audio_warning(folder: Path) -> None:
+    manifest = with_audio(folder)
+    manifest["audio"]["tracks"]["spare"] = {"file": AUDIO_FILES["door"],
+                                            "durationSeconds": 1.5}
+    write_manifest(folder, manifest)
+    assert strict_codes(folder) == (0, 3)
+
+
+def test_strict_fails_on_a_poster_warning(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    ledger = matching_ledger(manifest)
+    poster_entry(ledger, manifest, RANGE_B)["steps"][0]["startSeconds"] = 0.0
+    assert strict_codes(folder, "--ledger",
+                        str(write_ledger(folder, ledger))) == (0, 3)
+
+
+def test_problems_exit_1_with_or_without_strict(folder: Path) -> None:
+    add_one_problem(folder)
+    for args in ((), ("--strict",)):
+        proc = run_cli(folder, *args)
+        assert proc.returncode == 1
+        assert "items[" in proc.stdout and ".fps" in proc.stdout
+        assert "1 translation warning" in proc.stderr
+
+
+def test_json_shape(folder: Path) -> None:
+    add_one_warning(folder)
+    proc, report = run_json(folder)
+    assert proc.returncode == 0
+    assert list(report) == ["problems", "warnings", "coverage", "exitStatus"]
+    assert list(report["warnings"]) == list(validate_content.WARNING_KINDS)
+    assert list(report["warnings"]) == [
+        "unreachable", "audio", "voice", "character", "textTag",
+        "translation", "poster"]
+    assert report["problems"] == []
+    assert report["warnings"]["translation"] == [
+        "warning: lang/de.json: items.floor-2: no translation (base: 'Short "
+        "line two.')"]
+    assert all(lines == [] for kind, lines in report["warnings"].items()
+               if kind != "translation")
+    assert report["coverage"] == {"de": {
+        "strings": 43, "translated": 42, "missing": 1, "stale": 0,
+        "unchecked": 0, "long": 0, "percent": 97.6}}
+    assert report["exitStatus"] == 0
+
+
+def test_json_exit_status_follows_strict_and_problems(folder: Path) -> None:
+    add_one_warning(folder)
+    proc, report = run_json(folder, "--strict")
+    assert proc.returncode == report["exitStatus"] == 3
+    add_one_problem(folder)
+    for args in ((), ("--strict",)):
+        proc, report = run_json(folder, *args)
+        assert proc.returncode == report["exitStatus"] == 1
+        assert len(report["problems"]) == 1
+        assert ".fps" in report["problems"][0]
+        assert len(report["warnings"]["translation"]) == 1
+
+
+def test_json_on_a_clean_folder(demo: Path) -> None:
+    proc, report = run_json(demo, "--strict")
+    assert proc.returncode == 0
+    assert report == {"problems": [],
+                      "warnings": {kind: [] for kind
+                                   in validate_content.WARNING_KINDS},
+                      "coverage": {}, "exitStatus": 0}
+
+
+def test_json_carries_poster_warnings(folder: Path) -> None:
+    manifest = read_manifest(folder)
+    ledger = matching_ledger(manifest)
+    poster_entry(ledger, manifest, RANGE_B)["steps"][0]["startSeconds"] = 0.0
+    proc, report = run_json(folder, "--ledger",
+                            str(write_ledger(folder, ledger)))
+    assert proc.returncode == 0
+    assert report["warnings"]["poster"] == [
+        "warning: manifest.json: items[15].poster: startSeconds 1.0, "
+        "poster startSeconds 0.0 (poster made at another start)"]
+
+
+def test_json_counts_long_translations(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    files["de"]["items"]["floor-3"]["text"] = "x" * 200
+    write_language(folder, files["de"])
+    _proc, report = run_json(folder)
+    assert report["coverage"]["de"]["long"] == 1
+    assert len(report["warnings"]["translation"]) == 1
+
+
+def test_json_bad_arguments_exit_2_with_nothing_on_stdout(
+        tmp_path: Path) -> None:
+    proc = run_cli(tmp_path / "missing", "--json")
+    assert (proc.returncode, proc.stdout) == (2, "")
+    assert "not a directory" in proc.stderr
+
+
 def test_coverage_rounds_down_so_only_complete_reads_100() -> None:
-    assert validate_content._percent(999, 1000) == "99.9%"
-    assert validate_content._percent(9999, 10000) == "99.9%"
-    assert validate_content._percent(1000, 1000) == "100%"
-    assert validate_content._percent(0, 0) == "100%"
+    assert validate_content.percent_text(999, 1000) == "99.9%"
+    assert validate_content.percent_text(9999, 10000) == "99.9%"
+    assert validate_content.percent_text(1000, 1000) == "100%"
+    assert validate_content.percent_text(0, 0) == "100%"
 
 
 def test_language_checks_survive_malformed_manifests(tmp_path: Path) -> None:
@@ -3385,7 +3556,9 @@ def test_language_checks_survive_malformed_manifests(tmp_path: Path) -> None:
         assert isinstance(validate_content.language_problems(
             tmp_path, manifest), list)
         assert isinstance(validate_content.language_warnings(
-            manifest, tmp_path), tuple)
+            manifest, tmp_path), list)
+        assert isinstance(validate_content.language_coverage(
+            manifest, tmp_path), dict)
 
 
 # A language file's own recorded lines, `voice` (docs/plan.md Phase 56

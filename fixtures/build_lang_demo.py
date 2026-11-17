@@ -392,8 +392,7 @@ def warning_problems(manifest: dict, out: Path) -> list[str]:
                 + validate_content.voice_warnings(manifest)
                 + validate_content.character_warnings(manifest)
                 + validate_content.text_tag_warnings(manifest, out))
-    translated_warnings, _coverage = validate_content.language_warnings(
-        manifest, out)
+    translated_warnings = validate_content.language_warnings(manifest, out)
     found: set[str] = set()
     for warning in translated_warnings:
         where = ": ".join(

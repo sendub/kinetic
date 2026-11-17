@@ -243,16 +243,16 @@ a game can run them all and read what they print.
    not convert (a playlist, `set_volume`, a file named by a variable) is
    listed (docs/extracting.md, "Reading Ren'Py audio" and "Shipping the
    sound").
-2. `kinetic validate` prints nothing and exits 0 on a good folder (for
-   a game with translations, below, it also warns about each string a
-   language lacks and prints a coverage line per language). It warns
-   about items no reading reaches and about text tag problems too
-   (Validating, below).
+2. `kinetic validate` prints nothing and exits 0 on a good folder,
+   translations and all. It warns about items no reading reaches, text
+   tag problems and, for a game with translations, each string a
+   language lacks; `--strict` makes those warnings exit 3, for a gate
+   that must fail on them (Validating, below).
 3. `kinetic report` prints what to compare with the original: reading
    time per route, the speakers with their line counts (a look-alike
    name flagged), the colours and transitions, text tag problems, files
-   nothing uses and the longest lines (Checking a conversion: kinetic
-   report, below).
+   nothing uses, the longest lines and each language's coverage
+   (Checking a conversion: kinetic report, below).
 4. `kinetic routes` prints the decisions and routes as an outline, to
    compare with the script's menus: a menu the extractor kept linear
    (the summary's `menus skipped`) shows no decision there.
@@ -397,8 +397,19 @@ kinetic report novel-play --json
   licence and readme files are not listed.
 - The 20 longest lines by shown characters, with id, speaker, length and
   their first 60 characters.
+- For a game with translations, each language's coverage, counted as
+  the validator counts it: strings translated of the base's, with the
+  missing, stale, unchecked (no `from`) and long ones:
 
-`--json` prints the same report as one JSON object. The exit status is
+  ```text
+  Translation coverage: 3 languages, base en
+    de: 43 of 44 strings (97.7%); 1 missing, 1 stale, 0 unchecked, 0 long
+    ja: 44 of 44 strings (100%); 0 missing, 0 stale, 0 unchecked, 0 long
+    ar: 44 of 44 strings (100%); 0 missing, 0 stale, 0 unchecked, 0 long
+  ```
+
+`--json` prints the same report as one JSON object (the coverage under
+`coverage`, `{}` for a game without translations). The exit status is
 0 whenever the report ran, whatever it found, and 2 for bad arguments or
 a folder without a readable manifest. A folder where a decision breaks
 the span rules (a route not after its `after` item, two of its routes
@@ -835,8 +846,9 @@ For a quick look without the game files, add `--ledger
 the ledger only, decodes nothing, and prints a `warning:` line on
 stderr for each poster the ledger records at another start or from
 another source, and for each item starting after 0 whose poster it
-records no start for. Warnings never change the exit status; the
-`kinetic media posters` check above settles them.
+records no start for. Warnings change the exit status only with
+`--strict` (exit 3, Validating); the `kinetic media posters` check above
+settles them.
 
 Reference: docs/extracting.md, "kinetic-media posters" (the
 validator's warning is under "The validator's cheap check").
@@ -1683,12 +1695,58 @@ item names exists, each sound file has its script holding its bytes (or
 ships as that script alone, as an assembled folder does), and a present
 `manifest.js` embeds JSON equal to `manifest.json`. An Ogg track, a
 looping track in MP3 or Opus in WebM, and a track no item uses each
-print a `warning:` line on stderr, which leaves the exit status alone,
-as do a text tag problem and a `characters` key no speaker uses or a
-colour too dim to read (Text tags and Speaker colours, above). A
-translated game's language files are checked too: a missing or stale
-translation is a warning, and each language gets a coverage line
-(docs/content-format.md, "Rules and validator invariants").
+print a `warning:` line on stderr, then a count, which leaves the exit
+status alone, as do a text tag problem and a `characters` key no
+speaker uses or a colour too dim to read (Text tags and Speaker
+colours, above). A translated game's language files are checked too: a
+missing or stale translation is a warning (docs/content-format.md,
+"Rules and validator invariants"). Each language's coverage is not
+printed, so a game with translations, even complete ones, is silent
+when clean; `kinetic report` and `--json` give the coverage.
+
+A gate, a script or an agent that must stop on a bad folder, can rely
+on that silence and on the exit status. With `--strict`, warnings of
+any kind, and no problems, exit 3:
+
+```sh
+kinetic validate my-novel --strict
+```
+
+| exit | meaning |
+| --- | --- |
+| 0 | clean (with `--strict`: no warnings either) |
+| 1 | problems (warnings or not) |
+| 2 | the folder, `--schema` or `--ledger` cannot be read |
+| 3 | `--strict` only: warnings and no problems |
+
+`--json` prints the same findings as one JSON object on stdout, and
+nothing else (stderr stays empty unless the folder cannot be read),
+with the same exit status, `--strict` respected:
+
+```json
+{
+  "problems": [],
+  "warnings": {
+    "unreachable": [], "audio": [], "voice": [], "character": [],
+    "textTag": [],
+    "translation": [
+      "warning: lang/de.json: items.floor-2: no translation (base: 'Short line two.')"
+    ],
+    "poster": []
+  },
+  "coverage": {
+    "de": {"strings": 44, "translated": 43, "missing": 1, "stale": 1,
+           "unchecked": 0, "long": 0, "percent": 97.7}
+  },
+  "exitStatus": 0
+}
+```
+
+`problems` holds the problem lines; `warnings` every kind, in the order
+a plain run prints them, each a list of its lines (empty when none;
+`poster` needs `--ledger`); `coverage` each listed language's counts,
+`{}` for a game without translations; `exitStatus` what the run
+returns.
 
 The validator also warns about items no reading reaches. It replays the
 player's own flow with Play all routes on, which shows every item any
@@ -2131,11 +2189,14 @@ my-novel: base language en, 39 strings to translate
 de: 38 of 39 strings (97.4%), 1 stale, 0 unchecked, 1 missing
 ```
 
-The validator (Validating) reports every language on each run: a
-coverage line per language, and a warning for each missing string, each
-stale one (translated from an earlier wording of its original) and each
-translation much longer than its original. These are warnings, not
-problems: the game plays, showing the original where a line is missing.
+The validator (Validating) checks every language on each run: a
+warning for each missing string, each stale one (translated from an
+earlier wording of its original) and each translation much longer than
+its original. These are warnings, not problems: the game plays, showing
+the original where a line is missing, and the validator exits 0 unless
+`--strict` is given (exit 3). A complete translation prints nothing;
+`status`, `kinetic report` and `kinetic validate --json` give each
+language's coverage.
 A translated question must stay under 200 characters and a label under
 120, as in the base; those are problems.
 

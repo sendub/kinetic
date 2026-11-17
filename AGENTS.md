@@ -92,7 +92,12 @@ are implementing and docs/stack.md for settled decisions.
   `.venv/bin/pytest tools/test_translations.py
   converter/tests/test_po.py -q -n auto`.
 - Assemble and validate: `.venv/bin/kinetic assemble <content> <out>`,
-  `.venv/bin/kinetic validate <folder>`. Upgrade a game folder's player:
+  `.venv/bin/kinetic validate <folder> [--ledger FILE] [--strict]
+  [--json]` (silent and exit 0 when clean, languages included; problems
+  on stdout, exit 1; warnings on stderr with a count per kind, exit 0,
+  or 3 with `--strict`; 2 bad arguments; `--json` prints problems,
+  warnings by kind, per-language coverage and `exitStatus` as one
+  object; CREATE.md, "Validating"). Upgrade a game folder's player:
   `.venv/bin/kinetic upgrade <folder>` after `npm run build` (refuses a
   stale `player/dist/`; CREATE.md, "Upgrading to a newer Kinetic").
 - Media only, no story parse: `.venv/bin/kinetic media ship <game_root>
@@ -149,7 +154,8 @@ are implementing and docs/stack.md for settled decisions.
   `.venv/bin/kinetic report <folder> [--json]` (reading time per route
   by the Timing hold rule, speakers with line counts and look-alike
   names, `characters` and transition counts, text tag problems, files
-  nothing references, the 20 longest lines; exit 0 whenever it ran, 2
+  nothing references, the 20 longest lines, each language's
+  translation coverage; exit 0 whenever it ran, 2
   bad arguments or no readable manifest; CREATE.md, "Checking a
   conversion: kinetic report"). `kinetic routes <folder> [--dot |
   --json]` prints the branch structure as the branch map draws it

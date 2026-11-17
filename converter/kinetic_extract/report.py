@@ -50,6 +50,18 @@ the `--json` object:
   top, and hidden and system files.
 - `longestLines`: the 20 longest lines by shown code points, with id,
   speaker, length and their first 60 characters.
+- `coverage`: each listed language's translation coverage, computed
+  by the validator's own code (validate_content.language_coverage, the
+  same object `kinetic validate --json` prints): for each language
+  whose file loads, the base language left out, its base strings, the
+  translated ones, the missing rest, the stale (translated from an
+  earlier base text), unchecked (no `from`) and long (an item text over
+  1.5 times its base or the game's longest base text) ones among the
+  translated, and the percentage, rounded down to 0.1. `{}` for a folder
+  without languages, whose text report leaves the section out; a listed
+  language whose file does not load reads `no readable lang/<tag>.json`
+  there. The top-level `language` and `languages` keys hold the base
+  language and the listed tags.
 
 Where a decision the player keeps breaks the span rules of
 docs/content-format.md "Branches" (a route not after its `after` item,
@@ -76,7 +88,12 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from kinetic_extract import audio_format, language_file, text_tags
+from kinetic_extract import (
+    audio_format,
+    language_file,
+    text_tags,
+    validate_content,
+)
 from kinetic_extract.folder_model import (
     Decision,
     audio_tracks,
@@ -690,6 +707,9 @@ def build_report(folder: Path) -> dict[str, Any]:
         "height": manifest.get("height"),
         "items": len(items),
         "decisions": len(branches) if isinstance(branches, list) else 0,
+        "language": _str(manifest.get("language"))
+        or language_file.DEFAULT_LANGUAGE,
+        "languages": list(dict.fromkeys(_listed_languages(manifest))),
         "timing": timing_section(manifest),
         "speakers": speakers_section(manifest),
         "characters": characters_section(manifest),
@@ -697,6 +717,7 @@ def build_report(folder: Path) -> dict[str, Any]:
         "textTags": text_tags_section(manifest, languages),
         "unusedFiles": unused_files(folder, manifest, languages),
         "longestLines": longest_section(manifest),
+        "coverage": validate_content.language_coverage(manifest, folder),
     }
 
 
@@ -828,6 +849,23 @@ def format_text(report: dict[str, Any]) -> str:
         start = line["start"] + ("..." if line["cut"] else "")
         add(f"  {line['length']:>5}  {line['id']:<{id_width}}  "
             f"{line['speaker'] or '-':<{sp_width}}  \"{start}\"")
+
+    base = report["language"]
+    listed = [tag for tag in report["languages"] if tag != base]
+    if listed:
+        add("")
+        add(f"Translation coverage: {_plural(len(listed), 'language')}, "
+            f"base {base}")
+        for tag in listed:
+            c = report["coverage"].get(tag)
+            if c is None:
+                add(f"  {tag}: no readable {language_file.json_path(tag)}")
+                continue
+            shown = validate_content.percent_text(c["translated"],
+                                                  c["strings"])
+            add(f"  {tag}: {c['translated']} of {c['strings']} strings "
+                f"({shown}); {c['missing']} missing, {c['stale']} stale, "
+                f"{c['unchecked']} unchecked, {c['long']} long")
     return "\n".join(out) + "\n"
 
 
@@ -872,7 +910,8 @@ def register(subcommands: Any) -> None:
     """Add `report` to the `kinetic` command (kinetic_cli)."""
     argp = subcommands.add_parser(
         "report", help="what a game folder holds: reading time, speakers, "
-                       "unused files, long lines, text tag problems",
+                       "unused files, long lines, text tag problems, "
+                       "translation coverage",
         description=__doc__.split("\n\n")[0].replace("\n", " "))
     argp.add_argument("folder", help="the game folder (its manifest.json)")
     argp.add_argument("--json", action="store_true",

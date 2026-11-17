@@ -123,8 +123,9 @@ language file byte for byte.
 
 ## status
 
-Prints, per language in the manifest's `languages`, the validator's
-coverage line and the strings missing:
+Prints, per language in the manifest's `languages`, its coverage (the
+validator's counts, which `kinetic report` and `kinetic validate
+--json` also give) and the strings missing:
 
 ```text
 fixtures/lang-demo: base language en, 39 strings to translate

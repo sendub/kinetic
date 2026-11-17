@@ -1536,7 +1536,8 @@ start-0 item may keep a hand-made first-frame poster. Each warning is a
 `warning: ` line on stderr, such as `warning: manifest.json:
 items[15].poster: startSeconds 1.0, poster startSeconds 0.0 (poster
 made at another start)`, followed by a count. Warnings leave stdout's
-problem lines and the exit status alone. `kinetic-media posters`
+problem lines alone, and the exit status too unless `--strict` is given
+(exit 3). `kinetic-media posters`
 settles what the warning cannot, by pixels, and fixes.
 
 ## Reuse cache
@@ -1885,9 +1886,9 @@ not read), `pass` or empty, and unmatched (with up to five by
 disagreements (up to five examples); the strings used of those read;
 the blocks of several lines joined, duplicates, translations equal to
 the base text and, when there are any, items of `extend` lines with a
-part untranslated; the coverage line as the validator writes it (its
-stale count the translations kept as stale); and the ignored style
-blocks, python blocks and replacement files:
+part untranslated; the coverage in the words `tools/translations.py
+status` uses (its stale count the translations kept as stale); and the
+ignored style blocks, python blocks and replacement files:
 
 ```text
 translations: 2 language file(s) written (de, zh-Hans); skipped: klingon (unknown name)

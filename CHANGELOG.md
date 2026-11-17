@@ -112,6 +112,15 @@ something more of an author.
   verifies it there; elsewhere it stops with `made on <platform>;
   rebuild there to verify` (exit 3). Files the tools write have LF line
   ends on every system.
+- The validator suits a gate: a clean folder prints nothing at all,
+  translations included, since the per-language coverage lines (and
+  `0 poster warnings` with `--ledger`) are gone from its output.
+  `--strict` makes warnings of any kind exit 3 when there are no
+  problems (0 clean, 1 problems, 2 bad arguments, as before), and
+  `--json` prints problems, warnings grouped by kind, each language's
+  coverage and the exit status as one JSON object. `kinetic report`
+  gains a translation coverage section, counted by the validator's own
+  code (CREATE.md, "Validating").
 - **Upgrading:** a checkout's venv that has Kinetic installed under its
   old name needs `.venv/bin/pip uninstall kinetic-extract` before
   `.venv/bin/pip install -e ./converter --cache .tmp/pip-cache`. From
@@ -133,6 +142,12 @@ something more of an author.
   script that reads rebuild's exit status meets that new code. The
   reuse cache now keys on the platform, so the first conversion after
   upgrading encodes everything once more.
+- **Upgrading:** the validator no longer prints a coverage line per
+  language: read coverage from `kinetic report` or `kinetic validate
+  --json`. A gate can rely on silence and exit 0 when a folder is clean,
+  and add `--strict` to fail on warnings too (exit 3); a script that
+  matched the coverage lines or `0 poster warnings` on stderr needs
+  changing.
 - **Upgrading:** check-game now walks a game at its own size, so a line
   that fitted at 1280 x 720 may be reported as overflowing at a smaller
   game size; a test that reads check-game's output also meets the new

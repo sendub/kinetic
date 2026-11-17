@@ -5708,8 +5708,28 @@ truthful: an unchecked box means nothing was accepted.
       release_version and validate 471 passed; check clean; added
       non-ASCII lines are moved existing text only; package-proof
       28/28.)
-- [ ] The validator for gates (item 11b). Silent when clean, coverage
+- [x] The validator for gates (item 11b). Silent when clean, coverage
       in `kinetic report`, `--strict` exits 3 on warnings, `--json`.
+      (2026-11-17: `warnings_by_kind()` with fixed kinds (unreachable,
+      audio, voice, character, textTag, translation, poster), each
+      printing its lines and count only when it has warnings; the
+      coverage lines and the unconditional "0 poster warnings" gone
+      from the default output. `--strict`: warnings alone exit 3 (1
+      problems wins, 2 bad arguments). `--json`: problems, warnings by
+      kind (all seven keys), coverage per language (strings,
+      translated, missing, stale, unchecked, long, percent) and
+      exitStatus, nothing on stderr. `language_coverage()` shared with
+      a new report section "Translation coverage" (text, and `coverage`
+      in its JSON). CREATE.md (a `--strict` exit table and a `--json`
+      example), content-format, translating.md, extracting.md,
+      AGENTS.md, CHANGELOG with an Upgrading bullet. Subagent:
+      validate_content 473 (13 new gate tests), demo builders,
+      translations, report and others 261; converter and tools 1999;
+      npm test 1853. Orchestrator: demo silent, exit 0; lang-demo
+      `--strict` exit 3 with its 2 warnings; `--json` shape right with
+      stderr empty; a clean two-language folder silent on both streams,
+      exit 0 under `--strict`; report's coverage section; the four test
+      files 632; npm test 1853.)
 - [ ] Phase-closer (Phase 57): full suites; VERSION 1.12.0, the
       CHANGELOG dated, tag v1.12.0, `main` fast-forwarded, the wheel
       attached to the GitHub release.
