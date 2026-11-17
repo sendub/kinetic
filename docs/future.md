@@ -9,39 +9,6 @@ phases, and the user may take only some of its candidates. Each entry's
 "To settle" list holds the decisions to put to the user before the phase
 is planned.
 
-## Installable toolchain and Windows authoring (maybe, 2026-11-14)
-
-Today an author clones the repo, makes the venv, installs the converter,
-runs `tools/setup_media_tools.py`, runs `npm ci` and `npm run build` in
-`player/`, and needs Swift for the Mac app and Go for the Windows program
-(AGENTS.md, "Commands"). An author who only writes a story needs none of
-the Node toolchain if a release carries the built `index.html` and
-`app.js`.
-
-Candidates:
-
-- One `kinetic` command with subcommands for what is now spread across
-  `tools/validate_content.py`, `tools/assemble_folder.py`,
-  `tools/build_apps.py`, `kinetic-extract`, `kinetic-media` and
-  `player/scripts/testing/check-game.mjs`.
-- Installed from a release, such as a wheel holding the player bundle,
-  instead of from a clone.
-- CREATE.md reorganised around that command.
-- Windows authors. The pinned ffmpeg in `converter/media-tools.json` has
-  builds for macos-arm64, macos-x86_64, linux-x86_64 and linux-arm64
-  only, so `kinetic-extract`, `kinetic-media` and every media step refuse
-  to run on Windows. Pin a Windows build, whose golden-hash self-test must
-  then pass there, or document running the tools under WSL.
-
-To settle:
-
-- The release channel: a wheel on GitHub releases, PyPI, or a clone plus
-  one setup script.
-- Whether check-game keeps needing Node, or the command starts it.
-- A Windows ffmpeg pin, or WSL.
-- Whether this comes before "Authoring from scratch", whose new commands
-  would join the one command.
-
 ## Authoring from scratch (maybe, 2026-11-14)
 
 Today a hand-author writes the runtime format directly (CREATE.md,
@@ -117,32 +84,24 @@ To settle:
 
 ## Author checks and helpers (maybe, 2026-11-14)
 
-Today the validator checks a folder and warns on unreachable items
-(Phase 48), and check-game walks a folder in a browser and checks every
-media file (CREATE.md, "Testing your game").
+Phase 57 gives agents `kinetic report`, `kinetic routes` and `kinetic
+export`, which print text. The parts below serve a person looking at a
+screen, so they stayed here.
 
 Candidates:
 
-- **A report per game:**
-  - reading time per route, from docs/content-format.md, "Timing";
-  - speaker names with their line counts, since a name used once is
-    often a typo;
-  - files in the folder that no item uses;
-  - the longest lines, which may overflow the text box;
-  - placeholders left, once "Authoring from scratch" has them.
 - **The route graph** as a page or SVG for the author, from the branch
   map's model (`player/src/render/mapmodel.ts`).
 - **A video range picker.** A local page plays a clip and marks
   `startSeconds`, `endSeconds`, `loopStartSeconds` and segment times to
   the frame, then prints the manifest fields or script lines. Typing
   fractional seconds is the slowest part of writing a video item.
-- **A proofreading export.** Each route as readable HTML or Markdown for
-  an editor.
+- **Placeholders left** in `kinetic report`, once "Authoring from
+  scratch" has them.
 
 To settle:
 
 - Which of these.
-- Command output, or pages opened in a browser.
 
 ## Click and touch input (maybe, 2026-11-14)
 
@@ -178,13 +137,11 @@ Today `tools/build_apps.py` signs the Mac app ad hoc, for arm64 only
 the author builds opens with no prompt. From a downloaded zip the Mac
 app is refused and the Windows program meets SmartScreen (docs/stack.md,
 "Distribution decision"), so readers of a download use `index.html`.
-Intel Macs cannot run the app.
 
 Candidates:
 
 - Developer ID signing and notarization with the author's own Apple
   identity, as options on `tools/build_apps.py`.
-- A universal arm64 and x86_64 Mac binary.
 - Authenticode signing of the Windows program with the author's
   certificate.
 
@@ -195,33 +152,6 @@ To settle:
   never a secret in the repo).
 - Testing: agents cannot notarize without the user's Apple account, so
   the user runs that check.
-
-## Text and presentation (maybe, 2026-11-14)
-
-Today the overlay draws every speaker's lines in one style, lines are
-plain text, the font is fixed, and a new visual replaces the old one at
-once. README.md, "Not supported", lists title and menu screens.
-
-Candidates:
-
-- **A colour per speaker** from an optional top-level `characters` table
-  (name to colour, perhaps a display name).
-- **Emphasis inside a line** (italic, bold) through a small markup, still
-  set as text, never as HTML.
-- **The game's own font**, a file in the folder.
-- **A crossfade between visuals** that never delays navigation: the new
-  visual paints within the 41 ms target and fades in over the old one,
-  and skip, the wheel and jumps never fade.
-- **Title, credits and content warnings.** These are already possible as
-  image and text items at the start or end of the story; document the
-  pattern in CREATE.md instead of adding screens.
-
-To settle:
-
-- Which of these.
-- A crossfade for the whole game or per item, and its length.
-- The markup syntax.
-- Which font formats to accept.
 
 ## Accessibility (maybe, 2026-11-14)
 
@@ -289,3 +219,5 @@ To settle:
   (the user, 2026-11-16: game developers choose badly; a good, readable
   system font is wanted). The player picks system fonts by writing
   system.
+- Intel Macs (the user, 2026-11-17): the Mac app stays arm64 only, and
+  the media tools have no `macos-x86_64` pin.

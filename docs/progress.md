@@ -5257,3 +5257,38 @@ truthful: an unchecked box means nothing was accepted.
       VERSION, package.json, its lockfile and pyproject 1.11.0; the
       CHANGELOG entry dated; tag v1.11.0; develop and `main`
       fast-forwarded; the `language` branch deleted.)
+
+## Phase 57: An installable toolchain, and checks for agent conversions (2026-11-17, user)
+
+- [ ] The format (docs/plan.md Phase 57, item 1). `characters` with
+      speaker colours, per-item `transition`, text tags in
+      content-format.md and the validator; the demo uses each.
+- [ ] The player draws tags and colours (item 2). Emphasis as DOM
+      elements, timing tags dropped, speaker colours, reading time
+      counting shown characters.
+- [ ] The player's transitions (item 3). `dissolve` and `fade` that
+      never delay navigation or text; navigation p95 within noise.
+- [ ] The converter carries Ren'Py's presentation (item 4). Character
+      colours and `with` transitions mapped; other transitions cut and
+      counted in the conversion report.
+- [ ] `kinetic report` (item 5). Reading time per route, speakers,
+      unused files, longest lines, unknown tags; check-game reports
+      overflowing lines.
+- [ ] `kinetic routes` (item 6). The branch structure as an outline,
+      DOT and JSON, agreeing with the branch map's model.
+- [ ] `kinetic export` (item 7). Each route as Markdown with item ids,
+      in any language of the folder.
+- [ ] Media tools for Windows and Linux (item 8). Windows and
+      linux-x86_64 pinned against the shared goldens, `macos-x86_64`
+      dropped, AGENTS.md's pin rule rewritten.
+- [ ] The `kinetic` command and the wheel (item 9). One command with
+      the old names as wrappers, the player bundle and a bundled
+      check-game inside; installs and runs from a fresh venv.
+- [ ] Prebuilt app hosts (item 10). Hosts read their story settings at
+      launch; `kinetic apps` builds both apps with no Swift or Go.
+- [ ] Release and install docs (item 11). CREATE.md around `kinetic`,
+      AGENTS.md and README.md, the closer's wheel step, package-proof's
+      wheel stage.
+- [ ] Phase-closer (Phase 57): full suites; VERSION 1.12.0, the
+      CHANGELOG dated, tag v1.12.0, `main` fast-forwarded, the wheel
+      attached to the GitHub release.

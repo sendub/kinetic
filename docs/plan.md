@@ -4036,6 +4036,225 @@ Sequencing: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11,
 serial. Items 8 and 9 need only item 1 and may run before 3 if the
 player items stall.
 
+## Phase 57: An installable toolchain, and checks for agent conversions (2026-11-17, user)
+
+The user asked which docs/future.md entries would help an agent convert
+an existing Ren'Py game, then scheduled the useful parts: the author
+checks an agent can read (a report per game, the route structure as
+text, a proofreading export), the Ren'Py presentation a conversion
+loses today (speaker colours, emphasis, crossfades, plus a documented
+title and credits pattern), and the installable toolchain with a
+Windows ffmpeg pin. Parts that serve only a person stay in
+docs/future.md: the video range picker and the route graph drawn as a
+page or SVG. The entries "Installable toolchain and Windows authoring"
+and "Text and presentation" are removed from there; "Author checks and
+helpers" keeps the person-only parts. Fonts stay unwanted (docs/future.md,
+"Not wanted").
+
+The repo moved to the public `sendub/kinetic` on 2026-11-17, so a
+release download needs no sign-in.
+
+The user's decisions (2026-11-17):
+
+- **Installed from a wheel attached to each GitHub release**, with
+  `pip install <release-url>`. The phase-closer builds the wheel and
+  attaches it to the release from now on.
+- **`kinetic check` runs check-game with the system Node.** The wheel
+  carries check-game with puppeteer-core bundled into one file, so no
+  `npm ci` and no clone; Node and Chrome (or the WebKit driver on
+  macOS) stay prerequisites.
+- **Emphasis is Ren'Py's own text tags.** The player honours `{i}`,
+  `{b}`, `{u}` and `{s}` with their closing tags; `{{` is a literal
+  brace. It drops the tags that only time the text (`{w}`, `{w=N}`,
+  `{nw}`, `{fast}`, `{cps=N}`), shows `{p}` as a line break, and keeps
+  the inner text of any other tag (`{size}`, `{font}`, `{a}`,
+  `{color}`). Converted folders already hold these tags literally, so
+  upgrading their player is enough. An older player shows the braces,
+  as it does today.
+- **Crossfades are set per item, in two kinds**: an optional
+  `transition` on a visual item, `{"kind": "dissolve", "seconds": S}`
+  or `{"kind": "fade", "out": S, "hold": S, "in": S}` (through black).
+  The converter maps Ren'Py's `dissolve`, `Dissolve(t)`, `fade` and
+  `Fade(out, hold, in)`; any other transition becomes a cut and is
+  listed in the conversion report.
+- **The Windows ffmpeg pin must match the shared goldens.** No pinned
+  publisher builds Windows, so the item tries ffmpeg 9.0.2 builds from
+  other publishers (gyan.dev, BtbN) on the user's Windows PC and pins
+  the first whose self-test matches every existing golden. If none
+  does, the item stops and reports to the user, who may then allow
+  per-platform goldens.
+- **The orchestrator records new pins**, under rules AGENTS.md gains:
+  only by running `--pin` on that platform, only when the download
+  matches the publisher's checksum, only while every shared golden
+  matches, and listing every hash recorded in the evidence note. This
+  phase pins Windows and linux-x86_64 (WSL on the same PC);
+  linux-arm64 stays null with a setup error saying so. `macos-x86_64`
+  is dropped: Intel Macs are not supported, as the Mac app is already
+  arm64 only.
+- **The apps come from prebuilt hosts in the wheel**, so making them
+  needs no Swift or Go. Each release builds the Mac host and the
+  Windows host once; `kinetic apps` writes each game's title, storyId
+  and icon into its copy. The hosts read those settings at launch,
+  which costs well under a millisecond and nothing afterwards (the Mac
+  from Info.plist, which macOS reads anyway; the exe from one small
+  resource).
+
+The orchestrator's choices, within those decisions:
+
+- **One command, old names kept.** `kinetic` has subcommands `setup`,
+  `extract`, `media` (`ship`, `rebuild`, `posters`), `validate`,
+  `assemble`, `apps`, `upgrade`, `check`, `report`, `routes`, `export`
+  and `--version`. `kinetic-extract`, `kinetic-media` and the
+  `tools/*.py` scripts keep working as thin wrappers, so existing
+  agent notes and folders' instructions stay true.
+- **Checks print for an agent.** `report`, `routes` and `export` write
+  plain text by default and JSON with `--json`; none opens a page.
+- **Speaker colours**: an optional top-level `characters` table, keyed
+  by the manifest's `speaker` string, each with optional `nameColor`
+  and `textColor` as `#rrggbb`. A language file's `speakers` table
+  changes only the name drawn, so a translated name keeps its colour.
+  The converter fills the table from `Character(...)`'s literal
+  `color`, `who_color` and `what_color`.
+- **Reading time counts what is shown.** The hold rule
+  (docs/content-format.md, "Timing") counts the code points left after
+  the tags are read, not the tags.
+- **Transitions never delay navigation or text.** The item's text and
+  speaker show at once; only the picture under them changes over time.
+  Skip, the wheel, back, jumps (map, bookmark, `#start`) and
+  `prefers-reduced-motion` cut. A key pressed during a transition ends
+  it at once and moves on. Auto-forward's hold starts when the item
+  shows, as now.
+- **Version.** New optional manifest fields, so the phase closes as the
+  minor 1.12.0; `schemaVersion` stays 1.
+
+1. The format. Schema, docs/content-format.md, `types.ts` and the
+   validator for `characters` (`nameColor` and `textColor` as
+   `#rrggbb`; a key no item's `speaker` uses is a warning; a colour
+   whose contrast with the text band is below 4.5:1 is a warning),
+   `transition` on `image`, `animation` and `video` items (`dissolve`
+   seconds above 0 and at most 5; `fade` parts each 0 to 5, with `out`
+   or `in` above 0; any other kind is an error), and text tags in
+   `text`, prompts, labels and language files (an unknown or unclosed
+   tag is a warning; a tag never makes a text invalid). Content-format
+   gains a "Text tags" section with the table of tags and what the
+   player does with each, and "Timing" says the count excludes tags.
+   `fixtures/build_demo.py` gains a coloured speaker, a line with
+   `{i}` and `{b}`, a dissolve and a fade. Tests: validator cases for
+   each rule; the demo validates.
+2. The player draws tags and colours. Emphasis is built as DOM
+   elements from the parsed tags, never through HTML; timing tags go,
+   `{p}` breaks the line, other tags leave their inner text. Lines,
+   prompts, route labels and language-file text all go through the
+   same parser; the branch map, the end card and the help draw the
+   plain text. Speaker colours apply to the name and the line, the
+   thought style still distinguishes thoughts, and right-to-left text
+   keeps working. Reading time counts shown code points. Tests: unit
+   tests for the parser (every tag in the table, nesting, unclosed and
+   unknown tags, `{{`, right-to-left text); scenario checks in Chrome
+   and WebKit that italic and colour reach the page and no brace shows
+   on the demo.
+3. The player's transitions. `dissolve` fades the new picture in over
+   the old; `fade` takes the old to black over `out`, holds, and brings
+   the new in over `in`, all on the compositor (opacity only). The new
+   item's first paint stays inside the 41 ms budget, the rules under
+   "Transitions never delay navigation or text" hold, and a video's
+   playback starts at once under its fade. Tests: unit tests for the
+   rules (each cut case, a key during a transition, reduced motion);
+   scenario checks in Chrome and WebKit; `npm run perf` navigation p95
+   within noise of 1.11.0.
+4. The converter carries Ren'Py's presentation. Character colours from
+   literal `color`, `who_color` and `what_color` (`#rgb`, `#rrggbb`,
+   and `#rrggbbaa` with its alpha dropped) into `characters`; text tags
+   stay in the text as now. `with` clauses and statements (`scene x
+   with dissolve`, a bare `with fade`, `show ... with`) give the next
+   visual item its `transition`, for `dissolve`, `fade`, `Dissolve(t)`,
+   `Fade(out, hold, in)` and `define`d names bound to those calls;
+   `with None` and every other transition give a cut, counted by name
+   in the conversion report. docs/extracting.md says how each maps.
+   Tests: synthetic converter cases for each form; a read-only run on
+   two corpus games reports how many lines got colours and how many
+   transitions mapped or were cut, in the evidence note without naming
+   the games.
+5. `kinetic report <folder>`. Reading time per route from "Timing",
+   speakers with line counts (names that differ only in case,
+   spacing, or by one letter are flagged), files in the folder no item
+   or track uses, the 20 longest lines by shown characters, and the
+   unknown tags met. `check-game` also reports a line whose text
+   overflows its band at the folder's size, measured in the page during
+   the walk, since an agent cannot see the screen. Tests: report tests
+   on a synthetic folder with each finding; a check-game test with an
+   overflowing line.
+6. `kinetic routes <folder>`. The branch structure as an indented
+   outline: each decision with its prompt, each route with its label,
+   item count, first and last item ids, and where it ends or rejoins;
+   `--dot` prints Graphviz DOT; `--json` the same model. It follows the
+   branch map's model (`player/src/render/mapmodel.ts`) and the
+   validator's reachability, and a test keeps their route counts equal
+   on the fixtures. Tests: outline, DOT and JSON on the demo and on a
+   synthetic folder with nested decisions and rejoins.
+7. `kinetic export <folder> [--lang TAG]`. Each route as Markdown:
+   `Speaker: text` lines with tags read, choices with their labels,
+   media file names as comments, and item ids as anchors, so an agent
+   can lay a route beside its `.rpy` source. Tests: export of the demo
+   and of `fixtures/lang-demo` in German.
+8. Media tools for Windows and Linux. Drop `macos-x86_64` from
+   `converter/media-tools.json` and the docs. On the user's Windows PC
+   over SSH (the user's global notes say how), try ffmpeg 9.0.2 builds
+   from gyan.dev and BtbN and pin the first whose self-test matches
+   every shared golden, recording the checksum only when it matches the
+   publisher's; if none matches, stop and report the differing cases to
+   the user. Pin linux-x86_64 in WSL on the same PC the same way.
+   linux-arm64 keeps its null pin and setup says so. The media tools
+   run on Windows (`.exe` names, paths with drive letters and spaces,
+   process spawning). AGENTS.md's pin rule is rewritten as the user
+   decided. Remove what was installed on the PC afterwards. Tests:
+   setup tests for the Windows platform key and the null-pin message;
+   the self-test and a demo conversion on Windows and in WSL, in the
+   evidence note.
+9. The `kinetic` command and the wheel. A package holding the
+   subcommands above (the converter, the tools moved in, the old names
+   as wrappers), the built player bundle, the schemas, and check-game
+   bundled with puppeteer-core by esbuild into one file run by the
+   system Node (a clear error names the Node version needed when it is
+   missing or old). `tools/build_wheel.py` builds the wheel from a
+   clean `npm run build`. Tests: a wheel test that installs into a
+   fresh venv under `.tmp/` and runs every subcommand's `--help` and
+   `kinetic check` on the demo in Chrome.
+10. Prebuilt app hosts. The Mac host reads storyId and title from its
+    Info.plist and the Windows host from an RCDATA settings resource,
+    in place of values compiled in. The release build compiles both
+    once into the wheel (the WebKit driver too, so `kinetic check` uses
+    WebKit on macOS without Swift). `kinetic apps` copies them: for the
+    Mac it writes Info.plist and the icon and signs the bundle ad hoc
+    with `codesign` (so the Mac app still needs macOS); for Windows it
+    rewrites the exe's resources (icon, version, settings) from any OS,
+    extending `tools/windows_resources.py`, with the release build
+    keeping `.rsrc` as the exe's last section so it can be replaced.
+    Both hosts gain a `--self-check` that prints their settings and
+    exits without a window. Tests: Swift and Go tests for reading the
+    settings; Python tests that a rewritten exe parses and reads back
+    its resources; `--self-check` on a built Mac app and, over SSH, on
+    the Windows PC; apps built from the wheel with no Swift or Go on
+    PATH.
+11. Release and install docs. CREATE.md is reorganised around
+    `kinetic`: installing from a release, converting a Ren'Py game with
+    `report`, `routes`, `export` and `check` as the agent's checks, the
+    text tags, speaker colours and transitions, and the title, credits
+    and content warnings pattern (image and text items at the start or
+    end, no new screens). AGENTS.md's Commands section and README.md
+    follow, and AGENTS.md's Versions paragraph gains the closer's wheel
+    step: build the wheel and attach it to the release with the
+    `sendub` account. `package-proof` gains a wheel stage: install the
+    wheel in a fresh venv, run setup, convert the extract demo, report,
+    check and build both apps. Tests: package-proof.
+12. Phase-closer: full suites; VERSION 1.12.0, the CHANGELOG dated,
+    tag, `main` fast-forwarded, and the wheel attached to the GitHub
+    release v1.12.0.
+
+Sequencing: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 ->
+12, serial. Items 5 to 7 need only item 1, and item 8 needs nothing
+before it, so either may move earlier if the player items stall.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
