@@ -57,7 +57,8 @@ already reports as "image not defined".
 
 The CLI gained `--label NAME` (start the walk at that label),
 `--max-items N` (stop after N items), and `--files GLOB` (restrict the
-parsed `.rpy` files). Smoke runs (2026-02-13):
+walked scripts: Which scripts are walked, below). Smoke runs
+(2026-02-13):
 
 - fixture: `kinetic-extract fixtures/renpy_demo .tmp/slice-demo --label
   inside --max-items 3` → exit 0, 3 items (image 2, text 1), valid
@@ -66,6 +67,42 @@ parsed `.rpy` files). Smoke runs (2026-02-13):
   → exit 0, 5 items (image 5, media shipped 0 — scene
   names are unresolved dynamic references; item slots and sources are
   recorded in the ledger).
+
+### Which scripts are walked
+
+One function decides it, `walked_scripts` in
+`converter/kinetic_extract/parser.py`, and both the story walk and the
+translation identifiers (Translations, below) use it, so a script the
+walk does not read neither hides another nor feeds identifiers
+(docs/plan.md Phase 54 item 9d):
+
+- **In scope**: the loose `.rpy` and `.rpyc` files at the top level of
+  `game/`, the loose files `--files` reaches (its pattern with either
+  extension, so `chapters/*.rpy` brings in `chapters/`), and every
+  `.rpy` and `.rpyc` member of the `game/*.rpa` archives, at any depth.
+  `tl/` is never in scope. A loose script in a subfolder that `--files`
+  does not reach is not walked, and an archived script with the same
+  path is walked instead.
+- **One source per path**: a loose file in scope beats an archive member
+  with the same key, an earlier archive (in name order) beats a later
+  one, and a `.rpy`, loose or archived, beats the `.rpyc` with the same
+  path, which may be stale. The ledger lists what lost: `rpycIgnoredTwins`
+  for a loose `.rpyc`, `rpaIgnoredTwins` for a member, with the reason.
+- **`--files GLOB` chooses** among those: a `.rpy` whose path matches
+  GLOB, and a `.rpyc` whose path matches GLOB with a final `.rpy` read
+  as `.rpyc`, so `--files "*.rpy"` and `--files script.rpy` also take a
+  compiled script that has no `.rpy`. A pattern ending in `.rpyc`
+  chooses only compiled scripts, and one with no script extension
+  (`cred*`) chooses both kinds. Loose files match as a glob from
+  `game/` (`*` stays in one folder); archive members match on their key
+  or on their file name (`*` crosses folders), so `--files "*.rpy"`
+  takes every archived script but only the top-level loose ones, the
+  same set as no `--files` at all. The `.rpy` that beats a chosen
+  `.rpyc` is looked for whatever `--files` says.
+
+The walk reads the chosen scripts in file-name order (loose `.rpy`,
+loose `.rpyc`, then archive members, sorted by file name with ties in
+that order).
 
 ## Several episodes, one game
 
@@ -1426,9 +1463,9 @@ What is read, per language:
 - **Dialogue blocks**, `translate <language> <identifier>:`. Each is
   matched to the item made from the same say statement by Ren'Py's own
   translation identifier, which kinetic-extract computes from the game's
-  `.rpy` sources (every `.rpy` under `game/` outside `tl/`, loose or
-  inside an archive, a loose file winning over an archived one with the
-  same path, in Ren'Py's load order) as Ren'Py does (`renpy/translation/__init__.py`
+  `.rpy` sources (the `.rpy` scripts the walk reads, with the run's
+  `--files`: Slice support, "Which scripts are walked", above; in
+  Ren'Py's load order) as Ren'Py does (`renpy/translation/__init__.py`
   and `Say.get_code()` in `renpy/ast.py`): the enclosing label (`.` as
   `_`), `_`, and the first 8 hex digits of the MD5 of the say
   statement's code in Ren'Py's canonical form (speaker, attributes,

@@ -53,7 +53,7 @@ from typing import Any
 
 from .language_file import base_hash, canonical_tag
 from .parser import (LABEL_MAX, PROMPT_MAX, _parse_quoted,
-                     creator_statement_names)
+                     creator_statement_names, walked_scripts)
 from .rpa import RpaArchive, RpaError, archives_in
 
 TL_DIR = "tl"
@@ -861,28 +861,17 @@ class _GameFile:
         return data.decode("utf-8-sig", errors="replace")
 
 
-def source_files(game_dir: Path) -> list[_GameFile]:
-    """Every ``.rpy`` script of the game outside ``tl/``: loose under
-    `game_dir`, and inside its .rpa archives (an archive member whose key
-    a loose file or an earlier archive has is left out), in Ren'Py's load
-    order (by path under game/, without the extension). A compiled-only
-    ``.rpyc`` is not read: the lines it holds have no identifiers here."""
-    found: dict[str, _GameFile] = {}
-    for path in game_dir.rglob("*.rpy"):
-        key = path.relative_to(game_dir).as_posix()
-        if key.split("/", 1)[0] == TL_DIR or not path.is_file():
-            continue
-        found[key] = _GameFile(key, f"game/{key}", path=path)
-    for arc in archives_in(game_dir):
-        try:
-            names = arc.names()
-        except RpaError:
-            continue    # the walk reports an archive it cannot index
-        for key in names:
-            if (key.endswith(".rpy") and key.split("/", 1)[0] != TL_DIR
-                    and key not in found):
-                found[key] = _GameFile(key, f"game/{arc.path.name}!{key}",
-                                       archive=arc, member=key)
+def source_files(game_dir: Path,
+                 files_glob: str | None = None) -> list[_GameFile]:
+    """The walked ``.rpy`` scripts (kinetic_extract.parser.walked_scripts,
+    with the run's ``--files``), in Ren'Py's load order (by path under
+    game/, without the extension): a script the walk does not read feeds
+    no identifiers. A compiled-only ``.rpyc`` is not read: the lines it
+    holds have no identifiers here."""
+    found = {e.key: _GameFile(e.key, e.rel, path=e.path, archive=e.archive,
+                              member=None if e.path else e.key)
+             for e in walked_scripts(game_dir, files_glob).entries
+             if e.kind == "rpy"}
     return [found[k] for k in sorted(found, key=lambda k: k[:-len(".rpy")])]
 
 
@@ -1014,7 +1003,8 @@ def _tl_files(game_dir: Path) -> list[_GameFile]:
     """Every file under `game_dir`/tl/, loose, then in the game's .rpa
     archives (Ren'Py reads translations from both); an archive member
     whose key a loose file or an earlier archive already has is left
-    out, as kinetic_extract.rpa.script_entries leaves out script twins."""
+    out, as kinetic_extract.parser.walked_scripts leaves out script
+    members."""
     files: dict[str, _GameFile] = {}
     tl = game_dir / TL_DIR
     if tl.is_dir():
@@ -1229,12 +1219,15 @@ class _Part:
 
 def read_project(game_dir: Path, records: list[Any],
                  overrides: dict[str, str] | None = None,
-                 base: str = "en") -> ProjectTranslations:
+                 base: str = "en",
+                 files_glob: str | None = None) -> ProjectTranslations:
     """Read `game_dir`'s tl/ and give each walked item record
     (`records`, kinetic_extract.timeline.ItemRecord, matched by the
     sources of its ``text_parts``) its translations,
     ``record.translations[tag]``, and for one made from English that has
-    changed since, ``record.translation_bases[tag]``, that English."""
+    changed since, ``record.translation_bases[tag]``, that English. The
+    identifiers come from the scripts the walk read with ``files_glob``
+    (its ``--files``)."""
     project = ProjectTranslations()
     read = read_tl(game_dir)
     if not read:
@@ -1244,7 +1237,7 @@ def read_project(game_dir: Path, records: list[Any],
     if not languages:
         return project
     texts, item_files = [], {}
-    for source in source_files(game_dir):
+    for source in source_files(game_dir, files_glob):
         text = source.text()
         if text is not None:
             # Ren'Py names an archived script by its path under game/,

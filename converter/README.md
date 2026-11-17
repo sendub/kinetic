@@ -165,8 +165,10 @@ ledger with the hook's code hash (docs/extracting.md, "Decoder hooks").
 
 Slice options (docs/plan.md Phase 11) extract part of a big game:
 `--label NAME` starts the walk at that label, `--max-items N` stops
-after N manifest items, and `--files GLOB` parses only the `game/*.rpy`
-files matching GLOB (filename order). With none of them the whole
+after N manifest items, and `--files GLOB` walks only the scripts
+matching GLOB, loose or archived (a `.rpy` pattern also takes a `.rpyc`
+with no `.rpy`; docs/extracting.md, "Which scripts are walked"). With
+none of them the whole
 project is extracted, as before. Requested slice options are recorded
 under `slice` in `build-ledger.json`.
 

@@ -36,6 +36,7 @@ Design notes:
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 from dataclasses import dataclass, field
@@ -905,30 +906,167 @@ def _in_tl(path: Path, game_dir: Path) -> bool:
         return False
 
 
+@dataclass
+class ScriptSource:
+    """One script the walk reads: a loose file (``path``) or an archive
+    member (``archive``, a kinetic_extract.rpa.RpaArchive, and its key)."""
+
+    key: str                    # its path under game/, "x.rpy"
+    rel: str                    # its ledger name, "game/x.rpy" or
+                                # "game/<archive>.rpa!x.rpy"
+    kind: str                   # "rpy" or "rpyc"
+    path: Path | None = None
+    archive: object | None = None
+
+
+@dataclass
+class WalkedScripts:
+    """The scripts the walk reads and what was left out, for the ledger
+    (parse_project's ``sources``)."""
+
+    entries: list[ScriptSource]     # in walk order
+    ignored_twins: list[dict]       # loose .rpyc skipped for a .rpy
+    rpa_ignored: list[dict]         # archive members skipped
+    rpa_failed: list[dict]          # archives whose index is unreadable
+
+
+def _scope_globs(files_glob: str | None) -> list[str]:
+    """The globs whose loose scripts are in scope beside the top level:
+    ``--files`` with either script extension, so a pattern for one kind
+    still finds the other's twin."""
+    if files_glob is None:
+        return []
+    if files_glob.endswith(".rpy"):
+        return [files_glob, files_glob + "c"]
+    if files_glob.endswith(".rpyc"):
+        return [files_glob[:-1], files_glob]
+    return [files_glob]
+
+
+def walked_scripts(game_dir: Path,
+                   files_glob: str | None = None) -> WalkedScripts:
+    """Decide which scripts the walk reads (docs/extracting.md, "Which
+    scripts are walked"); the walk and the translation identifiers both
+    use this, so a script that is not walked neither shadows another nor
+    feeds identifiers.
+
+    The game's scripts, outside ``tl/`` (Ren'Py's translations, never
+    story flow, whatever ``--files`` says): the loose ``.rpy`` and
+    ``.rpyc`` at the top level of ``game/`` and those ``--files`` reaches
+    (its pattern with either extension), and every script member of the
+    ``game/*.rpa`` archives. One source per path: a loose file beats an
+    archive member with the same key, an earlier archive (name order) a
+    later one, and a ``.rpy`` (loose or archived) beats the ``.rpyc``
+    with the same path, which may be stale. ``--files`` then chooses: a
+    ``.rpy`` matching it and a ``.rpyc`` matching it with ``.rpy`` read
+    as ``.rpyc`` (so ``*.rpy`` takes a compiled script that has no
+    ``.rpy``), loose files by glob from ``game/``, archive members by
+    their key or file name. Entries are in filename order (loose
+    ``.rpy``, loose ``.rpyc``, then archive members in archive and key
+    order, stably sorted by file name); a source left out that
+    ``--files`` chose is listed with the reason."""
+    from . import rpa as rpa_mod
+    game_dir = Path(game_dir)
+
+    def scripts(pattern: str) -> list[Path]:
+        return [p for p in sorted(game_dir.glob(pattern))
+                if p.name.endswith((".rpy", ".rpyc"))
+                and not _in_tl(p, game_dir) and p.is_file()]
+
+    def chosen(key: str) -> bool:
+        """Whether ``--files`` chooses the script at this path."""
+        if files_glob is None:
+            return True
+        pattern = files_glob if key.endswith(".rpy") \
+            else _rpyc_glob(files_glob)
+        return fnmatch.fnmatch(key, pattern) \
+            or fnmatch.fnmatch(Path(key).name, pattern)
+
+    def key_of(path: Path) -> str:
+        return _ledger_rel(path, game_dir)[len("game/"):]
+
+    loose: dict[str, Path] = {}
+    for pattern in ["*.rpy", "*.rpyc", *_scope_globs(files_glob)]:
+        for path in scripts(pattern):
+            loose.setdefault(key_of(path), path)
+    archived: dict[str, object] = {}
+    entries: list[ScriptSource] = []
+    ignored_twins: list[dict] = []
+    rpa_ignored: list[dict] = []
+    rpa_failed: list[dict] = []
+    for arc in rpa_mod.archives_in(game_dir):
+        try:
+            names = arc.names()
+        except rpa_mod.RpaError as exc:
+            rpa_failed.append({"archive": arc.path.name, "error": str(exc)})
+            continue
+        for key in names:
+            if not rpa_mod.is_script(key):
+                continue
+            if key not in loose and key not in archived:
+                archived[key] = arc
+            elif chosen(key):
+                rpa_ignored.append({
+                    "member": key, "archive": _ledger_rel(arc.path, game_dir),
+                    "reason": ("loose file with the same key" if key in loose
+                               else "an earlier archive has the same key")})
+
+    def rpy_twin(key: str) -> str | None:
+        """The ledger name of the .rpy that beats a .rpyc, if any."""
+        twin = key[:-1]
+        if twin in loose:
+            return _ledger_rel(loose[twin], game_dir)
+        if twin in archived:
+            return f"{_ledger_rel(archived[twin].path, game_dir)}!{twin}"
+        return None
+
+    # Loose files in glob order: the order the walk has always had for
+    # files with the same name in different folders.
+    for pattern, kind in ((files_glob or "*.rpy", "rpy"),
+                          (_rpyc_glob(files_glob), "rpyc")):
+        for path in scripts(pattern):
+            key = key_of(path)
+            if not key.endswith(f".{kind}"):
+                continue
+            kept = rpy_twin(key) if kind == "rpyc" else None
+            if kept is not None:
+                ignored_twins.append({"rpyc": f"game/{key}", "kept": kept})
+            else:
+                entries.append(ScriptSource(key, f"game/{key}", kind, path))
+    for key, arc in archived.items():   # archive order, then key order
+        if not chosen(key):
+            continue
+        kind = "rpy" if key.endswith(".rpy") else "rpyc"
+        where = _ledger_rel(arc.path, game_dir)
+        kept = rpy_twin(key) if kind == "rpyc" else None
+        if kept is not None:
+            rpa_ignored.append({"member": key, "archive": where,
+                                "reason": "a .rpy with the same path",
+                                "kept": kept})
+        else:
+            entries.append(ScriptSource(key, f"{where}!{key}", kind,
+                                        archive=arc))
+    entries.sort(key=lambda e: Path(e.key).name)
+    return WalkedScripts(entries, ignored_twins, rpa_ignored, rpa_failed)
+
+
 def parse_project(game_dir: Path, files_glob: str | None = None,
                   cache_dir: Path | None = None,
                   ) -> tuple[list[tuple[str, FileParse]],
                              dict[str, str], dict[str, str], dict]:
     """Parse the project's script sources in filename order.
 
-    ``.rpy`` sources are read directly; a ``.rpyc`` with no same-stem
-    ``.rpy`` (a compiled-only script) is decompiled in memory through the
-    vendored unrpyc and parsed from that text (nothing is written into the
-    corpus; the text is cached — see kinetic_extract.rpyc). When both a
-    ``.rpy`` and a ``.rpyc`` exist for one stem, the ``.rpy`` wins and the
-    stale ``.rpyc`` is left alone (the survey's stale-twin case).
-
-    Script members inside ``game/*.rpa`` archives join the same
-    filename-ordered walk (an archive-only game like game E keeps
-    its scripts in ``scripts.rpa``); a loose file always beats an
-    archive member with the same key, and the ledger names the source
-    ``game/<archive>!<key>``. A ``.rpy`` beats a ``.rpyc`` with the same
-    path wherever either is, loose or archived, so a pair is walked once.
-    A ``.rpyc`` member decompiles through the same rpyc.py path after
-    being extracted to the shared cache dir.
+    The scripts are those walked_scripts chooses. ``.rpy`` sources are
+    read directly; a ``.rpyc`` (a compiled-only script) is decompiled in
+    memory through the vendored unrpyc and parsed from that text (nothing
+    is written into the corpus; the text is cached — see
+    kinetic_extract.rpyc); an archive member is read from its archive, a
+    ``.rpyc`` member after being extracted to the shared cache dir, and
+    the ledger names it ``game/<archive>!<key>``.
 
     ``files_glob`` restricts which files feed the walk (relative to
-    ``game/``, filename order; default every ``.rpy`` and its ``.rpyc``).
+    ``game/``, filename order; default every top-level ``.rpy``, every
+    archived one, and each ``.rpyc`` without a ``.rpy``).
 
     Returns ``(parses, image_defs, characters, sources)`` where ``parses``
     is the per-file parse list (the decompiled entries carry a
@@ -942,58 +1080,16 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     ``rpaFailed`` (archives whose index could not be read). Concatenating
     the files in filename order is an MVP simplification.
     """
-    # game/tl/ holds Ren'Py's translations, never story flow
-    # (kinetic_extract.translations reads it), whatever --files says.
-    rpy_files = [p for p in sorted(game_dir.glob(files_glob or "*.rpy"))
-                 if not _in_tl(p, game_dir)]
-    rpyc_files = [p for p in sorted(game_dir.glob(_rpyc_glob(files_glob)))
-                  if not _in_tl(p, game_dir)]
-
-    # Merge both kinds into one filename-ordered plan. A .rpy always beats a
-    # same-stem .rpyc (which may be stale); a .rpyc is used only when no
-    # .rpy exists on disk for it.
-    plan: list[tuple[str, Path | None, str, object, str]] = []
-    # (sort_key, loose path or None, kind, RpaArchive or None, member key)
-    sources: dict = {"decompiled": [], "ignoredTwins": [], "failed": [],
-                     "rpaScripts": [], "rpaIgnoredTwins": [],
-                     "rpaFailed": []}
     from . import rpa as rpa_mod
-    try:
-        archive_entries, rpa_failed, rpa_ignored = rpa_mod.script_entries(
-            game_dir, files_glob)
-        archived = rpa_mod.script_members(game_dir)
-    except rpa_mod.RpaError as exc:  # index unreadable even while listing
-        archive_entries, rpa_failed, rpa_ignored = [], [
-            {"archive": str(game_dir), "error": str(exc)}], []
-        archived = {}
-    for path in rpy_files:
-        plan.append((path.name, path, "rpy", None, ""))
-    for path in rpyc_files:
-        twin = path.with_suffix(".rpy")
-        twin_key = _ledger_rel(twin, game_dir)[len("game/"):]
-        if twin.exists():
-            kept = _ledger_rel(twin, game_dir)
-        elif twin_key in archived:
-            # An archived .rpy beats a loose .rpyc as a loose one does.
-            kept = (f"{_ledger_rel(archived[twin_key].path, game_dir)}"
-                    f"!{twin_key}")
-        else:
-            plan.append((path.name, path, "rpyc", None, ""))
-            continue
-        sources["ignoredTwins"].append(
-            {"rpyc": _ledger_rel(path, game_dir), "kept": kept})
-    sources["rpaFailed"].extend(rpa_failed)
-    sources["rpaIgnoredTwins"].extend(rpa_ignored)
-    for arc, key, kind in archive_entries:
-        plan.append((Path(key).name, None, kind, arc, key))
-    plan.sort(key=lambda entry: entry[0])
-
+    walked = walked_scripts(game_dir, files_glob)
+    sources: dict = {"decompiled": [], "ignoredTwins": walked.ignored_twins,
+                     "failed": [], "rpaScripts": [],
+                     "rpaIgnoredTwins": walked.rpa_ignored,
+                     "rpaFailed": walked.rpa_failed}
     texts: list[tuple[str, str]] = []
-    for _key, path, kind, arc, member in plan:
-        if path is not None:
-            rel = _ledger_rel(path, game_dir)
-        else:
-            rel = f"{_ledger_rel(arc.path, game_dir)}!{member}"
+    for entry in walked.entries:
+        path, kind, arc, member, rel = (entry.path, entry.kind,
+                                        entry.archive, entry.key, entry.rel)
         if kind == "rpy":
             if path is not None:
                 text = path.read_text(encoding="utf-8-sig")

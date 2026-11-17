@@ -996,3 +996,70 @@ def test_archived_pair_gives_one_item_per_line_translated_once(
     assert records[0].translations == {"de": "Aus der Quelle."}
     s = project.stats["de"]
     assert (s.blocks, s.matched, s.duplicates) == (1, 1, 0)
+
+
+# --- item 9d: only walked scripts feed identifiers ---------------------------
+
+def test_unwalked_loose_script_feeds_no_identifiers(tmp_path: Path) -> None:
+    """A loose script in a subfolder of game/ is not walked, so its lines
+    take no identifiers: here its copy of the opening line would have
+    taken the identifier first (loaded before script.rpy) and left the
+    walked line with `_1`, untranslated."""
+    rpa_mod.reset_cache()
+    game = tmp_path / "game"
+    write(game / "script.rpy", 'label start:\n    e "Hello."\n')
+    write(game / "extra" / "old.rpy", 'label start:\n    e "Hello."\n')
+    hello = ident("start", 'e "Hello."')
+    write(game / "tl" / "de" / "script.rpy",
+          f'translate de {hello}:\n    e "Hallo."\n')
+    assert [s.rel for s in tl.source_files(game)] == ["game/script.rpy"]
+    records = walk(game)
+    project = tl.read_project(game, records)
+    assert [r.translations.get("de") for r in records] == ["Hallo."]
+    assert project.stats["de"].matched == 1
+
+
+def test_unwalked_loose_script_does_not_shadow_archived_identifiers(
+        tmp_path: Path) -> None:
+    """The archived script a subfolder's loose copy used to shadow is the
+    one walked, and its lines get their translations."""
+    from test_rpa import write_rpa
+    rpa_mod.reset_cache()
+    game = tmp_path / "game"
+    write(game / "chapters" / "one.rpy",
+          'label one:\n    e "Loose copy, never walked."\n')
+    line = ident("one", 'e "Archived line."')
+    write_rpa(game / "scripts.rpa", {
+        "chapters/one.rpy": b'label start:\n    jump one\n'
+                            b'label one:\n    e "Archived line."\n',
+        "tl/de/one.rpy": f'translate de {line}:\n'
+                         '    e "Archivierte Zeile."\n'.encode(),
+    })
+    assert [s.rel for s in tl.source_files(game)] == [
+        "game/scripts.rpa!chapters/one.rpy"]
+    records = walk(game)
+    assert [r.text_source for r in records] == [
+        "game/scripts.rpa!chapters/one.rpy:4"]
+    tl.read_project(game, records)
+    assert records[0].translations == {"de": "Archivierte Zeile."}
+
+
+def test_files_decides_the_scripts_feeding_identifiers(
+        tmp_path: Path) -> None:
+    """--files that reaches a subfolder walks its scripts, and they feed
+    identifiers; one that leaves a script out leaves its lines out."""
+    rpa_mod.reset_cache()
+    game = tmp_path / "game"
+    write(game / "script.rpy", 'label start:\n    jump side\n')
+    write(game / "extra" / "side.rpy", 'label side:\n    e "Aside."\n')
+    aside = ident("side", 'e "Aside."')
+    write(game / "tl" / "de" / "side.rpy",
+          f'translate de {aside}:\n    e "Beiseite."\n')
+    assert [s.rel for s in tl.source_files(game, "**/*.rpy")] == [
+        "game/extra/side.rpy", "game/script.rpy"]
+    assert [s.rel for s in tl.source_files(game, "script.rpy")] == [
+        "game/script.rpy"]
+    parses, defs, chars, _sources = parse_project(game, "**/*.rpy")
+    records = build_timeline(parses, defs, chars, game).items
+    tl.read_project(game, records, files_glob="**/*.rpy")
+    assert [r.translations.get("de") for r in records] == ["Beiseite."]

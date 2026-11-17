@@ -598,9 +598,11 @@ def main(argv: list[str] | None = None) -> int:
     argp.add_argument("--max-items", type=int, default=None, metavar="N",
                       help="stop the walk after N manifest items")
     argp.add_argument("--files", default=None, metavar="GLOB",
-                      help="only parse game/*.rpy (and matching *.rpyc) files "
-                           "matching GLOB (filename order; default: every "
-                           ".rpy and any .rpyc without a .rpy twin)")
+                      help="only walk the scripts matching GLOB, loose "
+                           "(a glob from game/) or archived (key or file "
+                           "name); a .rpy pattern also takes a .rpyc with "
+                           "no .rpy (default: the top-level loose and every "
+                           "archived .rpy, and each .rpyc without a .rpy)")
     argp.add_argument("--title", type=title_option, default=None,
                       metavar="TEXT",
                       help="the game's name, shown atop the player's Esc "
@@ -816,7 +818,8 @@ def _walk_project(project: Path, args: argparse.Namespace
     if asset_archives.failed:
         sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
     translations = (read_project(game_dir, result.items, args.language_map,
-                                 args.base_language or DEFAULT_LANGUAGE)
+                                 args.base_language or DEFAULT_LANGUAGE,
+                                 args.files)
                     if args.translations else None)
     return _Episode(project, game_dir, parses, sources, result,
                     translations)

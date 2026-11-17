@@ -30,7 +30,6 @@ encrypted are rejected with RpaError (nothing in the corpus is encrypted).
 
 from __future__ import annotations
 
-import fnmatch
 import hashlib
 import os
 import pickle
@@ -267,88 +266,11 @@ def extract_cached(archive: RpaArchive, name: str,
 # --- script sources inside archives -----------------------------------------
 
 
-def _is_script(key: str) -> bool:
-    # tl/ members are Ren'Py translations, not story flow.
+def is_script(key: str) -> bool:
+    """Whether an archive member is a script of the story: a ``.rpy`` or
+    ``.rpyc`` outside ``tl/`` (Ren'Py translations, not story flow).
+    kinetic_extract.parser.walked_scripts decides which are walked."""
     return key.endswith((".rpy", ".rpyc")) and not key.startswith("tl/")
-
-
-def script_members(game_dir: Path) -> dict[str, RpaArchive]:
-    """Every script key outside ``tl/`` across game_dir/*.rpa, with the
-    first archive (in name order) holding it; unreadable archives are
-    left out (script_entries reports them)."""
-    members: dict[str, RpaArchive] = {}
-    for arc in archives_in(Path(game_dir)):
-        try:
-            names = arc.names()
-        except RpaError:
-            continue
-        for key in names:
-            if _is_script(key):
-                members.setdefault(key, arc)
-    return members
-
-
-def script_entries(game_dir: Path, files_glob: str | None = None,
-                   ) -> tuple[list[tuple[RpaArchive, str, str]], list, list]:
-    """Script members across game_dir/*.rpa: ``[(archive, key, kind)]``.
-
-    kind is "rpy" or "rpyc"; ``files_glob`` (a kinetic-extract ``--files``
-    pattern, matched against the key and its basename) restricts entries the
-    same way loose files are restricted. One source is walked per script
-    path, as for loose files: a loose file beats an archive member with the
-    same key, an earlier archive (in name order) beats a later one, and a
-    ``.rpy`` (loose or archived) beats a ``.rpyc`` with the same path, which
-    may be stale and would otherwise walk the story twice. Also returns the
-    archives that failed to index and the members skipped, each
-    ``{"member", "reason"}`` (plus ``"archive"`` and, for a ``.rpyc``
-    skipped for its ``.rpy``, ``"kept"``, the source walked instead).
-    """
-    entries: list[tuple[RpaArchive, str, str]] = []
-    failed: list[dict] = []
-    ignored: list[dict] = []
-    game_dir = Path(game_dir)
-    owner: dict[str, RpaArchive] = {}
-    for arc in archives_in(game_dir):
-        try:
-            names = arc.names()
-        except RpaError as exc:
-            failed.append({"archive": arc.path.name, "error": str(exc)})
-            continue
-        for key in sorted(names):
-            if not _is_script(key):
-                continue
-            if files_glob and not (fnmatch.fnmatch(key, files_glob)
-                                   or fnmatch.fnmatch(
-                                       Path(key).name, files_glob)):
-                continue
-            where = {"member": key, "archive": f"game/{arc.path.name}"}
-            if (game_dir / key).exists():
-                ignored.append({**where,
-                                "reason": "loose file with the same key"})
-                continue
-            if key in owner:
-                ignored.append({**where, "reason": "an earlier archive "
-                                "has the same key"})
-                continue
-            owner[key] = arc
-    # The .rpy twin is looked for whatever --files says, as for loose
-    # files (parser.parse_project).
-    members = script_members(game_dir)
-    for key, arc in owner.items():      # archive order, then key order
-        if key.endswith(".rpyc"):
-            twin = key[:-1]
-            kept = (f"game/{twin}" if (game_dir / twin).exists()
-                    else f"game/{members[twin].path.name}!{twin}"
-                    if twin in members else None)
-            if kept is not None:
-                ignored.append({"member": key,
-                                "archive": f"game/{arc.path.name}",
-                                "reason": "a .rpy with the same path",
-                                "kept": kept})
-                continue
-        entries.append((arc, key, "rpy" if key.endswith(".rpy")
-                        else "rpyc"))
-    return entries, failed, ignored
 
 
 # --- asset resolution fallback ----------------------------------------------
@@ -375,6 +297,12 @@ class AssetArchives:
         self._failed: list[dict] = []
         # lowercased member key -> (archive, key), built on first use
         self._lower: dict[str, tuple[RpaArchive, str]] | None = None
+        # Built on the first candidates call (_names_index): member key
+        # without its extension (a Path, compared as candidates always
+        # compared it) -> [(archive, key)] in archive then index order,
+        # and file name, with or without its extension -> [(archive, key)].
+        self._by_stem: dict[Path, list[tuple[RpaArchive, str]]] | None = None
+        self._by_base: dict[str, list[tuple[RpaArchive, str]]] | None = None
 
     @property
     def failed(self) -> list[dict]:
@@ -427,22 +355,36 @@ class AssetArchives:
             for arc in archives:
                 if stem + ext in arc:
                     add(arc, stem + ext)
-        for arc in archives:
-            for key in arc.index():
-                if Path(key).with_suffix("") == Path(stem):
-                    add(arc, key)
-        base = Path(stem).name
+        by_stem, by_base = self._names_index()
+        for arc, key in by_stem.get(Path(stem), ()):
+            add(arc, key)
         cands: list[tuple[int, int, str, RpaArchive]] = []
-        for arc in archives:
-            for key in arc.index():
-                kp = Path(key)
-                if kp.name == base or kp.with_suffix("").name == base:
-                    rank = 0 if Path(key).suffix.lower() in kind_exts else 1
-                    cands.append((rank, len(key), key, arc))
+        for arc, key in by_base.get(Path(stem).name, ()):
+            rank = 0 if Path(key).suffix.lower() in kind_exts else 1
+            cands.append((rank, len(key), key, arc))
         cands.sort(key=lambda c: (c[0], c[1], c[2], c[3].path.name))
         for _rank, _len, key, arc in cands:
             add(arc, key)
         return out
+
+    def _names_index(self) -> tuple[dict[Path, list[tuple[RpaArchive, str]]],
+                                    dict[str, list[tuple[RpaArchive, str]]]]:
+        """The member keys by path without extension and by file name
+        (with and without extension), built once from every readable
+        archive: what ``candidates`` used to scan every key for on each
+        call (docs/plan.md Phase 54 item 9d)."""
+        if self._by_stem is None or self._by_base is None:
+            by_stem: dict[Path, list[tuple[RpaArchive, str]]] = {}
+            by_base: dict[str, list[tuple[RpaArchive, str]]] = {}
+            for arc in self._load():
+                for key in arc.index():
+                    kp = Path(key)
+                    bare = kp.with_suffix("")
+                    by_stem.setdefault(bare, []).append((arc, key))
+                    for name in dict.fromkeys((kp.name, bare.name)):
+                        by_base.setdefault(name, []).append((arc, key))
+            self._by_stem, self._by_base = by_stem, by_base
+        return self._by_stem, self._by_base
 
     def lookup(self, rel: str,
                kind: str) -> tuple[str, Path, dict[str, str]] | None:

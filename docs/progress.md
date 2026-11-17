@@ -5183,8 +5183,21 @@ truthful: an unchecked box means nothing was accepted.
       items to 322 s and 17,982 (one per line). Verified by the
       orchestrator: full `pytest converter/ tools/` 1567 passed; the demo
       extracts and validates.)
-- [ ] Asset lookup speed and walk-scope consistency (item 9d, leads
-      from item 9c).
+- [x] Asset lookup speed and walk-scope consistency (item 9d, leads
+      from item 9c). (Evidence: `AssetArchives` builds a stem and
+      base-name index once; a test holding a verbatim copy of the old
+      scan gives identical results over tricky synthetic names, and 150
+      real queries on a corpus game matched. `parser.walked_scripts`
+      decides the walked set once (loose top level plus what `--files`
+      reaches, archived scripts outside `tl/`, item 9c's pair rule); only
+      walked scripts shadow or feed translation identifiers. Archive
+      members follow the loose `--files` rule; two loose `--files` bugs
+      fixed (a `.rpyc` also read as `.rpy` text). docs/extracting.md
+      "Which scripts are walked". The corpus game's walk: 322 s to 38 s,
+      the same 17,982 items. Verified by the orchestrator: full `pytest
+      converter/ tools/` 1580 passed; the demo extracts and validates.
+      Known limit: a `--files` slice can number a repeated line's `_1`
+      suffix differently from the whole game.)
 - [ ] Tools and docs around it (item 10): `check-game --lang`,
       assemble and upgrade carry `lang/`, CREATE.md "Translating a
       game".
