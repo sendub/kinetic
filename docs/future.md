@@ -26,7 +26,7 @@ Today a hand-author writes the runtime format directly (CREATE.md,
 `kinetic-media ship` already does the media half for converters:
 display-size images, posters, durations measured by decoding, loop-safe
 audio, the audio scripts, and cached reproducible encodes (CREATE.md,
-"Writing your own converter: kinetic-media ship").
+"Writing your own converter: kinetic media ship").
 
 Candidates, in a workable order:
 

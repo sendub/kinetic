@@ -15,46 +15,46 @@ are implementing and docs/stack.md for settled decisions.
   deps pinned in `requirements.txt`. Create the venv with
   `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` if
   missing.
-- Converter: editable install once per venv:
+- Converter and `kinetic`: editable install once per venv:
   `.venv/bin/pip install -e ./converter --cache .tmp/pip-cache`; then
-  the pinned media tools once per checkout:
-  `.venv/bin/python tools/setup_media_tools.py` (downloads the static
-  ffmpeg/ffprobe named in `converter/media-tools.json` into the
-  gitignored `.media-tools/<platform>/` and runs the golden-hash
-  self-test; `--pin` records null checksums and goldens). Only the
+  the pinned media tools once per checkout: `.venv/bin/kinetic setup`
+  (downloads the static ffmpeg/ffprobe named in
+  `converter/media-tools.json` into the gitignored
+  `.media-tools/<platform>/` and runs the golden-hash self-test;
+  `--pin` records null checksums and goldens). Only the
   orchestrator, not a subagent, records pins: a platform's archive
   checksums only by running `--pin` on that platform, only when the
   download matches the publisher's checksum and only while every
   shared golden matches; the golden of a newly added self-test case
   with `--repin CASE` from the installed pinned tools while every other
   case still matches; and it lists every hash recorded in the item's
-  evidence note. Run `.venv/bin/kinetic-extract
+  evidence note. Run `.venv/bin/kinetic extract
   <renpy_project> <out>`; it refuses to start until that setup has
   passed. Tests
   `.venv/bin/pytest converter/ tools/ -q -n auto` (pytest-xdist, one
   worker per core, about 45 s; a single file runs fine without `-n`).
-- `kinetic` (installed by the editable install, distribution name
+- `kinetic` is the one command for the tools (distribution name
   `kinetic`; a venv that still has the old `kinetic-extract` needs
   `.venv/bin/pip uninstall kinetic-extract` before reinstalling):
   subcommands `setup`, `extract`, `media`, `validate`, `assemble`,
   `apps`, `upgrade`, `check`, `report`, `routes`, `export`, each taking
-  the arguments of the tool it wraps (`kinetic_extract/tool_commands.py`).
-  The tools those wrap live in `converter/kinetic_extract/`
-  (`validate_content.py`, `assemble_folder.py`, `upgrade_folder.py`,
-  `setup_media_tools.py`, `windows_resources.py`, `apps.py` as
-  `build_apps.py`); the same names in
-  `tools/` are wrappers, so every command here still works. File
-  locations go through `kinetic_extract/paths.py`: a checkout reads and
-  writes the repo as always, an installed wheel uses package data and
-  `KINETIC_HOME` or the per-user folders (docs/packaging.md,
-  "Installing the tools"). The wheel: `.venv/bin/python
-  tools/build_wheel.py [--out DIR]` (fresh player build into a staging
-  folder, check-game bundled with the WebKit driver by
-  `player/scripts/bundle-check.mjs --driver`, the two app hosts; needs
-  Swift and Go; writes `dist/kinetic-<version>-py3-none-any.whl`); its
-  test, `.venv/bin/pytest tools/test_build_wheel.py -q`, installs it
-  into a venv under `.tmp/` and runs the commands outside the repo,
-  `kinetic apps` with no Swift or Go on PATH (about a minute).
+  the arguments of the tool it wraps (`kinetic_extract/kinetic_cli.py`,
+  `tool_commands.py`). The old names still work: `kinetic-extract`,
+  `kinetic-media`, and `tools/validate_content.py`,
+  `assemble_folder.py`, `upgrade_folder.py`, `setup_media_tools.py` and
+  `build_apps.py`, wrappers over the modules in
+  `converter/kinetic_extract/`. File locations go through
+  `kinetic_extract/paths.py`: a checkout reads and writes the repo as
+  always, an installed wheel uses package data and `KINETIC_HOME` or the
+  per-user folders (docs/packaging.md, "Installing the tools"). The
+  wheel: `.venv/bin/python tools/build_wheel.py [--out DIR]` (fresh
+  player build into a staging folder, check-game bundled with the WebKit
+  driver by `player/scripts/bundle-check.mjs --driver`, the two app
+  hosts; needs Swift and Go; writes
+  `dist/kinetic-<version>-py3-none-any.whl`); its test,
+  `.venv/bin/pytest tools/test_build_wheel.py -q`, installs it into a
+  venv under `.tmp/` and runs the commands outside the repo, `kinetic
+  apps` with no Swift or Go on PATH (about a minute).
 - `--version` on `kinetic`, `kinetic-extract`, `kinetic-media`, `tools/`
   `validate_content.py`, `assemble_folder.py`, `build_apps.py`,
   `setup_media_tools.py`, `upgrade_folder.py`, `translations.py` and
@@ -64,13 +64,12 @@ are implementing and docs/stack.md for settled decisions.
   `kinetic_extract.version.folder_player_version` (Python) or
   `folderKineticVersion` in `player/scripts/version.mjs` (null/None for
   an older player).
-- Game apps: `kinetic apps <game-folder> [--mac] [--windows] [--icon
-  IMAGE]` (or `.venv/bin/python tools/build_apps.py`, the same) copies
-  the prebuilt hosts in as `<title>.app` (signed with `codesign`, so
-  macOS only) and `<title>.exe` (any OS; its resources rewritten) with
-  the game's settings; `tools/assemble_folder.py` takes the same flags
-  (CREATE.md, "Building the apps"). In a checkout the hosts are built on
-  first use into `.tmp/app-hosts/<kind>-<hash>/`
+- Game apps: `.venv/bin/kinetic apps <game-folder> [--mac] [--windows]
+  [--icon IMAGE]` copies the prebuilt hosts in as `<title>.app` (signed
+  with `codesign`, so macOS only) and `<title>.exe` (any OS; its
+  resources rewritten) with the game's settings; `kinetic assemble`
+  takes the same flags (CREATE.md, "Building the apps"). In a checkout
+  the hosts are built on first use into `.tmp/app-hosts/<kind>-<hash>/`
   (`converter/kinetic_extract/app_hosts.py`): the Mac host needs a Swift
   toolchain, the exe Go 1.27 or later (Go's caches in
   `.tmp/windows-app-build/`); an installed wheel carries both. Each host
@@ -89,20 +88,21 @@ are implementing and docs/stack.md for settled decisions.
   <folder>` (docs/translating.md); tests
   `.venv/bin/pytest tools/test_translations.py
   converter/tests/test_po.py -q -n auto`.
-- Upgrade a game folder's player: `.venv/bin/python
-  tools/upgrade_folder.py <folder>` after `npm run build` (refuses a
+- Assemble and validate: `.venv/bin/kinetic assemble <content> <out>`,
+  `.venv/bin/kinetic validate <folder>`. Upgrade a game folder's player:
+  `.venv/bin/kinetic upgrade <folder>` after `npm run build` (refuses a
   stale `player/dist/`; CREATE.md, "Upgrading to a newer Kinetic").
-- Media only, no story parse: `.venv/bin/kinetic-media ship <game_root>
+- Media only, no story parse: `.venv/bin/kinetic media ship <game_root>
   <out> --list requests.json` (format: docs/extracting.md). Both
   `ship` and `rebuild` take `--jobs N` (default: one per core) and
   `--video-jobs N` (default: a quarter of that); `--jobs 1` is the
   serial path, same output. Progress goes to stderr every 10 s.
 - Verify or reproduce a folder's media from its ledger and the original
-  files: `.venv/bin/kinetic-media rebuild <game_root> <folder>
+  files: `.venv/bin/kinetic media rebuild <game_root> <folder>
   [--decoder MODULE:FUNC ...] [--out DIR]` (exit 0 only when every hash
   matches).
 - Check that each video item's poster is the frame at its
-  `startSeconds`: `.venv/bin/kinetic-media posters <game_root> <folder>
+  `startSeconds`: `.venv/bin/kinetic media posters <game_root> <folder>
   [--manifest FILE] [--items FILE]` (writes nothing; exit 1 lists the
   wrong ones; `--items` limits it to listed ids);
   `--fix --remap FILE` ships the right ones and writes item id -> new
@@ -119,42 +119,42 @@ are implementing and docs/stack.md for settled decisions.
   real conversion. The converter never uses PATH's ffmpeg, `cjxl` or
   `djxl`.
 - Play a built game folder with no window (WebKit or headless Chrome):
-  `node player/scripts/testing/check-game.mjs <folder> [--engine
-  webkit|chrome] [--steps N|all] [--start-at ID] [--until ID]
-  [--no-media-check] [--trace FILE] [--lang TAG]` (any walk stops at
-  the story's end; a video segment step prints as its own step ending
-  `view n of m`; `--until` walks as `--steps all` unless `--steps` is
-  given and reports its span from the start; `--no-media-check` skips
-  the media check after the walk; `--trace FILE` writes the player's
-  item trace, every item, choice and end record of the walk, to FILE as
-  JSON lines; `--lang TAG` walks with that game language shown and
-  reports the fallback and stale lines met; a line that overflows the
-  screen or its column at the folder's size prints a warning, with no
-  change to the exit code; exit 0 passed, 1 errors, a stuck player, the
-  `all` cap, `--until` not reached, a stalled media check, a player too
-  old to trace or a game opened in another language than `--lang`, 2
-  bad arguments (a bad `--engine`, an unwritable `--trace` FILE or a
-  `--lang` the game lacks too), 3 a walk from the opening reached the
-  end with items never shown, or a span with items not shown; 1 wins
-  over 3), or a script using `openGame` from
+  `.venv/bin/kinetic check <folder> [--engine webkit|chrome] [--steps
+  N|all] [--start-at ID] [--until ID] [--no-media-check] [--trace FILE]
+  [--lang TAG]` (any walk stops at the story's end; a video segment step
+  prints as its own step ending `view n of m`; `--until` walks as
+  `--steps all` unless `--steps` is given and reports its span from the
+  start; `--no-media-check` skips the media check after the walk;
+  `--trace FILE` writes the player's item trace, every item, choice and
+  end record of the walk, to FILE as JSON lines; `--lang TAG` walks with
+  that game language shown and reports the fallback and stale lines met;
+  a line that overflows the screen or its column at the folder's size
+  prints a warning, with no change to the exit code; exit 0 passed, 1
+  errors, a stuck player, the `all` cap, `--until` not reached, a
+  stalled media check, a player too old to trace or a game opened in
+  another language than `--lang`, 2 bad arguments (a bad `--engine`, an
+  unwritable `--trace` FILE or a `--lang` the game lacks too), 3 a walk
+  from the opening reached the end with items never shown, or a span
+  with items not shown; 1 wins over 3; it runs `node
+  player/scripts/testing/check-game.mjs`, which takes the same
+  arguments), or a script using `openGame` from
   `player/scripts/testing/kinetic.mjs` (`trace: true` and the handle's
   `trace()` read the same trace; `language: TAG` as `--lang`; CREATE.md,
   "Testing your game"); never hand-roll puppeteer against
   `player/node_modules`.
-- Report on a game folder for an agent, with no browser: `.venv/bin/kinetic
-  report <folder> [--json]` (reading time per route by the Timing hold
-  rule, speakers with line counts and look-alike names, `characters`
-  and transition counts, text tag problems, files nothing references,
-  the 20 longest lines; exit 0 whenever it ran, 2 bad arguments or no
-  readable manifest; CREATE.md, "Checking a conversion: kinetic
-  report"). `kinetic routes <folder> [--dot | --json]` prints the
-  branch structure as the branch map draws it (decisions, routes, where
-  each ends or rejoins); `fixtures/route-shapes.json` holds it and
-  mapmodel.ts to the same counts. `kinetic export <folder> [--lang TAG]
-  [--out DIR]` prints the story as Markdown, the main line and each
-  route, to lay beside the `.rpy` source. Both exit as report does.
-  `kinetic` is the one command later items extend with subcommands
-  (converter/kinetic_extract/kinetic_cli.py).
+- Report on a game folder for an agent, with no browser:
+  `.venv/bin/kinetic report <folder> [--json]` (reading time per route
+  by the Timing hold rule, speakers with line counts and look-alike
+  names, `characters` and transition counts, text tag problems, files
+  nothing references, the 20 longest lines; exit 0 whenever it ran, 2
+  bad arguments or no readable manifest; CREATE.md, "Checking a
+  conversion: kinetic report"). `kinetic routes <folder> [--dot |
+  --json]` prints the branch structure as the branch map draws it
+  (decisions, routes, where each ends or rejoins);
+  `fixtures/route-shapes.json` holds it and mapmodel.ts to the same
+  counts. `kinetic export <folder> [--lang TAG] [--out DIR]` prints the
+  story as Markdown, the main line and each route, to lay beside the
+  `.rpy` source. Both exit as report does.
 - Automated browsers make no sound: Chrome starts only through
   `launchChrome` in `player/scripts/testing/core.mjs`
   (`--disable-audio-output`; biome blocks other `puppeteer-core`
@@ -246,8 +246,11 @@ Per checklist item, run only what the item can break:
   `npm run verify -- --webkit <name>` (docs/verify-player.md, "WebKit").
 - Python change: `pytest` on the touched test file only.
 - The full suite (`npm run verify` and `npm run verify -- --webkit` with
-  no filter, full pytest, `package-proof`) runs ONCE when the current
-  phase is believed complete, before its closing commit.
+  no filter, full pytest, `package-proof`, whose wheel stage builds the
+  wheel and runs the installed `kinetic` on the extract demo, after
+  `.venv/bin/kinetic extract fixtures/renpy_demo .tmp/extract-demo`
+  when that is missing) runs ONCE when the current phase is believed
+  complete, before its closing commit.
 
 ## Workflow
 
@@ -270,9 +273,20 @@ sets the next `X.Y.Z-dev`. Its closing commit sets the release number
 (patch: fixes only; minor: a feature or a new optional manifest field;
 major: a change that stops existing folders or saves working, the only
 time `schemaVersion` moves), dates the CHANGELOG entry, tags `vX.Y.Z`
-and fast-forwards `main`. After changing `VERSION`, rerun the converter's
-editable install so its package metadata matches (the version test
-reads it).
+and fast-forwards `main`. After pushing the tag it builds the wheel and
+creates the GitHub release with the wheel attached and the CHANGELOG
+entry as its notes, with the `sendub` account (X.Y.Z the release):
+
+```sh
+.venv/bin/python tools/build_wheel.py
+awk '/^## X.Y.Z /{f=1;next} /^## /{f=0} f' CHANGELOG.md > .tmp/release-notes.md
+GH_TOKEN=$(gh auth token --user sendub) gh release create vX.Y.Z \
+  dist/kinetic-X.Y.Z-py3-none-any.whl --repo sendub/kinetic --verify-tag \
+  --title "Kinetic X.Y.Z" --notes-file .tmp/release-notes.md
+```
+
+After changing `VERSION`, rerun the converter's editable install so its
+package metadata matches (the version test reads it).
 
 ## Git
 

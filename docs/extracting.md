@@ -904,7 +904,7 @@ its own conversion package.
 
 A game-specific helper that builds the story itself can hand all media
 work to Kinetic without a story parse (docs/plan.md Phase 25; a worked
-example is in CREATE.md, "Writing your own converter: kinetic-media
+example is in CREATE.md, "Writing your own converter: kinetic media
 ship"):
 
 ```sh

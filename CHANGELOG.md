@@ -19,6 +19,114 @@ something more of an author.
 
 ## 1.12.0-dev
 
+- Kinetic installs without a checkout: each GitHub release carries a
+  wheel, so `pip install
+  https://github.com/sendub/kinetic/releases/download/vX.Y.Z/kinetic-X.Y.Z-py3-none-any.whl`
+  into a venv of its own, then `kinetic setup` once, gives every tool
+  as one command, `kinetic`: `setup`, `extract`, `media` (`ship`,
+  `rebuild`, `posters`), `validate`, `assemble`, `apps`, `upgrade`,
+  `check`, `report`, `routes` and `export`. It needs Python 3.12 or
+  later; `kinetic check` also needs Node.js 22.12 or later (and Chrome
+  for its `chrome` engine), and the Mac app needs macOS. No Swift, Go,
+  npm or clone. An installed Kinetic keeps its media tools and caches in
+  folders of the user's own (`~/Library/Application Support/Kinetic`
+  and `~/Library/Caches/Kinetic` on macOS), or under `KINETIC_HOME`.
+  The old names, `kinetic-extract`, `kinetic-media` and the `tools/`
+  scripts in a checkout, still work with the same arguments. CREATE.md
+  starts with "Installing Kinetic".
+- The game apps are made from host programs each release builds once,
+  so `kinetic apps` (and `kinetic assemble --mac --windows`) needs no
+  Swift or Go: the Windows program is made on any system, the Mac app
+  on any Mac, which signs it ad hoc. Each app reads its game's title,
+  story id and first window size as it starts. `--self-check FILE` on
+  either app writes those settings to FILE and exits, with no window.
+- Speaker colours: a new optional manifest field, `characters`, gives a
+  speaker a colour for the name (`nameColor`), for the lines
+  (`textColor`), or both (docs/content-format.md, "Characters"). A
+  coloured thought stays italic and is drawn dimmer, and a translated
+  name keeps its colours. The validator warns about an entry no speaker
+  uses and a colour hard to read against the text band. Older players
+  ignore the field.
+- Text tags: the player reads Ren'Py's tags in lines, choice questions
+  and route labels, in every language. `{i}`, `{b}`, `{u}` and `{s}`
+  draw italic, bold, underlined and struck-through text, `{p}` starts a
+  new line, `{{` is a brace, the tags that only time Ren'Py's typing
+  (`{w}`, `{nw}`, `{fast}`, `{cps}`) are left out, and the others keep
+  their text (docs/content-format.md, "Text tags"). Reading time counts
+  what is shown, not the tags. Converted games already hold the tags,
+  which older players showed as written. The validator warns about an
+  unknown or unclosed tag.
+- Transitions: a picture item may set `transition`, a `dissolve` over
+  the picture before or a `fade` through black (docs/content-format.md,
+  "Transitions"). A transition never holds up the reader: the line shows
+  at once, a key ends it, and skip, the wheel, jumps, a reload and a
+  reduced-motion setting cut. Older players cut.
+- Spoken lines say the line as shown, its tags read, live and in
+  `tools/record_lines.py` alike.
+- `kinetic extract` keeps a Ren'Py game's presentation: a Character's
+  literal colours become `characters`, and `with dissolve`, `with
+  fade`, `Dissolve(t)`, `Fade(out, hold, in)` and names defined as those
+  become transitions. Other transitions cut, and the summary counts
+  them by name (docs/extracting.md, "Colours and transitions").
+- `kinetic extract` reads the story as Ren'Py runs it: from `label
+  start` through `jump`, `call` and the fall into the next label of a
+  file, each statement once, with computed jumps (`jump expression` and
+  the like) walked to the labels the game's code names, each where its
+  name is written. Labels the story never reaches, such as a developer
+  script or a minigame, are reported, not converted; `--also-label
+  NAME` and `--include-unreached` bring them in after the story. Before,
+  the scripts were joined in file-name order, so such lines became
+  items and a game whose files were not in story order read out of
+  order (docs/extracting.md, "The walk follows labels").
+- More `kinetic extract` fixes: scripts in subfolders of `game/` are
+  read, as Ren'Py loads them; characters made in `init:` blocks, `$`
+  lines and `init python` get their names and colours, and a nameless
+  one takes its `kind`'s name; a file under `images/` named by its bare
+  file name, or by the lowercased name Ren'Py gives it, is found, as
+  Ren'Py finds it; `show screen` is no longer read as a picture; a
+  `define` with an init priority is read; an `image x:` animation block
+  no longer gives text items.
+- `kinetic report` prints what someone who cannot watch the game wants
+  to compare with the original: reading time per route, speakers with
+  their line counts and look-alike names flagged, colours and
+  transitions, text tag problems, files nothing uses and the longest
+  lines. `kinetic routes` prints the decisions and routes as an outline
+  (or Graphviz DOT), and `kinetic export` the story as Markdown, a file
+  per route, to lay beside the Ren'Py script. Report and routes print
+  plain text, or JSON with `--json` (CREATE.md, "Checking a conversion:
+  kinetic report").
+- check-game (`kinetic check`) opens a game at its own size, scaled into
+  480 x 270 to 1920 x 1200, in place of 1280 x 720, and warns about each
+  line that runs off the screen or out of its column, with a summary
+  line; the exit status is unchanged.
+- The validator, report, routes and export stay fast on games with
+  thousands of decisions (20,000 decisions: the validator's branch
+  checks from 35 s to under a second), and stop with a message on
+  malformed branches instead of running on.
+- Media tools: Intel Macs are dropped from the pins (the Mac app is
+  arm64 only), and Windows has a pin entry; only Apple silicon Macs are
+  pinned so far, and setup elsewhere names the platforms that are.
+- **Upgrading:** a checkout's venv that has Kinetic installed under its
+  old name needs `.venv/bin/pip uninstall kinetic-extract` before
+  `.venv/bin/pip install -e ./converter --cache .tmp/pip-cache`. From
+  now on a release can be installed from its wheel instead (CREATE.md,
+  "Installing Kinetic").
+- **Upgrading:** a folder converted before this release shows its text
+  tags as emphasis once its player is upgraded, but gains speaker
+  colours and transitions only by converting it again. Converting
+  again also follows the story from `label start`: lines in labels the
+  story never reaches drop out, the items may come in another order,
+  and items after the first change get new ids. A reader's saved place,
+  seen items and bookmarks follow item ids, and the manifest's `voices`
+  follow speaker names, so check both before shipping a converted game
+  again under the same `storyId`, and read the summary's `walk:` lines
+  for anything that should come back with `--also-label`.
+- **Upgrading:** check-game now walks a game at its own size, so a line
+  that fitted at 1280 x 720 may be reported as overflowing at a smaller
+  game size; a test that reads check-game's output also meets the new
+  `line overflow at W x H` summary line. Apps already in a folder keep
+  working as they were made.
+
 ## 1.11.0 (2026-11-17)
 
 - Translations: a game can be read in several languages from one

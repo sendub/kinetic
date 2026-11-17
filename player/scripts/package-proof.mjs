@@ -22,10 +22,32 @@
 // plays — the same bytes a double-click hands the default browser.
 //
 // The proof folders stay on disk afterwards for the orchestrator to
-// eyeball. Exit code: 0 when every step passed, 1 otherwise.
+// eyeball.
+//
+// Then the wheel stage (docs/plan.md Phase 57 item 11): the release's
+// install path, end to end, away from the checkout's own tools. It builds
+// the wheel with tools/build_wheel.py, installs it into a fresh venv under
+// .tmp/pkg-wheel/, and with KINETIC_HOME under the same folder runs the
+// installed `kinetic`: setup (this checkout's installed media tools are
+// hard-linked into the home first, as tools/test_build_wheel.py does, so
+// setup downloads nothing but still runs the self-test; without them it
+// downloads), extract of fixtures/renpy_demo, validate, report, assemble
+// with --mac --windows (--windows alone off macOS), check --steps all, and
+// on macOS the built app's --self-check. Each is a checked step below;
+// the venv, the home and the wheel are removed afterwards.
+//
+// Exit code: 0 when every step passed, 1 otherwise.
 
-import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { launchChrome, pressKey } from "./testing/core.mjs";
@@ -338,6 +360,238 @@ for (const t of targets) {
 }
 
 for (const target of targets) await proveTarget(target);
+
+// --- the wheel stage ---------------------------------------------------
+
+const WHEEL_ROOT = join(repoRoot, ".tmp", "pkg-wheel");
+const RENPY_DEMO = join(repoRoot, "fixtures", "renpy_demo");
+const KINETIC_VERSION = readFileSync(join(repoRoot, "VERSION"), "utf8").trim();
+
+/** Run a program; returns { code, out } with stdout and stderr joined. */
+function run(program, args, options = {}) {
+  const proc = spawnSync(program, args, {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: 900000,
+    ...options,
+  });
+  const out = `${proc.stdout ?? ""}${proc.stderr ?? ""}`.trim();
+  return {
+    code: proc.status ?? -1,
+    out: proc.error ? String(proc.error) : out,
+  };
+}
+
+/** The last few lines of a command's output, for a step's evidence. */
+const tail = (text, lines = 3) =>
+  JSON.stringify(text.split("\n").slice(-lines).join(" | "));
+
+function proveWheel() {
+  rmSync(WHEEL_ROOT, { recursive: true, force: true });
+  const wheelDir = join(WHEEL_ROOT, "wheel");
+  const venv = join(WHEEL_ROOT, "venv");
+  const home = join(WHEEL_ROOT, "home");
+  const cwd = join(WHEEL_ROOT, "work");
+  mkdirSync(home, { recursive: true });
+  mkdirSync(cwd, { recursive: true });
+  try {
+    // 1. Build the wheel as the phase-closer does.
+    const built = run(python, [
+      join(repoRoot, "tools", "build_wheel.py"),
+      "--out",
+      wheelDir,
+      "--work",
+      join(WHEEL_ROOT, "build"),
+    ]);
+    const wheels = existsSync(wheelDir)
+      ? readdirSync(wheelDir).filter((n) => n.endsWith(".whl"))
+      : [];
+    record(
+      "wheel: tools/build_wheel.py builds the wheel",
+      built.code === 0 && wheels.length === 1 ? "PASS" : "FAIL",
+      `exit ${built.code}; wheels=${JSON.stringify(wheels)}; ` +
+        JSON.stringify(
+          built.out
+            .split("\n")
+            .filter((line) => line.includes(".whl"))
+            .join(" | ") || built.out.split("\n").slice(-3).join(" | "),
+        ),
+    );
+    if (built.code !== 0 || wheels.length !== 1) return;
+
+    // 2. A fresh venv with the wheel installed, and nothing else.
+    const made = run(python, ["-m", "venv", venv]);
+    const bin = join(venv, "bin");
+    const installed =
+      made.code === 0
+        ? run(join(bin, "python"), [
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "--disable-pip-version-check",
+            "--cache-dir",
+            join(repoRoot, ".tmp", "pip-cache"),
+            join(wheelDir, wheels[0]),
+          ])
+        : made;
+    const kinetic = join(bin, "kinetic");
+    record(
+      "wheel: installs into a fresh venv",
+      installed.code === 0 && existsSync(kinetic) ? "PASS" : "FAIL",
+      `exit ${installed.code}; ${wheels[0]} into ${venv}; ${tail(installed.out)}`,
+    );
+    if (installed.code !== 0 || !existsSync(kinetic)) return;
+
+    // The installed commands run with KINETIC_HOME as their only home,
+    // from a folder of their own, with no KINETIC_* test override.
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => !k.startsWith("KINETIC_")),
+    );
+    env.KINETIC_HOME = home;
+    const k = (...args) => run(kinetic, args, { cwd, env });
+
+    const version = k("--version");
+    record(
+      "wheel: kinetic --version names this checkout's version",
+      version.code === 0 && version.out === `Kinetic ${KINETIC_VERSION}`
+        ? "PASS"
+        : "FAIL",
+      `exit ${version.code}; ${JSON.stringify(version.out)}`,
+    );
+
+    // 3. Setup: this checkout's installed tools linked in, if there are
+    // any, so the run downloads nothing but still self-tests.
+    const probe = run(
+      join(bin, "python"),
+      [
+        "-c",
+        "import json; from kinetic_extract import media_tools as m; " +
+          "p = m.platform_key(); print(json.dumps({'plat': p, " +
+          "'installed': m.INSTALLED_FILE, 'binaries': " +
+          "[m.binary_name(n, p) for n in m.TOOL_NAMES]}))",
+      ],
+      { cwd, env },
+    );
+    let linked = "no media tools in this checkout: setup downloads them";
+    if (probe.code === 0) {
+      const { plat, installed: recordFile, binaries } = JSON.parse(probe.out);
+      const source = join(repoRoot, ".media-tools", plat);
+      if (existsSync(join(source, recordFile))) {
+        const target = join(home, "media-tools", plat);
+        mkdirSync(target, { recursive: true });
+        for (const name of binaries) {
+          linkSync(join(source, name), join(target, name));
+        }
+        copyFileSync(join(source, recordFile), join(target, recordFile));
+        linked = `.media-tools/${plat} linked into the home`;
+      }
+    }
+    const setup = k("setup");
+    record(
+      "wheel: kinetic setup installs the media tools and passes the self-test",
+      setup.code === 0 &&
+        setup.out.includes("self-test passed") &&
+        setup.out.includes(`media tools ready in ${join(home, "media-tools")}`)
+        ? "PASS"
+        : "FAIL",
+      `exit ${setup.code}; ${linked}; ${tail(setup.out, 2)}`,
+    );
+    if (setup.code !== 0) return;
+
+    // 4. Convert the extract demo and run the agent's checks on it.
+    const converted = join(cwd, "converted");
+    const extracted = k("extract", RENPY_DEMO, converted);
+    record(
+      "wheel: kinetic extract converts fixtures/renpy_demo",
+      extracted.code === 0 && existsSync(join(converted, "manifest.json"))
+        ? "PASS"
+        : "FAIL",
+      `exit ${extracted.code}; ${JSON.stringify(extracted.out.split("\n")[0])}`,
+    );
+    if (extracted.code !== 0) return;
+
+    const validated = k("validate", converted);
+    record(
+      "wheel: kinetic validate exits 0 on the conversion",
+      validated.code === 0 ? "PASS" : "FAIL",
+      `exit ${validated.code}; ${tail(validated.out, 2)}`,
+    );
+
+    const reported = k("report", converted);
+    record(
+      "wheel: kinetic report reads the conversion",
+      reported.code === 0 &&
+        reported.out.includes("Reading time") &&
+        reported.out.includes("Speakers:")
+        ? "PASS"
+        : "FAIL",
+      `exit ${reported.code}; ${JSON.stringify(reported.out.split("\n").slice(0, 2).join(" | "))}`,
+    );
+
+    // 5. Assemble with both apps (the Mac app needs macOS's codesign).
+    const mac = process.platform === "darwin";
+    const play = join(cwd, "play");
+    const flags = mac ? ["--mac", "--windows"] : ["--windows"];
+    const assembled = k("assemble", converted, play, ...flags);
+    const manifest = existsSync(join(play, "manifest.json"))
+      ? JSON.parse(readFileSync(join(play, "manifest.json"), "utf8"))
+      : {};
+    const title = manifest.title ?? "";
+    const exe = join(play, `${title}.exe`);
+    const app = join(play, `${title}.app`);
+    record(
+      `wheel: kinetic assemble ${flags.join(" ")} builds the folder and apps`,
+      assembled.code === 0 && existsSync(exe) && (!mac || existsSync(app))
+        ? "PASS"
+        : "FAIL",
+      `exit ${assembled.code}; exe=${String(existsSync(exe))} ` +
+        `app=${mac ? String(existsSync(app)) : "not on this OS"}; ` +
+        tail(assembled.out, 3),
+    );
+    if (assembled.code !== 0) return;
+
+    // 6. Walk the whole story with no window.
+    const checked = k("check", play, "--steps", "all");
+    record(
+      "wheel: kinetic check --steps all walks to the end with no errors",
+      checked.code === 0 &&
+        checked.out.includes("story ended at step") &&
+        checked.out.includes("no console or page errors")
+        ? "PASS"
+        : "FAIL",
+      `exit ${checked.code}; ${tail(checked.out, 5)}`,
+    );
+
+    // 7. The Mac app reads the settings kinetic apps wrote into it.
+    if (mac) {
+      const out = join(cwd, "self-check.json");
+      const done = run(
+        join(app, "Contents", "MacOS", "kinetic"),
+        ["--self-check", out],
+        { cwd, timeout: 60000 },
+      );
+      const report = existsSync(out)
+        ? JSON.parse(readFileSync(out, "utf8"))
+        : null;
+      record(
+        "wheel: the Mac app's --self-check reports the game's settings",
+        done.code === 0 &&
+          report?.host === "macos" &&
+          report?.storyId === manifest.storyId &&
+          report?.title === title &&
+          report?.kineticVersion === KINETIC_VERSION
+          ? "PASS"
+          : "FAIL",
+        `exit ${done.code}; ${JSON.stringify(report)}`,
+      );
+    }
+  } finally {
+    rmSync(WHEEL_ROOT, { recursive: true, force: true });
+  }
+}
+
+proveWheel();
 
 const failed = results.filter((r) => r.status !== "PASS");
 console.log(

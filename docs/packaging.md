@@ -66,23 +66,26 @@ decision; this file is the practical sheet.
 
 ## Building one
 
-Build the bundle once, then assemble. From the repo root:
+Assemble the content folder with `kinetic` (Installing the tools,
+below):
 
 ```sh
-(cd player && npm run build)
-.venv/bin/python tools/assemble_folder.py my-novel novel-play
+kinetic assemble my-novel novel-play
 ```
 
 The same command packages a converter output; both paths produce the
 identical folder shape:
 
 ```sh
-.venv/bin/python tools/assemble_folder.py extracted-dir novel-play
+kinetic assemble extracted-dir novel-play
 ```
 
-The output folder holds exactly what the script places: the current
-bundle from `player/dist/` (a stale `index.html` or `app.js` inside the
-content folder is ignored), the content files, a generated
+In a checkout, build the bundle first (`cd player && npm run build`)
+and run `.venv/bin/kinetic` from the repo root; `tools/assemble_folder.py`
+there is the same command. The output folder holds exactly what the
+command places: the current bundle (the wheel's, or `player/dist/` in a
+checkout; a stale `index.html` or `app.js` inside the content folder is
+ignored), the content files, a generated
 `manifest.js` when the content has only `manifest.json`, a generated
 `lang/<tag>.js` for each listed language file that has no script, and
 a generated script for each audio track file that has none; the
@@ -97,39 +100,49 @@ file count and total size. Check the result with the validator; a clean
 run exits 0:
 
 ```sh
-.venv/bin/python tools/validate_content.py novel-play
+kinetic validate novel-play
 ```
 
-A folder already made takes a newer player with
-`.venv/bin/python tools/upgrade_folder.py novel-play`, which replaces
-only its `index.html` and `app.js` (CREATE.md, "Upgrading to a newer
-Kinetic"); `manifest.json`, media and `lang/` stay as they are.
+A folder already made takes a newer player with `kinetic upgrade
+novel-play`, which replaces only its `index.html` and `app.js`
+(CREATE.md, "Upgrading to a newer Kinetic"); `manifest.json`, media and
+`lang/` stay as they are.
 
 ## Installing the tools
 
 The tools that make a folder (converting, validating, assembling,
 upgrading, checking) also come without a checkout, as one command,
-`kinetic`, installed from a wheel attached to each GitHub release
-(docs/plan.md Phase 57):
+`kinetic`, installed from a wheel attached to each GitHub release of
+https://github.com/sendub/kinetic (docs/plan.md Phase 57), X.Y.Z being
+the release:
 
 ```sh
 python3 -m venv ~/kinetic-venv
-~/kinetic-venv/bin/pip install <release-url>/kinetic-<version>-py3-none-any.whl
+~/kinetic-venv/bin/pip install https://github.com/sendub/kinetic/releases/download/vX.Y.Z/kinetic-X.Y.Z-py3-none-any.whl
 ~/kinetic-venv/bin/kinetic setup
 ```
+
+It needs Python 3.12 or later; `kinetic check` also needs Node.js 22.12
+or later (and Chrome for its `chrome` engine), and the Mac app needs
+macOS. Media tools are pinned for Apple silicon Macs only so far, so
+`kinetic setup`, and with it converting, works there alone; every other
+subcommand runs on any system.
 
 `kinetic --help` lists the subcommands: `setup`, `extract`, `media`
 (`ship`, `rebuild`, `posters`), `validate`, `assemble`, `apps`,
 `upgrade`, `check`, `report`, `routes` and `export`. Each wrapped tool
 takes the arguments, prints the output and exits with the codes of the
-command it stands for (CREATE.md, "Without a checkout: the `kinetic`
-command"). `kinetic-extract` and `kinetic-media` install beside it, and
-in a checkout `tools/*.py` keep working; those scripts are thin
-wrappers over the same modules in `converter/kinetic_extract/`.
-`kinetic apps` makes the macOS app and the Windows exe from the hosts
-the wheel carries prebuilt, with no Swift or Go: the exe on any system,
-the Mac app on macOS, which signs it with `codesign` (see "The app
-hosts" below).
+command it stands for (CREATE.md, "Installing Kinetic").
+`kinetic-extract` and `kinetic-media` install beside it, and in a
+checkout `tools/*.py` keep working; those scripts are thin wrappers over
+the same modules in `converter/kinetic_extract/`. `kinetic apps` makes
+the macOS app and the Windows exe from the hosts the wheel carries
+prebuilt, with no Swift or Go: the exe on any system, the Mac app on
+macOS, which signs it with `codesign` (see "The app hosts" below).
+The voice and translation tools (`tools/cast_voices.py`,
+`tools/record_lines.py`, `tools/translations.py`) and the testing
+library for authors' own scripts (`player/scripts/testing/kinetic.mjs`)
+are not in the wheel and need a checkout.
 
 The wheel carries what the tools read from the repo in a checkout,
 under `kinetic_extract/data/`: the repo's VERSION,
@@ -182,9 +195,12 @@ and writes `dist/kinetic-<version>-py3-none-any.whl` with `pip wheel`.
 It needs Node and `player/node_modules`, macOS with a Swift toolchain
 (the Mac host and the driver) and Go 1.27 or later (the Windows host):
 the release machine's tools, never an installer's. The wheel is about
-4.6 MB, of which the Windows host is 7.8 MB, the bundled check-game
-2.4 MB, the player 1.4 MB, the WebKit driver 0.7 MB and the Mac host
-0.6 MB before compression (2026-11-17).
+4.85 MB (4.63 MiB, 87 files), of which the Windows host is 7.8 MB, the
+bundled check-game 2.4 MB, the player 1.4 MB, the WebKit driver 0.7 MB
+and the Mac host 0.6 MB before compression (2026-11-17). Each release's
+closing commit builds the wheel this way and attaches it to the GitHub
+release `vX.Y.Z`, which is where the install line above downloads it
+from.
 
 ### The app hosts
 
@@ -263,14 +279,15 @@ the zip before extracting it (CREATE.md, "Building the apps").
 
 ## Size expectations
 
-The bundle is about 445 KB (`app.js` about 354 KB, `index.html` about
-91 KB, measured 2026-11-13); everything else is media, so a novel's size
-is its media's size. The demo fixture assembles to 30 files, about 680
-KB, and the audio demo to 45 files, about 2.9 MB, of which its 15 short
-mono tracks, shipped as their scripts, are 2.2 MB; the audio files
-themselves are 1.7 MB (both 2026-11-13). The extracted one-video slice
-assembled to 13 files, about 290 KB, with the smaller bundle of
-2026-11-02.
+The bundle is about 1.4 MB (`app.js` about 1.28 MB, `index.html` about
+113 KB, measured 2026-11-17, against 354 KB for `app.js` on 2026-11-13,
+before translations and the player's words in 39 languages). Everything
+else is media, so beyond that fixed 1.4 MB a novel's size is its media's
+size. The demo fixture assembles to 32 files, about 1.66 MB, and the
+audio demo to 45 files, about 3.9 MB, of which its 15 short mono tracks,
+shipped as their scripts, are 2.2 MB; the audio files themselves are 1.7
+MB. The extracted demo (fixtures/renpy_demo) assembles to 24 files,
+about 1.62 MB (all three 2026-11-17).
 
 Sound costs a third more than its files, since an assembled folder
 ships each as its base64 script. MP3, AAC or Opus at 96-128 kb/s takes
@@ -325,13 +342,27 @@ screen's Exit and Fullscreen | Window.
 ## Proof
 
 `npm run package-proof` (from `player/`) reruns the headless acceptance:
-it assembles `fixtures/demo` into `.tmp/pkg-demo` and the extracted slice
-into `.tmp/pkg-extract` with the script above, proves the overwrite
-refusal and `--force`, passes the validator on both, and loads each
-folder in headless Chrome over `file://` with a fresh profile: first load
-shows the key help, the first visual paints, space advances one item,
-Escape opens and closes the help, and the console stays clean. Finder's
-`open` does not exist in a headless run, so the documented equivalent is
-proven instead: `index.html` exists on disk and the `file://` URL of that
-exact path loads and plays, which is the same handoff a double-click
-makes.
+it assembles `fixtures/demo` into `.tmp/pkg-demo` and the extracted
+slice (`.tmp/extract-demo`, made by `.venv/bin/kinetic extract
+fixtures/renpy_demo .tmp/extract-demo`) into `.tmp/pkg-extract` with the
+script above, proves the overwrite refusal and `--force`, passes the
+validator on both, and loads each folder in headless Chrome over
+`file://` with a fresh profile: first load shows the key help, the first
+visual paints, space advances one item, Escape opens and closes the
+help, and the console stays clean. Finder's `open` does not exist in a
+headless run, so the documented equivalent is proven instead:
+`index.html` exists on disk and the `file://` URL of that exact path
+loads and plays, which is the same handoff a double-click makes.
+
+Its wheel stage then proves the release's install path away from the
+checkout's own tools. It builds the wheel with `tools/build_wheel.py`,
+installs it into a fresh venv under `.tmp/pkg-wheel/` and, with
+`KINETIC_HOME` there too, runs the installed `kinetic`: `setup` (the
+checkout's installed media tools are hard-linked into the home first,
+so nothing is downloaded but the self-test still runs; without them
+setup downloads), `extract` of `fixtures/renpy_demo`, `validate`,
+`report`, `assemble --mac --windows` (`--windows` alone off macOS),
+`check --steps all`, and on macOS the built app's `--self-check`, whose
+settings must name the game and this version. The venv, the home and
+the wheel are removed afterwards. It needs what `tools/build_wheel.py`
+needs (above).

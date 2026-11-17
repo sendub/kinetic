@@ -5637,9 +5637,30 @@ truthful: an unchecked box means nothing was accepted.
       clean; assemble of the demo with both apps, the Mac self-check
       JSON right, codesign verify, the exe's 13 resources read back;
       WebKit smoke 6/6, machost 55/55; npm test 1853.)
-- [ ] Release and install docs (item 11). CREATE.md around `kinetic`,
+- [x] Release and install docs (item 11). CREATE.md around `kinetic`,
       AGENTS.md and README.md, the closer's wheel step, package-proof's
       wheel stage.
+      (2026-11-17: CREATE.md now leads with "Installing Kinetic" (from a
+      release: the wheel URL and `kinetic setup`; in a checkout), then
+      converting with the agent's checks in order (validate, report,
+      routes, export, assemble, check, media rebuild) and "What the
+      converter carries", then hand-authoring with "Text tags", "Speaker
+      colours", "Transitions" and "Title, credits and content warnings"
+      (an example manifest validated and walked); every cited heading
+      still resolves. README.md install bullet and features; AGENTS.md
+      commands as `kinetic <sub>` and the closer's wheel step (build,
+      notes from the CHANGELOG, `gh release create --verify-tag` as
+      sendub); CHANGELOG 1.12.0-dev written with three Upgrading
+      bullets; docs/packaging.md sizes re-measured (app.js 1.28 MB, the
+      wheel 4.85 MB). package-proof gains a 10-step wheel stage (build,
+      fresh venv, version, setup, extract, validate, report, assemble
+      with both apps, check on WebKit's prebuilt driver, the Mac
+      `--self-check`). The docs say converting needs an Apple silicon
+      Mac while item 8's pins wait. Subagent: package-proof 28/28;
+      release_version and validate 471; npm test 1853. Orchestrator:
+      release_version and validate 471 passed; check clean; added
+      non-ASCII lines are moved existing text only; package-proof
+      28/28.)
 - [ ] Phase-closer (Phase 57): full suites; VERSION 1.12.0, the
       CHANGELOG dated, tag v1.12.0, `main` fast-forwarded, the wheel
       attached to the GitHub release.
