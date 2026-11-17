@@ -5793,6 +5793,21 @@ truthful: an unchecked box means nothing was accepted.
       types; check-game `--url https://sendub.github.io/kinetic/` walked
       36/36 with no console or page errors; http 11/11 Chrome; npm test
       1869, check clean; the three pytest files 33.)
-- [ ] Phase-closer (Phase 57): full suites; VERSION 1.12.0, the
+- [x] Phase-closer (Phase 57): full suites; VERSION 1.12.0, the
       CHANGELOG dated, tag v1.12.0, `main` fast-forwarded, the wheel
       attached to the GitHub release.
+      (2026-11-17 on e751dc3, load average 2-6: full pytest converter
+      and tools 2009 passed; apps/voice 114; Go test and Windows vet
+      clean; npm test 1869, check clean; full `npm run verify` 6625/6625
+      on Chrome; `npm run verify -- --webkit` 6694 pass, 5 partial (the
+      headless fullscreen checks), 1 fail: videosound's "after the
+      Escape that closes the help screen..." with one seek after the
+      unlocking key (seeksAfterKey 1, frames in step), which then
+      passed 3 of 3 alone and once beside audio, segments and media
+      (160/160), a one-off timing miss; package-proof 28/28. Docs
+      current (README install line names v1.12.0; screenshots taken
+      after the last visible change). VERSION, package.json, its
+      lockfile and pyproject 1.12.0; the CHANGELOG entry dated; tag
+      v1.12.0; `main` fast-forwarded; the wheel built and attached to
+      the GitHub release v1.12.0 with the CHANGELOG entry as notes; the
+      Pages demo republished from the release commit.)

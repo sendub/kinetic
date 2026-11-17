@@ -17,7 +17,7 @@ Taking a new release means replacing a game folder's player (CREATE.md,
 "Upgrading to a newer Kinetic"). Bullets marked **Upgrading:** ask
 something more of an author.
 
-## 1.12.0-dev
+## 1.12.0 (2026-11-17)
 
 - Kinetic installs without a checkout: each GitHub release carries a
   wheel, so `pip install
