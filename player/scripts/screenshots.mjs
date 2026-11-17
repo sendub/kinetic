@@ -86,6 +86,43 @@ async function still(extra = 400) {
   await sleep(200);
 }
 
+// Headless Chrome draws no pointer, so the shots that show a hover draw
+// one: a macOS-style arrow (black, white edge, soft shadow), 22 px tall,
+// its tip on the hovered point, ignored by the pointer and above all.
+// shot() removes it after the capture.
+const POINTER_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="22" viewBox="0 0 16 22">' +
+  '<path d="M1.5 1.5V17.6L5.4 13.9L8.3 20.5L11.2 19.3L8.4 12.8H13.6Z" ' +
+  'fill="#000" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+
+// A 1 px resize and back, so the map is laid out and painted afresh: its
+// header's pill edges could otherwise come out a few levels different
+// from run to run.
+async function repaint() {
+  await game.page.setViewport({ width: 1280, height: 721 });
+  await game.page.setViewport({ width: 1280, height: 720 });
+  await still(800);
+}
+
+async function hover(x, y) {
+  await game.page.mouse.move(x, y);
+  await game.page.evaluate(
+    (px, py, svg) => {
+      const el = document.createElement("div");
+      el.id = "screenshots-pointer";
+      el.style.cssText =
+        `position:fixed;left:${px - 1.5}px;top:${py - 1.5}px;` +
+        "width:16px;height:22px;pointer-events:none;z-index:2147483647;" +
+        "filter:drop-shadow(0 1px 1.5px rgba(0,0,0,0.45));";
+      el.innerHTML = svg;
+      document.body.append(el);
+    },
+    x,
+    y,
+    POINTER_SVG,
+  );
+}
+
 async function shot(name, clip = undefined) {
   const file = join(images, name);
   // captureBeyondViewport false: the default resizes the page for a clip,
@@ -95,6 +132,9 @@ async function shot(name, clip = undefined) {
     captureBeyondViewport: false,
     ...(clip ? { clip } : {}),
   });
+  await game.page.evaluate(() =>
+    document.getElementById("screenshots-pointer")?.remove(),
+  );
   console.log(`screenshots: wrote ${file}`);
 }
 
@@ -147,6 +187,7 @@ try {
   // lines.
   await game.press("m");
   await game.page.waitForFunction(MAP_LOADED, { timeout: 10000 });
+  await repaint();
   await game.press("n");
   await still(800);
   const fork = await game.page.evaluate(() => {
@@ -167,7 +208,7 @@ try {
       },
     };
   });
-  await game.page.mouse.move(fork.hover.x, fork.hover.y);
+  await hover(fork.hover.x, fork.hover.y);
   await still(800);
   const y = Math.max(0, Math.round(fork.top - 40));
   await shot("bookmarks.png", {
@@ -180,13 +221,15 @@ try {
   // "Decision not reached" while Spoilers is off.
   await game.press("f");
   await still(800);
+  await repaint();
   const node = await game.page.evaluate(() => {
     const r = document
       .querySelector("#branchmap .map-dec.map-inert")
       .getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    // Near its left end, so the drawn pointer leaves its "?" in view.
+    return { x: r.left + 5, y: r.top + r.height / 2 };
   });
-  await game.page.mouse.move(node.x, node.y);
+  await hover(node.x, node.y);
   await still(800);
   await shot("map.png");
   await game.page.mouse.move(1279, 719);
