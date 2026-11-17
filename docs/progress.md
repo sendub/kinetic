@@ -5575,6 +5575,39 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Per-platform goldens (item 8b). A platform holds its own golden
       for a case a CPU difference changes; rebuild names the platform
       that can verify; Windows and linux-x86_64 pinned.
+      (2026-11-17, open for a Windows line-ending fix and the docs:
+      code in a3bfba7: `selftest.cpuDependent` (the 6 cases, the user's
+      to extend) and `selftest.platformGolden.<platform>.<case>`,
+      checked by `check_platform_goldens`; only the `--pin` that first
+      pins a platform's archives records its goldens, refusing any
+      difference outside the list; `--repin` re-records a platform's
+      own; `run_tools()` carries `platform`, so the reuse cache keys on
+      it and every ledger's `mediaTools` records it (absent = macos-arm64);
+      rebuild on another platform prints "made on X; rebuild there to
+      verify" and exits 3. Pins recorded by the orchestrator with
+      `--pin` on each platform, on a clone of a3bfba7, both archives
+      matching their publisher's checksum and the other 16 cases
+      matching the shared goldens. windows-x86_64 (gyan.dev 9.0.2
+      essentials zip): archive 60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba
+      for both tools; goldens audio-loop-aac 3c8b6f4d330baecc41324ce9146b1b384fec650117b7c9581c759d31af715c12,
+      audio-transcode-opus 96e83e04c4e92796b6b353fcd11f6d4e0cb7692fbafea909ea2c8c36dc4d8491,
+      poster-frame 4992db50006c9aa0a416d8e56e976ffee052e291de3c5ba0366edee7decd68f5,
+      transcode-mp4 e84519446e8d8087b1feaeb487571b5122cb4655035a4eb3e9fc0346206be8af,
+      transcode-odd-mp4 121b68a7b3e38be014153f96533fb0e23b5a2a713132885b6dc83eb3f94fad18,
+      pillow.poster-jpeg 4c22a776771394f88a168092b65d99075eaee9f0d671eb5015849597ed5bee24.
+      linux-x86_64 (WSL): ffmpeg fa8ecf4abbd290d98f7d188b8649cc6b391ae209a98452be955a15aab1909d7f,
+      ffprobe 3f428c49070be3d24ec338602b76d412e401ffcb8a5641ef0e729181a232fc32;
+      goldens audio-loop-aac and audio-transcode-opus and
+      pillow.poster-jpeg as Windows, poster-frame a5e385c00f4d0ddbaa6be09b5317b65d0400c24b57e1f9b1c7dde556594ed259,
+      transcode-mp4 29ff47bbf0a4c42fa7fa8a83a2cfcd271a5edc30a79f30c76ad4c2bc671ffdd4,
+      transcode-odd-mp4 58ac83951bba95dd9e2f961687ad79341205ce727d84984d3b0a048d1e1b7f88.
+      Plain setup then passed 22 cases on Windows, in WSL and on the
+      Mac; PC and WSL cleaned. Found: setup writes the pin file with
+      CRLF on Windows (normalised by hand here). Subagent: touched
+      tests 128, converter and tools 1978; scratch pins and a
+      renpy_demo extract and rebuild (15/15, exit 3 for a foreign
+      ledger) on both platforms. Orchestrator: touched tests 128 then
+      68 with the pins; Mac setup unchanged.)
 - [x] The `kinetic` command and the wheel (item 9). One command with
       the old names as wrappers, the player bundle and a bundled
       check-game inside; installs and runs from a fresh venv.

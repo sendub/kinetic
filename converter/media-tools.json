@@ -17,11 +17,11 @@
       "linux-x86_64": {
         "ffmpeg": {
           "url": "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffmpeg.zip",
-          "sha256": null
+          "sha256": "fa8ecf4abbd290d98f7d188b8649cc6b391ae209a98452be955a15aab1909d7f"
         },
         "ffprobe": {
           "url": "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffprobe.zip",
-          "sha256": null
+          "sha256": "3f428c49070be3d24ec338602b76d412e401ffcb8a5641ef0e729181a232fc32"
         }
       },
       "linux-arm64": {
@@ -37,11 +37,11 @@
       "windows-x86_64": {
         "ffmpeg": {
           "url": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip",
-          "sha256": null
+          "sha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"
         },
         "ffprobe": {
           "url": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip",
-          "sha256": null
+          "sha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"
         }
       }
     }
@@ -85,6 +85,23 @@
       "ffmpeg.transcode-odd-mp4",
       "pillow.poster-jpeg"
     ],
-    "platformGolden": {}
+    "platformGolden": {
+      "linux-x86_64": {
+        "ffmpeg.audio-loop-aac": "3c8b6f4d330baecc41324ce9146b1b384fec650117b7c9581c759d31af715c12",
+        "ffmpeg.audio-transcode-opus": "96e83e04c4e92796b6b353fcd11f6d4e0cb7692fbafea909ea2c8c36dc4d8491",
+        "ffmpeg.poster-frame": "a5e385c00f4d0ddbaa6be09b5317b65d0400c24b57e1f9b1c7dde556594ed259",
+        "ffmpeg.transcode-mp4": "29ff47bbf0a4c42fa7fa8a83a2cfcd271a5edc30a79f30c76ad4c2bc671ffdd4",
+        "ffmpeg.transcode-odd-mp4": "58ac83951bba95dd9e2f961687ad79341205ce727d84984d3b0a048d1e1b7f88",
+        "pillow.poster-jpeg": "4c22a776771394f88a168092b65d99075eaee9f0d671eb5015849597ed5bee24"
+      },
+      "windows-x86_64": {
+        "ffmpeg.audio-loop-aac": "3c8b6f4d330baecc41324ce9146b1b384fec650117b7c9581c759d31af715c12",
+        "ffmpeg.audio-transcode-opus": "96e83e04c4e92796b6b353fcd11f6d4e0cb7692fbafea909ea2c8c36dc4d8491",
+        "ffmpeg.poster-frame": "4992db50006c9aa0a416d8e56e976ffee052e291de3c5ba0366edee7decd68f5",
+        "ffmpeg.transcode-mp4": "e84519446e8d8087b1feaeb487571b5122cb4655035a4eb3e9fc0346206be8af",
+        "ffmpeg.transcode-odd-mp4": "121b68a7b3e38be014153f96533fb0e23b5a2a713132885b6dc83eb3f94fad18",
+        "pillow.poster-jpeg": "4c22a776771394f88a168092b65d99075eaee9f0d671eb5015849597ed5bee24"
+      }
+    }
   }
 }
