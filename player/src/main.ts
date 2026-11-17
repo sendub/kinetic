@@ -89,6 +89,7 @@ import { mountRouteAnnouncements } from "./render/routes";
 import { mountSegmentNotes } from "./render/segmentnote";
 import { mountSkipAnnouncements } from "./render/skip";
 import { soundContent } from "./render/soundrows";
+import { mountTrace } from "./render/trace";
 import { takeUrlStart } from "./render/urlstart";
 import { createVoiceClient } from "./render/voiceclient";
 import { mountVolumesOverlay, soundMessage } from "./render/volumes";
@@ -1132,6 +1133,21 @@ function start(): void {
       }
       document.addEventListener("keydown", syncMenuPause);
       document.addEventListener("click", syncMenuPause);
+
+      // The item trace for tests (docs/plan.md Phase 54): only when the
+      // page set `window.KINETIC_TEST_TRACE = true` before the player
+      // started; otherwise nothing is subscribed and no global defined.
+      // Mounted last, while setup still runs in one task (the machine
+      // cannot have moved since it was built), so its records start with
+      // the load's screen and each `kinetic:item` event comes after every
+      // other subscriber has drawn and sounded the change.
+      mountTrace({
+        win: window,
+        machine,
+        items: manifest.items,
+        codec,
+        playAll: () => currentSettings.playAllRoutes,
+      });
 
       // The first-load help screen (docs/plan.md Phase 13b): before any
       // advance, over a black screen, machine paused, no timers. Closing

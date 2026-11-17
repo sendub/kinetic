@@ -1226,6 +1226,8 @@ async function installRecordingHost(page, { kind, display }) {
  * instead with the stand-in voice engine (../testing/fakevoice.mjs, its
  * options), the same page script on either engine. `hash` is added to the page
  * URL (`"#start=<id>"`, docs/plan.md Phase 46, opens at that item).
+ * `trace: true` sets `window.KINETIC_TEST_TRACE` before the player starts
+ * (the item trace, src/render/trace.ts).
  * `consoleLines` is every console line from the first load on, any type,
  * as `{ type, text }` (Chrome types `console.warn` "warn" and WebKit
  * "warning"); `errors` (collectErrors) keeps the errors and warnings of
@@ -1247,6 +1249,11 @@ export async function openScenario(name, options = {}) {
     consoleLines.push({ type: msg.type(), text: msg.text() }),
   );
   await page.evaluateOnNewDocument(INSTRUMENT);
+  if (options.trace === true) {
+    await page.evaluateOnNewDocument(() => {
+      window.KINETIC_TEST_TRACE = true;
+    });
+  }
   const host =
     options.host === undefined
       ? null

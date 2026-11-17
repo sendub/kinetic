@@ -4800,11 +4800,28 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 54: Item trace for tests (2026-11-17, converting agent)
 
-- [ ] Player trace (docs/plan.md Phase 54, item 1).
+- [x] Player trace (docs/plan.md Phase 54, item 1).
       `window.KINETIC_TEST_TRACE` makes the player append an item,
       choice or end record to `window.__kineticTrace` and dispatch it as
       a `kinetic:item` event, every arrival included, capped with
       `__kineticTraceDropped`; nothing without the flag.
+      (2026-11-17: player/src/render/trace.ts, mounted last in main.ts
+      setup. The load's screen is record 0, an item record with arrival
+      `jump`. `walked` is true when the place keeps no live choice
+      (`exportPlace().choice` absent), which also covers a walked screen
+      past a pure choice's region, where `walkRoute` is absent. At a
+      route-end re-offer `routeStack` is `[]`: the machine has closed the
+      ended route's frame. Play all's countdown steps, settles, setting
+      flips and segment steps write nothing. A linear manifest read to
+      the end shows no end card, so no end record (types.ts EndCard);
+      item 3 documents it. trace.test.ts 10 tests (a 40-item skip burst
+      against the machine's path, Play all over two `continue` routes and
+      a continuing route, return row, walked and map-click choices, cap,
+      draining, no flag means no subscribe). Harness `openScenario({
+      trace: true })`; scenario `trace` (parts traced, untraced) and its
+      docs/verify-player.md row. Orchestrator: npm test 1529 passed,
+      check clean, verify --smoke 6/6, `trace` 7/7 Chrome and 7/7
+      WebKit, load average about 7.)
 - [ ] The trace in the testing tools (docs/plan.md Phase 54, item 2).
       `openGame(folder, { trace: true })` and the handle's `trace()`;
       `check-game --trace FILE`.
