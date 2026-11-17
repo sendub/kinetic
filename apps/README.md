@@ -187,7 +187,10 @@ handles the page's next voice message.
 
 The player talks to the voice host only when some line needs the model: an
 item with text, a cast voice and no recorded `audio.voice`. A game whose
-lines are all recorded, or that casts no voice, sends the host nothing. The
+lines are all recorded, or that casts no voice, sends the host nothing. A
+game with voices and language files talks to it whenever the host offers
+voice, since another language may need the model (docs/content-format.md,
+"Translations"). The
 status shows in the Volumes box's Voice row (a download button, progress,
 an error, a greyed button for `unsupported`, or the slider once `ready`).
 
@@ -198,7 +201,7 @@ an error, a greyed button for `unsupported`, or the slider once `ready`).
 | `cancel` | | Stops the install; partial downloads stay, so the next `install` continues them. |
 | `remove` | | Stops any install and the helper, deletes the whole install, then `status` absent. |
 | `voice` | `id`, `data` (the reference clip, base64), `format` (its extension: `wav`, `flac` or `mp3`), `text`? | A `voice` event. |
-| `speak` | `id`, `voiceId`, `text`, `priority`, and any other field the helper takes (`stream`, `lang`), passed on | A `speech` event, or `dropped` or `error`. |
+| `speak` | `id`, `voiceId`, `text`, `priority`, `lang`, and any other field the helper takes (`stream`), passed on | A `speech` event, or `dropped` or `error`. |
 | `drop` | `id` (a `speak`'s) | Cancels the line if it is still queued; either way the page gets `dropped` for it, once, never its `speech`. An id with no line in progress is ignored. |
 
 | Event (`event`) | Fields |
@@ -208,6 +211,15 @@ an error, a greyed button for `unsupported`, or the slider once `ready`).
 | `speech` | `id`, `wav` (base64 WAV, 24 kHz 16-bit mono), `seconds`, and the helper's `genSeconds` and `cached`. |
 | `dropped` | `id`. |
 | `error` | `id`, `code` (the helper's codes, apps/voice/README.md, plus `not-installed` before the install, `helper-crashed` and `helper-stopped`), `message`. |
+
+`lang` is the engine's language for the text (docs/plan.md Phase 54 item
+6): the player sends the language the line is shown in, as the engine
+names it (`de`, `ja`, `ar`, `pt` for `pt-BR`, `no` for `nb`), and the base
+language's for a line shown untranslated, so a German-base game speaks
+German. A line in a language the engine does not speak is never asked
+for; the helper refuses one with `bad-request` (apps/voice/README.md,
+"The protocol", lists the 23). Both hosts pass the field on as the page
+sent it, and the helper's line cache keys on it.
 | anything else | A helper event that names a request (`target`), such as a streamed line's chunks, passed on as `{ event, id: <the page's id>, ...the rest }`. |
 
 `unsupported` means a Mac without Apple silicon, or a macOS older than

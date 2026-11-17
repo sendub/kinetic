@@ -3383,3 +3383,160 @@ def test_language_checks_survive_malformed_manifests(tmp_path: Path) -> None:
             tmp_path, manifest), list)
         assert isinstance(validate_content.language_warnings(
             manifest, tmp_path), tuple)
+
+
+# A language file's own recorded lines, `voice` (docs/plan.md Phase 54
+# item 6): tracks under a manifest track's rules, and items naming them.
+
+def add_voice(folder: Path, data: dict[str, Any], lines: dict[str, str],
+              tag: str = "de", ext: str = "webm") -> dict[str, Any]:
+    """Give the language file `data` a recorded line per item id of
+    `lines` (item id -> track id), each file under lang/<tag>/lines/ with
+    its script; write it and return it."""
+    tracks = {}
+    for item_id, track_id in lines.items():
+        file = f"lang/{tag}/lines/{track_id}.{ext}"
+        (folder / file).parent.mkdir(parents=True, exist_ok=True)
+        (folder / file).write_bytes(DUMMY)
+        audio_format.write_script(folder, file)
+        tracks[track_id] = {"file": file, "durationSeconds": 1.5}
+    data["voice"] = {"tracks": tracks, "items": dict(lines)}
+    write_language(folder, data)
+    return data
+
+
+def test_lang_voice_lines_pass(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    add_voice(folder, files["de"], {"text-speech": "de-1",
+                                    "text-narration": "de-2"})
+    assert problems_of(folder) == []
+    assert lang_warnings(folder) == []
+
+
+def test_lang_voice_track_ids_are_their_own(folder: Path) -> None:
+    """A language file's track id may equal a manifest track's."""
+    manifest = read_manifest(folder)
+    manifest["audio"] = {"tracks": {"de-1": {"file": "theo.wav",
+                                             "durationSeconds": 1}}}
+    (folder / "theo.wav").write_bytes(DUMMY)
+    audio_format.write_script(folder, "theo.wav")
+    manifest["items"][1]["audio"] = {"voice": "de-1"}
+    write_manifest(folder, manifest)
+    _manifest, files = add_languages(folder, "de")
+    add_voice(folder, files["de"], {"text-speech": "de-1"})
+    assert problems_of(folder) == []
+
+
+def test_lang_voice_track_file_and_script_problems(folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    data = add_voice(folder, files["de"], {"text-speech": "de-1",
+                                           "text-narration": "de-2",
+                                           "text-thought": "de-3"})
+    (folder / "lang/de/lines/de-1.webm").unlink()
+    (folder / "lang/de/lines/de-1.webm.js").unlink()
+    (folder / "lang/de/lines/de-2.webm.js").unlink()
+    (folder / "lang/de/lines/de-3.webm.js").write_bytes(
+        audio_format.script_bytes("lang/de/lines/de-3.webm", b"other"))
+    data["voice"]["tracks"]["de-2"]["startSeconds"] = 2
+    write_language(folder, data)
+    problems = problems_of(folder)
+    assert "lang/de.json: voice.tracks.de-1.file: media file " \
+        "'lang/de/lines/de-1.webm' does not exist in the folder, nor its " \
+        "script 'lang/de/lines/de-1.webm.js'" in problems
+    assert any(p.startswith("lang/de.json: voice.tracks.de-2.file: no script "
+                            "'lang/de/lines/de-2.webm.js' beside it")
+               for p in problems), problems
+    assert any(p.startswith("lang/de.json: voice.tracks.de-3.file: script "
+                            "'lang/de/lines/de-3.webm.js' does not match it")
+               for p in problems), problems
+    assert "lang/de.json: voice.tracks.de-2.startSeconds: must be less than " \
+        "durationSeconds 1.5 (found 2)" in problems
+    assert len(problems) == 4, problems
+
+
+@pytest.mark.parametrize(("change", "where"), [
+    (lambda v: v["tracks"]["de-1"].update(file="../outside.webm"),
+     "voice.tracks.de-1.file"),
+    (lambda v: v["tracks"]["de-1"].update(file="lang/de/lines/x.aiff"),
+     "voice.tracks.de-1.file"),
+    (lambda v: v["tracks"]["de-1"].pop("durationSeconds"),
+     "voice.tracks.de-1"),
+    (lambda v: v["tracks"]["de-1"].update(durationSeconds=0),
+     "voice.tracks.de-1.durationSeconds"),
+    (lambda v: v["tracks"]["de-1"].update(gain=2), "voice.tracks.de-1"),
+    (lambda v: v.update(extra=1), "voice"),
+    (lambda v: v["items"].update({"text-speech": 3}),
+     "voice.items.text-speech"),
+    (lambda v: v.update(tracks=[]), "voice.tracks"),
+])
+def test_lang_voice_schema_problems(folder: Path, change: Any,
+                                    where: str) -> None:
+    _manifest, files = add_languages(folder, "de")
+    data = add_voice(folder, files["de"], {"text-speech": "de-1"})
+    change(data["voice"])
+    write_language(folder, data)
+    problems = problems_of(folder)
+    assert problems, "expected a problem"
+    assert all(p.startswith(f"lang/de.json: {where}") for p in problems), \
+        problems
+
+
+def test_lang_voice_items_name_an_item_with_text_and_a_track(
+        folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    data = add_voice(folder, files["de"], {"text-speech": "de-1"})
+    data["voice"]["items"].update({"nowhere": "de-1", "text-bare": "de-1",
+                                   "text-thought": "missing"})
+    write_language(folder, data)
+    assert problems_of(folder) == [
+        "lang/de.json: voice.items.nowhere: no item has id 'nowhere'",
+        "lang/de.json: voice.items.text-bare: item 'text-bare' has no text "
+        "to speak",
+        "lang/de.json: voice.items.text-thought: no track in voice.tracks "
+        "has id 'missing'",
+    ]
+
+
+def test_lang_voice_for_an_untranslated_item_is_a_warning(
+        folder: Path) -> None:
+    _manifest, files = add_languages(folder, "de")
+    data = add_voice(folder, files["de"], {"text-speech": "de-1"})
+    del data["items"]["text-speech"]
+    write_language(folder, data)
+    assert problems_of(folder) == []
+    warnings = lang_warnings(folder)
+    assert "warning: lang/de.json: voice.items.text-speech: this file has no " \
+        "text for the item, so its voice line never plays (the item shows " \
+        "the base text)" in warnings
+    assert "warning: lang/de.json: items.text-speech: no translation " \
+        "(base: \"Spoken dialogue: the speaker's name sits above the line.\")" \
+        in warnings or any("items.text-speech: no translation" in w
+                           for w in warnings)
+
+
+def test_lang_voice_track_warnings(folder: Path) -> None:
+    """An Ogg file and a track no item names warn, as in a manifest."""
+    _manifest, files = add_languages(folder, "de")
+    data = add_voice(folder, files["de"], {"text-speech": "de-1"},
+                     ext="ogg")
+    file = "lang/de/lines/spare.webm"
+    (folder / file).write_bytes(DUMMY)
+    audio_format.write_script(folder, file)
+    data["voice"]["tracks"]["spare"] = {"file": file, "durationSeconds": 1}
+    write_language(folder, data)
+    assert problems_of(folder) == []
+    warnings = lang_warnings(folder)
+    assert any(w.startswith("warning: lang/de.json: voice.tracks.de-1.file: "
+                            "Ogg audio 'lang/de/lines/de-1.ogg'")
+               for w in warnings), warnings
+    assert "warning: lang/de.json: voice.tracks.spare: no item uses this " \
+        "track" in warnings
+
+
+def test_lang_schema_track_matches_the_manifest_s() -> None:
+    """lang.schema.json copies the manifest schema's track and path
+    rules; they must stay the same."""
+    content = json.loads(SCHEMA.read_text(encoding="utf-8"))["$defs"]
+    lang = json.loads(LANG_SCHEMA.read_text(encoding="utf-8"))["$defs"]
+    for name in ("track", "path", "audioPath"):
+        assert lang[name] == content[name], name

@@ -5,7 +5,7 @@ needs no voice model (docs/plan.md Phase 52, item 13).
 Usage:
 
     .venv/bin/python tools/record_lines.py GAME_FOLDER [--voice-dir DIR]
-        [--bitrate KBPS] [--dry-run]
+        [--bitrate KBPS] [--lang TAG] [--dry-run]
 
 The lines are those the player speaks with spoken lines on
 (player/src/render/spoken.ts, `spokenLine`): an item with text that is not
@@ -41,6 +41,21 @@ and on Ctrl-C, and a rerun picks up from the files on disk. manifest.json
 keeps its own indentation; manifest.js is rewritten when the folder has one.
 tools/validate_content.py then runs on the folder.
 
+--lang TAG records one translation's lines instead (docs/plan.md Phase 54,
+item 6; docs/content-format.md, "Translations"), as the player would speak
+them live with that language shown (player/src/render/linevoice.ts,
+`lineVoice`): every item whose text `lang/<TAG>.json` translates, whose
+speaker has a voice (or the narrator, for a line with no speaker), that has
+no line of the author's own in the file's `voice.items`, and that would not
+play the base recording under `keepOriginalVoice`. Each speaks the
+translated text, in the engine's language for TAG (its primary subtag;
+`nb` and `nn` are `no`); a language the engine does not speak is refused.
+The files go under `lang/<TAG>/lines/`, the tracks into the file's
+`voice.tracks` and the items into its `voice.items`, and `lang/<TAG>.json`
+and `.js` are rewritten. The key also holds the language. Reruns, cleanup
+and resuming work as for the manifest, within the language file; the
+manifest is not touched.
+
 --dry-run says how many lines would be recorded, with an estimate of the
 time and the size, and touches nothing, starting no engine.
 
@@ -73,9 +88,10 @@ for _path in (REPO_ROOT / "converter", REPO_ROOT / "apps" / "voice",
         sys.path.insert(0, str(_path))
 import cast_voices  # noqa: E402
 from cast_voices import Refusal  # noqa: E402
-from kinetic_extract import audio_format, media_tools  # noqa: E402
+from kinetic_extract import audio_format, language_file, media_tools  # noqa: E402
 from kinetic_extract.version import add_version_option  # noqa: E402
 from kinetic_voice import install as voice_install  # noqa: E402
+from kinetic_voice.engine import LANGUAGES, engine_language  # noqa: E402
 
 DEFAULT_KBPS = 16
 LINES_DIR = "lines"
@@ -91,8 +107,18 @@ CHARS_PER_SECOND = 14.0
 ESTIMATE_RTF = {"Darwin": 0.55, "Windows": 0.35}
 
 TRACK_ID = re.compile(rf"{TRACK_PREFIX}[0-9a-f]{{32}}")
-FILE_NAME = re.compile(rf"{LINES_DIR}/([0-9a-f]{{2}})/([0-9a-f]{{64}})\.webm")
 STRAY = re.compile(r"[0-9a-f]{64}\.webm(\.js)?|\..*\.tmp")
+
+
+def lines_dir_of(tag: str | None) -> str:
+    """Where the recorded lines go: `lines` for the manifest's, and
+    `lang/<tag>/lines` for a language file's."""
+    return LINES_DIR if tag is None else language_file.voice_lines_dir(tag)
+
+
+def file_name(lines: str) -> re.Pattern[str]:
+    return re.compile(rf"{re.escape(lines)}/([0-9a-f]{{2}})/([0-9a-f]{{64}})"
+                      r"\.webm")
 
 
 # --- the player's rule ---------------------------------------------------------
@@ -123,12 +149,13 @@ def line_voice(manifest: dict[str, Any],
     return None
 
 
-def own_track(track_id: str, track: Any) -> bool:
-    """Whether the recorder made this track: its id and its file have the
-    shapes it gives them, and the id names the file's key."""
+def own_track(track_id: str, track: Any, lines: str = LINES_DIR) -> bool:
+    """Whether the recorder made this track: its id and its file (under
+    `lines`) have the shapes it gives them, and the id names the file's
+    key."""
     if not isinstance(track, dict) or not TRACK_ID.fullmatch(track_id):
         return False
-    found = FILE_NAME.fullmatch(str(track.get("file")))
+    found = file_name(lines).fullmatch(str(track.get("file")))
     return found is not None and found.group(2).startswith(
         track_id[len(TRACK_PREFIX):])
 
@@ -137,8 +164,52 @@ def track_id(key: str) -> str:
     return TRACK_PREFIX + key[:32]
 
 
-def file_of(key: str) -> str:
-    return f"{LINES_DIR}/{key[:2]}/{key}.webm"
+def file_of(key: str, lines: str = LINES_DIR) -> str:
+    return f"{lines}/{key[:2]}/{key}.webm"
+
+
+def translated_text(data: dict[str, Any], item_id: str) -> str | None:
+    """The language file's text for an item, when it has one that is not
+    blank (else the player shows the base text)."""
+    items = data.get("items")
+    entry = items.get(item_id) if isinstance(items, dict) else None
+    text = entry.get("text") if isinstance(entry, dict) else None
+    return text if isinstance(text, str) and text.strip() else None
+
+
+def language_lines(manifest: dict[str, Any], data: dict[str, Any],
+                   own: dict[str, Any]
+                   ) -> list[tuple[int, str | None, str]]:
+    """(item index, speaker or None for the narrator, translated text) of
+    each item the player would speak live with the language file `data`
+    shown, not counting the file's recordings the recorder made itself.
+
+    Mirrors player/src/render/linevoice.ts, `lineVoice`, for translated
+    text: the file's own recording wins, then the base recording under
+    `keepOriginalVoice`, else the line is spoken live in its speaker's
+    voice (or the narrator's) in the file's language."""
+    voice = data.get("voice")
+    recorded = voice.get("items") if isinstance(voice, dict) else None
+    recorded = recorded if isinstance(recorded, dict) else {}
+    keep = data.get("keepOriginalVoice") is True
+    found = []
+    for index, item in enumerate(manifest.get("items") or []):
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            continue
+        text = translated_text(data, item["id"])
+        if text is None:
+            continue
+        mine = recorded.get(item["id"])
+        if mine is not None and mine not in own:
+            continue  # the author's own recording in this language
+        audio = item.get("audio")
+        if keep and isinstance(audio, dict) and "voice" in audio:
+            continue  # the base recording plays under the translation
+        spoken = line_voice(manifest, item)
+        if spoken is None:
+            continue
+        found.append((index, spoken[0], text))
+    return found
 
 
 # --- planning ----------------------------------------------------------------
@@ -170,6 +241,10 @@ class Plan:
     own: dict[str, dict[str, Any]]  # track id -> track, the recorder's own
     have: set[str]  # keys whose file is on disk
     kbps: int
+    #: Where the files go (`lines_dir_of`), and the engine's language for
+    #: a language file's lines (None: the manifest's, in the default).
+    folder: str = LINES_DIR
+    lang: str | None = None
 
     @property
     def to_record(self) -> list[Line]:
@@ -182,12 +257,16 @@ class Plan:
         return [tid for tid in self.own if tid not in needed]
 
 
-def line_key(lock: dict[str, Any], clip: Clip, text: str, kbps: int) -> str:
-    """sha256 of everything that decides a line's recorded bytes."""
-    blob = json.dumps(
-        {"v": KEY_VERSION, "lock": lock["id"], "engine": lock["engine"],
-         "clip": clip.sha256, "clipText": clip.transcript, "text": text,
-         "kbps": kbps}, sort_keys=True, ensure_ascii=False)
+def line_key(lock: dict[str, Any], clip: Clip, text: str, kbps: int,
+             lang: str | None = None) -> str:
+    """sha256 of everything that decides a line's recorded bytes: with
+    `lang` (a language file's lines) the engine's language too."""
+    fields = {"v": KEY_VERSION, "lock": lock["id"], "engine": lock["engine"],
+              "clip": clip.sha256, "clipText": clip.transcript, "text": text,
+              "kbps": kbps}
+    if lang is not None:
+        fields["lang"] = lang
+    blob = json.dumps(fields, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
@@ -212,17 +291,17 @@ def script_size(file: str, size: int) -> int:
     return len(audio_format.script_bytes(file, b"")) + 4 * ((size + 2) // 3)
 
 
-def on_disk(game: Path, key: str) -> bool:
-    path = game / file_of(key)
+def on_disk(game: Path, key: str, lines: str = LINES_DIR) -> bool:
+    path = game / file_of(key, lines)
     return path.is_file() and path.stat().st_size > 0
 
 
-def plan(game: Path, manifest: dict[str, Any], lock: dict[str, Any],
-         kbps: int) -> Plan:
-    tracks = ((manifest.get("audio") or {}).get("tracks") or {})
-    own = {tid: t for tid, t in tracks.items() if own_track(tid, t)}
-    clips: dict[str | None, Clip] = {}
-    lines: dict[str, Line] = {}
+def manifest_lines(manifest: dict[str, Any], own: dict[str, Any]
+                   ) -> list[tuple[int, str | None, str]]:
+    """(item index, speaker or None for the narrator, text) of each item
+    the player would speak live, not counting recordings the recorder
+    made itself."""
+    found = []
     for index, item in enumerate(manifest.get("items") or []):
         if not isinstance(item, dict):
             continue
@@ -230,19 +309,35 @@ def plan(game: Path, manifest: dict[str, Any], lock: dict[str, Any],
         if isinstance(audio, dict) and "voice" in audio \
                 and audio["voice"] not in own:
             continue  # the author's own recording always wins
-        found = line_voice(manifest, item)
-        if found is None:
-            continue
-        name, text = found
+        spoken = line_voice(manifest, item)
+        if spoken is not None:
+            found.append((index, spoken[0], spoken[1]))
+    return found
+
+
+def plan(game: Path, manifest: dict[str, Any], lock: dict[str, Any],
+         kbps: int, doc: Document | None = None) -> Plan:
+    """What to record for the manifest, or with `doc` a language file
+    (`LanguageFile`), against what is on disk."""
+    folder = doc.folder if doc is not None else LINES_DIR
+    lang = doc.lang if doc is not None else None
+    tracks = doc.tracks() if doc is not None else (
+        (manifest.get("audio") or {}).get("tracks") or {})
+    own = {tid: t for tid, t in tracks.items() if own_track(tid, t, folder)}
+    wanted = manifest_lines(manifest, own) if doc is None or lang is None \
+        else language_lines(manifest, doc.data, own)
+    clips: dict[str | None, Clip] = {}
+    lines: dict[str, Line] = {}
+    for index, name, text in wanted:
         if name not in clips:
             voice = manifest["narrator"] if name is None \
                 else manifest["voices"][name]
             clips[name] = read_clip(game, name, voice)
-        key = line_key(lock, clips[name], text, kbps)
+        key = line_key(lock, clips[name], text, kbps, lang)
         line = lines.setdefault(key, Line(key, name, text))
         line.items.append(index)
-    have = {key for key in lines if on_disk(game, key)}
-    return Plan(lines, clips, own, have, kbps)
+    have = {key for key in lines if on_disk(game, key, folder)}
+    return Plan(lines, clips, own, have, kbps, folder, lang)
 
 
 # --- the voice helper ------------------------------------------------------------
@@ -309,11 +404,15 @@ class HelperClient:
             fields["text"] = text
         return self.request("voice", **fields)["voiceId"]
 
-    def speak(self, voice_id: str,
-              text: str) -> tuple[bytes, float, float, bool]:
+    def speak(self, voice_id: str, text: str,
+              lang: str | None = None) -> tuple[bytes, float, float, bool]:
         """(WAV bytes, seconds of speech, seconds the engine took, whether
-        the helper's own cache had the line) of one line."""
-        reply = self.request("speak", voiceId=voice_id, text=text)
+        the helper's own cache had the line) of one line, in the engine's
+        language `lang` (None: the helper's default, English)."""
+        fields: dict[str, Any] = {"voiceId": voice_id, "text": text}
+        if lang is not None:
+            fields["lang"] = lang
+        reply = self.request("speak", **fields)
         return (base64.b64decode(reply["wav"]), float(reply["seconds"]),
                 float(reply.get("genSeconds", 0)),
                 bool(reply.get("cached", False)))
@@ -467,9 +566,9 @@ def file_seconds(path: Path) -> float:
                          f"{proc.stderr.strip()}") from None
 
 
-def finish_file(game: Path, key: str) -> None:
+def finish_file(game: Path, key: str, lines: str = LINES_DIR) -> None:
     """Its script beside a file, if it has none or a wrong one."""
-    file = file_of(key)
+    file = file_of(key, lines)
     script = audio_format.script_path(game, file)
     size = (game / file).stat().st_size
     if not script.is_file() or script.stat().st_size != script_size(file,
@@ -479,7 +578,49 @@ def finish_file(game: Path, key: str) -> None:
 
 # --- the manifest ------------------------------------------------------------------------
 
-class Manifest:
+class Document:
+    """Where the recorded lines are written: the manifest (`Manifest`) or
+    a language file (`LanguageFile`). Items are named by their index in
+    the manifest's `items`."""
+
+    #: The folder the files go in (`lines_dir_of`).
+    folder = LINES_DIR
+    #: The engine's language for a language file's lines; None: the
+    #: manifest's.
+    lang: str | None = None
+    data: dict[str, Any]
+    dirty: bool
+
+    def tracks(self, create: bool = False) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def voices(self) -> list[tuple[int, Any]]:
+        """(item index, the track id it speaks, or None) per item."""
+        raise NotImplementedError
+
+    def add_track(self, key: str, seconds: float) -> None:
+        self.tracks(create=True)[track_id(key)] = {
+            "file": file_of(key, self.folder), "durationSeconds": seconds}
+        self.dirty = True
+
+    def drop_track(self, tid: str) -> None:
+        self.tracks().pop(tid, None)
+        self.dirty = True
+
+    def set_voice(self, index: int, tid: str) -> None:
+        raise NotImplementedError
+
+    def clear_voice(self, index: int) -> None:
+        raise NotImplementedError
+
+    def tidy(self) -> None:
+        raise NotImplementedError
+
+    def save(self) -> None:
+        raise NotImplementedError
+
+
+class Manifest(Document):
     """manifest.json (and manifest.js) kept in the file's own style,
     rewritten whole as the run goes."""
 
@@ -489,6 +630,14 @@ class Manifest:
         self.newline = text.endswith("\n")
         self.dirty = False
         self.items: list[dict[str, Any]] = data.get("items") or []
+
+    def voices(self) -> list[tuple[int, Any]]:
+        out = []
+        for index, item in enumerate(self.items):
+            audio = item.get("audio") if isinstance(item, dict) else None
+            out.append((index, audio.get("voice")
+                        if isinstance(audio, dict) else None))
+        return out
 
     def tracks(self, create: bool = False) -> dict[str, Any]:
         audio = self.data.get("audio")
@@ -504,15 +653,6 @@ class Manifest:
         if create:
             return audio.setdefault("tracks", {})
         return audio.get("tracks") or {}
-
-    def add_track(self, key: str, seconds: float) -> None:
-        self.tracks(create=True)[track_id(key)] = {
-            "file": file_of(key), "durationSeconds": seconds}
-        self.dirty = True
-
-    def drop_track(self, tid: str) -> None:
-        self.tracks().pop(tid, None)
-        self.dirty = True
 
     def set_voice(self, index: int, tid: str) -> None:
         audio = self.items[index].setdefault("audio", {})
@@ -553,7 +693,106 @@ class Manifest:
         self.dirty = False
 
 
-def apply_plan(game: Path, manifest: Manifest, planned: Plan) -> int:
+class LanguageFile(Document):
+    """A language file, `lang/<tag>.json`, whose `voice` block takes the
+    recorded lines: `voice.tracks` and `voice.items` (item id -> track).
+    Saved with its script by `language_file.write_language_file`."""
+
+    def __init__(self, game: Path, tag: str, lang: str, data: dict[str, Any],
+                 items: list[Any]) -> None:
+        self.game, self.tag, self.lang, self.data = game, tag, lang, data
+        self.folder = lines_dir_of(tag)
+        self.dirty = False
+        self.ids = [item.get("id") if isinstance(item, dict) else None
+                    for item in items]
+
+    def _voice(self, create: bool) -> dict[str, Any]:
+        voice = self.data.get("voice")
+        if not isinstance(voice, dict):
+            if not create:
+                return {}
+            voice = self.data["voice"] = {}
+        return voice
+
+    def tracks(self, create: bool = False) -> dict[str, Any]:
+        voice = self._voice(create)
+        if create:
+            return voice.setdefault("tracks", {})
+        tracks = voice.get("tracks")
+        return tracks if isinstance(tracks, dict) else {}
+
+    def _items(self, create: bool) -> dict[str, Any]:
+        voice = self._voice(create)
+        if create:
+            return voice.setdefault("items", {})
+        items = voice.get("items")
+        return items if isinstance(items, dict) else {}
+
+    def voices(self) -> list[tuple[int, Any]]:
+        items = self._items(False)
+        return [(index, items.get(item_id) if isinstance(item_id, str)
+                 else None) for index, item_id in enumerate(self.ids)]
+
+    def set_voice(self, index: int, tid: str) -> None:
+        items = self._items(True)
+        if items.get(self.ids[index]) != tid:
+            items[self.ids[index]] = tid
+            self.dirty = True
+
+    def clear_voice(self, index: int) -> None:
+        items = self._items(False)
+        if self.ids[index] in items:
+            del items[self.ids[index]]
+            self.dirty = True
+
+    def tidy(self) -> None:
+        """No empty `tracks`, `items` or `voice` left behind."""
+        voice = self.data.get("voice")
+        if not isinstance(voice, dict):
+            return
+        for part in ("tracks", "items"):
+            if voice.get(part) == {}:
+                del voice[part]
+                self.dirty = True
+        if voice == {}:
+            del self.data["voice"]
+            self.dirty = True
+
+    def save(self) -> None:
+        if not self.dirty:
+            return
+        language_file.write_language_file(self.game, self.data)
+        self.dirty = False
+
+
+def read_language(game: Path, manifest: dict[str, Any],
+                  tag: str) -> tuple[str, dict[str, Any]]:
+    """(the engine's language, the language file's object) for `--lang
+    TAG`; Refusal(2) for a tag the game does not list or the engine does
+    not speak."""
+    listed = manifest.get("languages")
+    listed = listed if isinstance(listed, list) else []
+    if tag not in listed:
+        names = ", ".join(str(t) for t in listed) or "none"
+        raise Refusal(2, f"the game has no language {tag!r}: its manifest's "
+                         f"languages are {names}")
+    lang = engine_language(tag)
+    if lang is None:
+        raise Refusal(2, f"the voice engine does not speak {tag!r}; it "
+                         f"speaks {', '.join(LANGUAGES)}")
+    path = game / language_file.json_path(tag)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError:
+        raise Refusal(1, f"no language file {path}") from None
+    except ValueError as err:
+        raise Refusal(1, f"{path} is not valid JSON: {err}") from None
+    if not isinstance(data, dict) or data.get("language") != tag:
+        raise Refusal(1, f"{path} is not the language file of {tag!r}")
+    return lang, data
+
+
+def apply_plan(game: Path, manifest: Document, planned: Plan) -> int:
     """Bring manifest and folder in step with what is on disk, before any
     line is recorded: items whose line changed lose their old voice at
     once (never a wrong one), files the run left unfinished get their
@@ -561,9 +800,7 @@ def apply_plan(game: Path, manifest: Manifest, planned: Plan) -> int:
     go. Returns the number of audio files deleted."""
     wanted = {i: key for key, line in planned.lines.items()
               for i in line.items}
-    for index, item in enumerate(manifest.items):
-        audio = item.get("audio") if isinstance(item, dict) else None
-        voice = audio.get("voice") if isinstance(audio, dict) else None
+    for index, voice in manifest.voices():
         if isinstance(voice, str) and voice in planned.own:
             key = wanted.get(index)
             if key is None or key not in planned.have \
@@ -571,11 +808,11 @@ def apply_plan(game: Path, manifest: Manifest, planned: Plan) -> int:
                 manifest.clear_voice(index)
     tracks = manifest.tracks()
     for key in planned.have:
-        finish_file(game, key)
+        finish_file(game, key, planned.folder)
         tid = track_id(key)
         if tid not in tracks:
             manifest.add_track(key, round(file_seconds(
-                game / file_of(key)), 3))
+                game / file_of(key, planned.folder)), 3))
         for index in planned.lines[key].items:
             manifest.set_voice(index, tid)
     gone = [planned.own[tid]["file"] for tid in planned.stale]
@@ -587,7 +824,7 @@ def apply_plan(game: Path, manifest: Manifest, planned: Plan) -> int:
     removed = 0
     for file in gone:
         removed += _unlink(game / file)
-    folder = game / LINES_DIR
+    folder = game / planned.folder
     if folder.is_dir():
         for path in sorted(folder.glob("*/*")):
             if not STRAY.fullmatch(path.name):
@@ -640,7 +877,7 @@ def clock(seconds: float) -> str:
     return f"{seconds} s"
 
 
-def record_all(game: Path, manifest: Manifest, planned: Plan,
+def record_all(game: Path, manifest: Document, planned: Plan,
                client: HelperClient, say: Callable[[str], None],
                encode: Callable[[bytes, Path, int], None] | None = None,
                ) -> Stats:
@@ -667,14 +904,15 @@ def record_all(game: Path, manifest: Manifest, planned: Plan,
     begun = last_save = last_say = time.monotonic()
     for number, line in enumerate(todo, 1):
         wav, seconds, took, cached = client.speak(voice_ids[line.voice],
-                                                  line.text)
+                                                  line.text, planned.lang)
         if not cached:
             stats.generated += 1
             stats.generated_speech += seconds
             stats.generated_seconds += took
         encode_opus_now = encode or encode_opus
-        encode_opus_now(wav, game / file_of(line.key), planned.kbps)
-        finish_file(game, line.key)
+        encode_opus_now(wav, game / file_of(line.key, planned.folder),
+                        planned.kbps)
+        finish_file(game, line.key, planned.folder)
         manifest.add_track(line.key, round(seconds, 3))
         for index in line.items:
             manifest.set_voice(index, track_id(line.key))
@@ -711,10 +949,10 @@ def estimate(planned: Plan) -> tuple[float, float, float]:
     return speech, work, audio * 4 / 3
 
 
-def owned_bytes(game: Path, manifest: Manifest) -> int:
+def owned_bytes(game: Path, manifest: Document) -> int:
     total = 0
     for tid, track in manifest.tracks().items():
-        if own_track(tid, track):
+        if own_track(tid, track, manifest.folder):
             path = game / track["file"]
             script = audio_format.script_path(game, track["file"])
             for each in (path, script):
@@ -736,6 +974,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bitrate", metavar="KBPS", type=int,
                         default=DEFAULT_KBPS,
                         help=f"Opus bitrate (default {DEFAULT_KBPS})")
+    parser.add_argument("--lang", metavar="TAG",
+                        help="record the lines of the language file "
+                             "lang/TAG.json in that language, into it")
     parser.add_argument("--dry-run", action="store_true",
                         help="say how many lines would be recorded, with "
                              "an estimate; touch nothing")
@@ -776,18 +1017,29 @@ def run(args: argparse.Namespace, argv: list[str],
     lock = load_lock(lock_path)
     if args.dry_run is False:
         cast_voices._need_validator(argv)
-    manifest = Manifest(game, text, data)
-    planned = plan(game, data, lock, args.bitrate)
+    manifest: Document
+    if args.lang is None:
+        manifest = Manifest(game, text, data)
+        planned = plan(game, data, lock, args.bitrate)
+        where = ""
+    else:
+        lang, lang_data = read_language(game, data, args.lang)
+        manifest = LanguageFile(game, args.lang, lang, lang_data,
+                                data.get("items") or [])
+        planned = plan(game, data, lock, args.bitrate, manifest)
+        where = f" in {args.lang}"
     speaks = sum(len(line.items) for line in planned.lines.values())
     todo = planned.to_record
     if not planned.lines and not planned.own:
-        print("record_lines: no item would be spoken: the game has no "
-              "voices (or narrator) for its lines")
+        print(f"record_lines: no item would be spoken{where}: the game has "
+              "no voices (or narrator) for its lines"
+              + (", or the language file translates none of them, or "
+                 "records them all itself" if where else ""))
         return 0
     if args.dry_run:
         speech, work, size = estimate(planned)
-        print(f"{speaks} items speak live, {len(planned.lines)} distinct "
-              "lines")
+        print(f"{speaks} items speak live{where}, {len(planned.lines)} "
+              "distinct lines")
         print(f"{len(todo)} lines to record, {len(planned.have)} recorded "
               f"already, {len(planned.stale)} recorded lines to remove")
         print(f"estimate: about {clock(speech)} of speech, {clock(work)} "

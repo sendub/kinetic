@@ -12,6 +12,11 @@ before adding the chosen language's script, so the folder works over
 ``file://`` as ``manifest.js`` does. The validator checks that the
 script's JSON equals the file's.
 
+A language file may carry its own recorded voice lines, ``voice``:
+``tracks`` (track id -> track, a manifest audio track's shape, the ids
+its own) and ``items`` (item id -> one of those track ids), the files
+under ``voice_lines_dir(tag)`` by convention.
+
 A translated string records which base text it was made from:
 ``from`` is the first 8 lowercase hex digits of the SHA-256 of the base
 string's UTF-8 bytes, exactly as the manifest has it (``base_hash``).
@@ -78,6 +83,15 @@ def json_path(tag: str) -> str:
 def script_path(tag: str) -> str:
     """The language file's script's path, relative to the manifest."""
     return f"{LANG_DIR}/{tag}.js"
+
+
+def voice_lines_dir(tag: str) -> str:
+    """Where a language file's recorded voice lines go by convention,
+    relative to the manifest (tools/record_lines.py --lang writes them
+    there): ``lang/<tag>/lines``. The language file's ``voice.tracks``
+    name them, as a manifest's ``audio.tracks`` do, each with its ``.js``
+    script beside it."""
+    return f"{LANG_DIR}/{tag}/lines"
 
 
 def script_prefix(tag: str) -> str:

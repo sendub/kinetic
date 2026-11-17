@@ -129,6 +129,7 @@ import {
 import type {
   Arrival,
   ArrivalKind,
+  AudioTrack,
   AutoPickView,
   Branch,
   ChoiceRoute,
@@ -1593,8 +1594,7 @@ export function createMachine(options: MachineOptions): Machine {
       spokenHold !== null && spokenHold.index === cursor
         ? spokenHold.until - timerArmedAt
         : 0;
-    const id = items[cursor]?.audio?.voice;
-    const track = id === undefined ? undefined : voiceTracks?.[id];
+    const track = voiceAt(cursor)?.track;
     if (track === undefined) return spoken;
     return Math.max(
       spoken,
@@ -1819,16 +1819,33 @@ export function createMachine(options: MachineOptions): Machine {
     return step?.kind === "item" && step.index === index;
   }
 
+  /**
+   * Item `index`'s recorded voice line in the language shown
+   * (`MachineWords.voice`), else its own `audio.voice`; null for none.
+   */
+  function voiceAt(
+    index: number,
+  ): { readonly id: string; readonly track: AudioTrack | undefined } | null {
+    if (words?.voice !== undefined) return words.voice(index);
+    const id = items[index]?.audio?.voice;
+    return id === undefined ? null : { id, track: voiceTracks?.[id] };
+  }
+
   /** The target sound at the cursor (`Machine.targetSound`). */
   function resolveSound(): TargetSound {
     audible ??= hasItemAudio(items);
-    if (!audible || count === 0) return SILENCE;
+    if (count === 0) return SILENCE;
+    // A language file's recording may voice an item of a manifest
+    // without audio.
+    const voice = voiceAt(cursor)?.id ?? null;
+    if (!audible) {
+      return voice === null ? SILENCE : Object.freeze({ ...SILENCE, voice });
+    }
     sound ??= createSoundResolver(items, {
       linear: linearBack,
       back: itemBefore,
     });
     const setters = sound.at(cursor);
-    const voice = items[cursor].audio?.voice ?? null;
     const visual = items[visualIndexFor(items, cursor)];
     const own = visual.type === "video" ? visual.audio?.videoSound : undefined;
     return Object.freeze({
@@ -3549,6 +3566,7 @@ export function createMachine(options: MachineOptions): Machine {
 
     setWords(next) {
       words = next;
+      soundFor = null; // the voice may be another language's now
       if (destroyed || count === 0) return;
       emit();
       retime();

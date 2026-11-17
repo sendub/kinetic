@@ -27,7 +27,7 @@ if str(TOOLS_DIR) not in sys.path:
 
 import record_lines  # noqa: E402
 import validate_content  # noqa: E402
-from kinetic_extract import audio_format, media_tools  # noqa: E402
+from kinetic_extract import audio_format, language_file, media_tools  # noqa: E402
 from kinetic_extract.media_tools import TEST_DIR_ENV, TOOL_NAMES  # noqa: E402
 from kinetic_extract.version import kinetic_version  # noqa: E402
 
@@ -152,15 +152,29 @@ def snapshot(folder: Path) -> dict[str, bytes]:
             for p in sorted(folder.rglob("*")) if p.is_file()}
 
 
+class Calls(list):
+    """The text of every line asked for; `langs` holds (text, lang)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.langs: list[tuple[str, str | None]] = []
+
+    def clear(self) -> None:
+        super().clear()
+        self.langs.clear()
+
+
 @pytest.fixture
-def speak_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """The text of every line the helper is asked to speak."""
-    calls: list[str] = []
+def speak_calls(monkeypatch: pytest.MonkeyPatch) -> Calls:
+    """The text of every line the helper is asked to speak (and in its
+    `langs`, with the language asked for)."""
+    calls = Calls()
     real = record_lines.HelperClient.speak
 
-    def spy(self, voice_id, text):
+    def spy(self, voice_id, text, lang=None):
         calls.append(text)
-        return real(self, voice_id, text)
+        calls.langs.append((text, lang))
+        return real(self, voice_id, text, lang)
 
     monkeypatch.setattr(record_lines.HelperClient, "speak", spy)
     return calls
@@ -206,6 +220,24 @@ def test_the_rule_matches_the_players(tmp_path):
                    'speaker === undefined || speaker === "" ? NARRATOR',
                    "castVoice(cast, voice) === undefined"):
         assert clause in body, f"spoken.ts changed: {clause!r} is gone"
+
+
+def test_the_language_rule_matches_the_players():
+    """record_lines.language_lines mirrors player/src/render/linevoice.ts's
+    `lineVoice` for translated text; this checks the player's source still
+    holds each clause, in that order."""
+    source = (REPO_ROOT / "player/src/render/linevoice.ts").read_text()
+    body = source[source.index("export function lineVoice"):]
+    body = body[:body.index("\n}\n")]
+    at = 0
+    for clause in ("fileItemText(file, item.id)",
+                   "fileRecording(file, item.id)",
+                   "file.keepOriginalVoice === true && base !== undefined",
+                   "engineLanguage(file.language)",
+                   "castVoice(cast, voice) === undefined"):
+        found = body.find(clause, at)
+        assert found >= 0, f"linevoice.ts changed: {clause!r} is gone"
+        at = found
 
 
 def test_identical_lines_share_one_file(tmp_path, lock_file, helper_cmd):
@@ -509,3 +541,194 @@ def test_refusals(tmp_path, lock_file, helper_cmd, capsys):
     write_manifest(game, manifest)
     # Nothing is cast and nothing recorded: not an error.
     assert record(game, lock_file, helper_cmd) == 0
+
+
+# --- --lang: a language file's lines (docs/plan.md Phase 54 item 6) -----------
+
+GERMAN = {
+    "first": "Der Hafen in der Dämmerung.",
+    "line-1": "Du bist heute früh dran.",
+    "line-2": "Die Flut wartet auf niemanden.",
+    "line-4": "Keine Stimme für diesen Sprecher.",
+    "line-5": "Diese Zeile hat die Aufnahme der Autorin.",
+    "line-7": "Du bist heute früh dran.",
+}
+
+
+def add_language(game: Path, tag: str, texts: dict[str, str],
+                 **fields: object) -> None:
+    """List `tag` in the manifest and write its language file."""
+    manifest = load(game)
+    manifest["languages"] = sorted({*manifest.get("languages", []), tag})
+    write_manifest(game, manifest)
+    language_file.write_language_file(game, {
+        "language": tag,
+        "items": {item_id: {"text": text} for item_id, text in texts.items()},
+        **fields})
+
+
+def load_lang(game: Path, tag: str) -> dict:
+    return json.loads((game / f"lang/{tag}.json").read_text("utf-8"))
+
+
+def lang_voice(data: dict, item_id: str) -> str | None:
+    return data.get("voice", {}).get("items", {}).get(item_id)
+
+
+def test_lang_records_the_translated_lines(tmp_path, lock_file, helper_cmd,
+                                           speak_calls):
+    game = make_game(tmp_path)
+    add_language(game, "de", GERMAN)
+    before = (game / "manifest.json").read_bytes()
+    assert record(game, lock_file, helper_cmd, "--lang", "de") == 0
+    # Each distinct translated line once, in German.
+    assert sorted(speak_calls.langs) == sorted([
+        ("Der Hafen in der Dämmerung.", "de"),
+        ("Du bist heute früh dran.", "de"),
+        ("Die Flut wartet auf niemanden.", "de"),
+        ("Diese Zeile hat die Aufnahme der Autorin.", "de")])
+    assert (game / "manifest.json").read_bytes() == before
+    data = load_lang(game, "de")
+    assert lang_voice(data, "first")  # the narrator
+    assert lang_voice(data, "line-1") == lang_voice(data, "line-7")
+    assert lang_voice(data, "line-2")
+    assert lang_voice(data, "line-3") is None  # not translated
+    assert lang_voice(data, "line-4") is None  # no voice for the speaker
+    # The base has the author's recording, but without keepOriginalVoice
+    # it is silent under German, so German gets its own line.
+    assert lang_voice(data, "line-5")
+    tracks = data["voice"]["tracks"]
+    assert len(tracks) == 4
+    for tid, track in tracks.items():
+        assert tid.startswith("rec-")
+        assert track["file"].startswith("lang/de/lines/")
+        path = game / track["file"]
+        script = audio_format.script_path(game, track["file"])
+        assert audio_format.script_problem(
+            track["file"], script.read_bytes(), path.read_bytes()) is None
+        assert probe(path)["streams"][0]["codec_name"] == "opus"
+    assert not (game / "lines").exists()
+    # Its script agrees with it, and the folder validates.
+    text = (game / "lang/de.json").read_text("utf-8")
+    assert (game / "lang/de.js").read_text("utf-8") == \
+        language_file.script_text("de", text)
+    assert validate_content.validate_folder(game) == []
+
+
+def test_lang_uses_the_engine_s_language(tmp_path, lock_file, helper_cmd,
+                                         speak_calls):
+    game = make_game(tmp_path)
+    add_language(game, "ja", {"line-1": "今日は早いね。"})
+    add_language(game, "nb", {"line-2": "Tidevannet venter ikke."})
+    add_language(game, "pt-BR", {"line-2": "A maré não espera ninguém."})
+    assert record(game, lock_file, helper_cmd, "--lang", "ja") == 0
+    assert record(game, lock_file, helper_cmd, "--lang", "nb") == 0
+    assert record(game, lock_file, helper_cmd, "--lang", "pt-BR") == 0
+    assert speak_calls.langs == [("今日は早いね。", "ja"),
+                                 ("Tidevannet venter ikke.", "no"),
+                                 ("A maré não espera ninguém.", "pt")]
+    assert load_lang(game, "pt-BR")["voice"]["tracks"]
+    assert all(t["file"].startswith("lang/pt-BR/lines/")
+               for t in load_lang(game, "pt-BR")["voice"]["tracks"].values())
+
+
+def test_lang_keeps_the_base_voice_and_the_author_s_own(tmp_path, lock_file,
+                                                        helper_cmd,
+                                                        speak_calls):
+    game = make_game(tmp_path)
+    (game / "lang/de/mine").mkdir(parents=True)
+    write_clip(game, "lang/de/mine/line-2.wav", 13)
+    add_language(game, "de", GERMAN, keepOriginalVoice=True, voice={
+        "tracks": {"theo-de": {"file": "lang/de/mine/line-2.wav",
+                               "durationSeconds": 1}},
+        "items": {"line-2": "theo-de"}})
+    assert record(game, lock_file, helper_cmd, "--lang", "de") == 0
+    assert sorted(speak_calls) == sorted(["Der Hafen in der Dämmerung.",
+                                          "Du bist heute früh dran."])
+    data = load_lang(game, "de")
+    assert lang_voice(data, "line-2") == "theo-de"
+    assert data["voice"]["tracks"]["theo-de"]["file"] == \
+        "lang/de/mine/line-2.wav"
+    assert lang_voice(data, "line-5") is None  # the base recording plays
+    assert validate_content.validate_folder(game) == []
+
+
+def test_lang_rerun_and_cleanup(tmp_path, lock_file, helper_cmd,
+                                speak_calls):
+    game = make_game(tmp_path)
+    add_language(game, "de", GERMAN)
+    assert record(game, lock_file, helper_cmd, "--lang", "de") == 0
+    before = snapshot(game)
+    speak_calls.clear()
+    assert record(game, lock_file, helper_cmd, "--lang", "de") == 0
+    assert speak_calls == []
+    assert snapshot(game) == before
+
+    data = load_lang(game, "de")
+    gone = data["voice"]["tracks"][lang_voice(data, "line-2")]["file"]
+    del data["items"]["line-2"]
+    data["items"]["line-1"]["text"] = "Du bist früh."
+    language_file.write_language_file(game, data)
+    assert record(game, lock_file, helper_cmd, "--lang", "de") == 0
+    assert speak_calls == ["Du bist früh."]
+    after = load_lang(game, "de")
+    assert lang_voice(after, "line-2") is None
+    assert not (game / gone).exists()
+    # line-7 keeps the old text, and so the old file.
+    assert lang_voice(after, "line-1") != lang_voice(after, "line-7")
+    assert len(after["voice"]["tracks"]) == 4
+    assert validate_content.validate_folder(game) == []
+
+    # With nothing left to speak, the voice block goes.
+    after["keepOriginalVoice"] = False
+    after["items"] = {}
+    language_file.write_language_file(game, after)
+    assert record(game, lock_file, helper_cmd, "--lang", "de") == 0
+    assert "voice" not in load_lang(game, "de")
+    assert not list((game / "lang").rglob("*.webm"))
+
+
+def test_lang_and_the_manifest_s_lines_are_apart(tmp_path, lock_file,
+                                                  helper_cmd):
+    game = make_game(tmp_path)
+    add_language(game, "de", GERMAN)
+    assert record(game, lock_file, helper_cmd) == 0
+    assert record(game, lock_file, helper_cmd, "--lang", "de") == 0
+    manifest = load(game)
+    assert len(owned(manifest)) == 4
+    assert all(t["file"].startswith("lines/")
+               for t in owned(manifest).values())
+    # A rerun of either leaves the other alone.
+    before = snapshot(game)
+    assert record(game, lock_file, helper_cmd) == 0
+    assert record(game, lock_file, helper_cmd, "--lang", "de") == 0
+    assert snapshot(game) == before
+    assert validate_content.validate_folder(game) == []
+
+
+def test_lang_dry_run(tmp_path, lock_file, capsys):
+    game = make_game(tmp_path)
+    add_language(game, "de", GERMAN)
+    before = snapshot(game)
+    assert record_lines.main(
+        [str(game), "--lock", str(lock_file), "--lang", "de", "--dry-run"],
+        helper_command=["/nonexistent/helper"]) == 0
+    assert snapshot(game) == before
+    out = capsys.readouterr().out
+    assert "5 items speak live in de, 4 distinct lines" in out
+    assert "4 lines to record, 0 recorded" in out
+
+
+def test_lang_refusals(tmp_path, lock_file, helper_cmd, capsys):
+    game = make_game(tmp_path)
+    add_language(game, "vi", {"line-1": "Hôm nay bạn đến sớm."})
+    before = snapshot(game)
+    assert record(game, lock_file, helper_cmd, "--lang", "vi") == 2
+    err = capsys.readouterr().err
+    assert "the voice engine does not speak 'vi'" in err
+    assert "de, el, en" in err
+    assert record(game, lock_file, helper_cmd, "--lang", "fr") == 2
+    assert "the game has no language 'fr'" in capsys.readouterr().err
+    assert record(game, lock_file, helper_cmd, "--lang", "vi",
+                  "--dry-run") == 2
+    assert snapshot(game) == before

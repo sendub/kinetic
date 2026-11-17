@@ -39,7 +39,18 @@
 //   restarts nor cuts it, a reread uses the cache and asks nothing; the Esc
 //   screen holds it mid-line and it plays on from there, chunks that came
 //   meanwhile joining; leaving stops it, chunks still to come never sound;
-//   auto-forward waits for its end, never cutting it at 20 s.
+//   auto-forward waits for its end, never cutting it at 20 s;
+// - spoken lines per language (Phase 54 item 6), on a copy with language
+//   files written here (de, ja, ar, vi, fr): the stand-in host is asked for
+//   the text shown in the engine's language (de, ja, ar), a line the
+//   language lacks for the base text in `en`; a switch drops the pending
+//   requests of the old language; a language the engine lacks (vi) asks
+//   for nothing; a base recording is silent under a translation without
+//   `keepOriginalVoice` (the translation is spoken live instead) and plays
+//   with it (fr), and a language file's own recording plays (ja); the
+//   Volumes sheet's Voice row follows the language shown (the download
+//   offered, a slider alone when every line is recorded, no row when the
+//   language has no voice).
 
 import {
   cpSync,
@@ -119,7 +130,7 @@ function toneWav(seconds, hz) {
  */
 export function buildFolder(
   name,
-  { recorded = false, allRecorded = false } = {},
+  { recorded = false, allRecorded = false, languages = null } = {},
 ) {
   const dir = join(scenarioRoot, `spoken-${name}`);
   rmSync(dir, { recursive: true, force: true });
@@ -157,6 +168,35 @@ export function buildFolder(
     };
     for (const it of manifest.items) {
       if (voiceFor(it) !== null) it.audio = { ...it.audio, voice: "line" };
+    }
+  }
+  if (languages !== null) {
+    // Language files (docs/content-format.md, "Translations"), each with
+    // its script; `languages` maps a tag to its file's fields (`items` as
+    // item id -> text).
+    mkdirSync(join(dir, "lang"), { recursive: true });
+    manifest.languages = Object.keys(languages);
+    for (const [tag, fields] of Object.entries(languages)) {
+      const data = {
+        language: tag,
+        ...fields,
+        items: Object.fromEntries(
+          Object.entries(fields.items ?? {}).map(([id, text]) => [
+            id,
+            { text },
+          ]),
+        ),
+      };
+      for (const track of Object.values(data.voice?.tracks ?? {})) {
+        mkdirSync(join(dir, track.file, ".."), { recursive: true });
+        ship(track.file, track.durationSeconds, 520);
+      }
+      const text = JSON.stringify(data, null, 2);
+      writeFileSync(join(dir, "lang", `${tag}.json`), text);
+      writeFileSync(
+        join(dir, "lang", `${tag}.js`),
+        `window.KINETIC_LANGUAGES[${JSON.stringify(tag)}] = ${text};\n`,
+      );
     }
   }
   const json = JSON.stringify(manifest, null, 2);
@@ -1430,6 +1470,378 @@ async function recordedMix({ check, open }) {
   );
 }
 
+// --- spoken lines per language (Phase 54 item 6) -----------------------------
+
+/** The language files of the language parts: item id -> its text. */
+const TRANSLATED = {
+  // German lacks text-narration: that line falls back to the base.
+  de: {
+    items: {
+      "intro-title": "DE: Kinetic-Demo. Jede Zeile erklärt sich.",
+      "text-speech": "DE: Gesprochener Dialog.",
+      "text-thought": "DE: Ein Gedanke.",
+      "anim-orbit": "DE: Eine Animation.",
+      "chain-still-2": "DE: Zeilen können sich verketten.",
+    },
+  },
+  ja: {
+    items: {
+      "intro-title": "JA: キネティックのデモ。",
+      "text-speech": "JA: 話された台詞。",
+      "chain-still-2": "JA: 台詞は続く。",
+    },
+    voice: {
+      tracks: {
+        "ja-1": { file: "lang/ja/lines/ja-1.wav", durationSeconds: 2 },
+      },
+      items: { "chain-still-2": "ja-1" },
+    },
+  },
+  ar: {
+    items: {
+      "intro-title": "AR: عرض كينتك.",
+      "text-speech": "AR: حوار منطوق.",
+    },
+  },
+  // Vietnamese, which the engine does not speak, translates every line
+  // (`languageRequests` adds them), so nothing falls back to the base.
+  vi: { items: {} },
+  fr: {
+    items: { "chain-still-2": "FR: Les lignes s'enchaînent." },
+    keepOriginalVoice: true,
+  },
+};
+
+/**
+ * Every line of the demo with a voice, translated as `prefix: <text>`: a
+ * language file that leaves nothing near any item to fall back to the base.
+ */
+function translateAll(prefix) {
+  const demo = JSON.parse(readFileSync(join(demoDir, "manifest.json"), "utf8"));
+  return Object.fromEntries(
+    demo.items
+      .filter((it) => voiceFor(it) !== null)
+      .map((it) => [it.id, `${prefix}: ${it.text}`]),
+  );
+}
+
+/** Opens the Esc screen (if shut) and picks `tag` in its Language list. */
+async function pickLanguage(page, cdp, tag) {
+  const closed = () => document.getElementById("help")?.hidden !== false;
+  if (await page.evaluate(closed)) {
+    await pressEscape(cdp);
+    await page.waitForFunction(() => !document.getElementById("help").hidden, {
+      timeout: 3000,
+    });
+  }
+  await clickCenter(cdp, ".help-lang");
+  await page.waitForFunction(
+    () => document.querySelector(".help-lang-list")?.hidden === false,
+    { timeout: 3000 },
+  );
+  await clickCenter(cdp, `.help-lang-option[data-lang="${tag}"]`);
+  await page.waitForFunction(
+    (t) => document.querySelector(".help-lang-name")?.lang === t,
+    { timeout: 4000 },
+    tag,
+  );
+}
+
+/** Each speak still waiting: its text and language, highest priority first. */
+async function liveRequests(page) {
+  const fake = await readFakeVoice(page);
+  return fake.messages
+    .filter(
+      (m) =>
+        m.op === "speak" &&
+        !fake.answered.includes(m.id) &&
+        !fake.dropped.includes(m.id),
+    )
+    .sort((a, b) => b.priority - a.priority)
+    .map((m) => ({ id: m.id, text: m.text, lang: m.lang }));
+}
+
+/** Polls until the live requests are `want` (texts and languages, in order). */
+async function waitRequests(page, want, timeout = 4000) {
+  const key = (list) =>
+    JSON.stringify(list.map(({ text, lang }) => ({ text, lang })));
+  const until = Date.now() + timeout;
+  for (;;) {
+    const live = await liveRequests(page);
+    if (key(live) === key(want)) return { ok: true, live };
+    if (Date.now() >= until) return { ok: false, live };
+    await sleep(50);
+  }
+}
+
+/**
+ * The stand-in host is asked for the text shown in its language; a
+ * fallback line in the base's; a switch drops the old language's requests;
+ * Vietnamese asks for nothing.
+ */
+async function languageRequests({ check, open }) {
+  const { dir, manifest } = buildFolder("lang-requests", {
+    languages: { ...TRANSLATED, vi: { items: translateAll("VI") } },
+  });
+  const base = (id) => manifest.items.find((it) => it.id === id).text;
+  const { page, cdp } = await open("lang-requests", {
+    folder: dir,
+    closeHelp: true,
+    // Slow, so every request is still waiting when the language changes.
+    voiceHost: { ...READY, delayMs: 30000 },
+  });
+  const english = await waitRequests(page, [
+    { text: base("intro-title"), lang: "en" },
+    { text: base("text-speech"), lang: "en" },
+    { text: base("text-thought"), lang: "en" },
+    { text: base("text-narration"), lang: "en" },
+  ]);
+  check(
+    "in the base the first line and the next three are asked for as written, in en",
+    english.ok,
+    english.live,
+  );
+
+  await pickLanguage(page, cdp, "de");
+  const de = TRANSLATED.de.items;
+  const german = await waitRequests(page, [
+    { text: de["intro-title"], lang: "de" },
+    { text: de["text-speech"], lang: "de" },
+    { text: de["text-thought"], lang: "de" },
+    { text: base("text-narration"), lang: "en" },
+  ]);
+  const afterDe = await readFakeVoice(page);
+  const englishIds = english.live.map((r) => r.id);
+  const narration = english.live.find(
+    (r) => r.text === base("text-narration"),
+  )?.id;
+  check(
+    "switched to German, the page asks for the German text in de, and a line German lacks for the base text in en; the English requests are dropped, the fallback line's kept",
+    german.ok &&
+      englishIds
+        .filter((id) => id !== narration)
+        .every((id) => afterDe.dropped.includes(id)) &&
+      !afterDe.dropped.includes(narration) &&
+      german.live.some((r) => r.id === narration),
+    { live: german.live, dropped: afterDe.dropped },
+  );
+
+  await pickLanguage(page, cdp, "ja");
+  const ja = TRANSLATED.ja.items;
+  const japanese = await waitRequests(page, [
+    { text: ja["intro-title"], lang: "ja" },
+    { text: ja["text-speech"], lang: "ja" },
+    { text: base("text-thought"), lang: "en" },
+    { text: base("text-narration"), lang: "en" },
+  ]);
+  const afterJa = await readFakeVoice(page);
+  check(
+    "switched to Japanese, the Japanese text is asked for in ja, the rest in en; every pending German request is dropped",
+    japanese.ok &&
+      german.live
+        .filter((r) => r.lang === "de")
+        .every((r) => afterJa.dropped.includes(r.id)),
+    { live: japanese.live, dropped: afterJa.dropped },
+  );
+
+  await pickLanguage(page, cdp, "ar");
+  const ar = TRANSLATED.ar.items;
+  const arabic = await waitRequests(page, [
+    { text: ar["intro-title"], lang: "ar" },
+    { text: ar["text-speech"], lang: "ar" },
+    { text: base("text-thought"), lang: "en" },
+    { text: base("text-narration"), lang: "en" },
+  ]);
+  check(
+    "switched to Arabic, the Arabic text is asked for in ar",
+    arabic.ok,
+    arabic.live,
+  );
+
+  const before = (await readFakeVoice(page)).messages.filter(
+    (m) => m.op === "speak",
+  ).length;
+  await pickLanguage(page, cdp, "vi");
+  const vietnamese = await waitRequests(page, []);
+  await sleep(300);
+  const afterVi = await readFakeVoice(page);
+  const asked = afterVi.messages.filter((m) => m.op === "speak");
+  check(
+    "switched to Vietnamese, which the engine lacks, the page asks for nothing and drops every request still waiting",
+    vietnamese.ok && asked.length === before,
+    { live: vietnamese.live, asked: asked.slice(before) },
+  );
+
+  await pickLanguage(page, cdp, "en");
+  const back = await waitRequests(page, english.live);
+  check(
+    "back in the base, the English lines are asked for again in en",
+    back.ok,
+    back.live,
+  );
+}
+
+/**
+ * A base recording under a translation: silent without keepOriginalVoice
+ * (the translation is spoken live), playing with it; a language file's own
+ * recording plays. Each switch on the item itself.
+ */
+async function languageRecordings({ check, open }) {
+  const { dir, manifest } = buildFolder("lang-recordings", {
+    recorded: true,
+    languages: TRANSLATED,
+  });
+  const items = manifest.items;
+  const index = items.findIndex((it) => it.id === "chain-still-2");
+  const { page, cdp } = await open("lang-recordings", {
+    folder: dir,
+    closeHelp: true,
+    voiceHost: { ...READY, delayMs: 100 },
+  });
+  await pressH(cdp);
+  await pressH(cdp);
+  for (let n = 0; n < index; n += 1) {
+    await pressSpace(cdp);
+    await sleep(150);
+  }
+  const onItem = (s) => s.item === items[index].id;
+  const playing = (track) => (s) =>
+    onItem(s) && voiceOf(s)?.track === track && voiceOf(s)?.paused === false;
+  const baseLine = await waitSound(page, playing("theo-line"), 4000);
+  check(
+    "in the base, the item's recorded line plays",
+    baseLine.ok,
+    voiceOf(baseLine.s),
+  );
+
+  const closeEsc = async () => {
+    await pressEscape(cdp);
+    await page.waitForFunction(() => document.getElementById("help").hidden, {
+      timeout: 3000,
+    });
+  };
+  await pickLanguage(page, cdp, "de");
+  await closeEsc();
+  const german = await waitSound(
+    page,
+    playing(`spoken:${items[index].id}`),
+    5000,
+  );
+  const asked = (await readFakeVoice(page)).messages.filter(
+    (m) => m.op === "speak" && m.text === TRANSLATED.de.items["chain-still-2"],
+  );
+  const heardBase = await page.evaluate(() =>
+    (document.getElementById("audio")?.sounds?.() ?? []).some(
+      (s) => s.slot === "voice" && s.track === "theo-line" && !s.paused,
+    ),
+  );
+  check(
+    "German without keepOriginalVoice: the base recording is silent and the German text is spoken live in de instead",
+    german.ok && asked.length >= 1 && asked[0].lang === "de" && !heardBase,
+    { voice: voiceOf(german.s), asked, heardBase },
+  );
+
+  await pickLanguage(page, cdp, "fr");
+  await closeEsc();
+  const french = await waitSound(page, playing("theo-line"), 4000);
+  const askedFr = (await readFakeVoice(page)).messages.filter(
+    (m) => m.op === "speak" && m.text === TRANSLATED.fr.items["chain-still-2"],
+  );
+  check(
+    "French with keepOriginalVoice: the base recording plays under the French text, and nothing is asked for it",
+    french.ok && askedFr.length === 0,
+    { voice: voiceOf(french.s), askedFr },
+  );
+
+  await pickLanguage(page, cdp, "ja");
+  await closeEsc();
+  const japanese = await waitSound(page, playing("lang:ja:ja-1"), 4000);
+  const askedJa = (await readFakeVoice(page)).messages.filter(
+    (m) => m.op === "speak" && m.text === TRANSLATED.ja.items["chain-still-2"],
+  );
+  const target = await page.evaluate(
+    () =>
+      JSON.parse(document.getElementById("audio").dataset.target ?? "{}").voice,
+  );
+  check(
+    "Japanese with a recording of its own: the language file's line plays, and nothing is asked for it",
+    japanese.ok && askedJa.length === 0 && target === "lang:ja:ja-1",
+    { voice: voiceOf(japanese.s), askedJa, target },
+  );
+}
+
+/**
+ * The Voice row follows the language shown: the download offered for a
+ * language with lines to make, a slider alone for one whose every line is
+ * recorded, no row for one with no voice at all.
+ */
+async function languageRow({ check, open }) {
+  const everything = translateAll;
+  const voiced = Object.keys(everything("X"));
+  const { dir } = buildFolder("lang-row", {
+    languages: {
+      de: { items: everything("DE") },
+      vi: { items: everything("VI") },
+      ja: {
+        items: everything("JA"),
+        voice: {
+          tracks: {
+            all: { file: "lang/ja/lines/all.wav", durationSeconds: 1 },
+          },
+          items: Object.fromEntries(voiced.map((id) => [id, "all"])),
+        },
+      },
+    },
+  });
+  const { page, cdp } = await open("lang-row", {
+    folder: dir,
+    closeHelp: true,
+    voiceHost: { state: "absent", downloadBytes: 3_300_000_000 },
+  });
+  const rowNow = async () => {
+    await openSheet(page, cdp);
+    const read = await waitRow(page, (r) => r !== null, 2000);
+    const hidden = await page.evaluate(
+      () =>
+        document.querySelector('.volume-row[data-volume="voiceVolume"]')
+          ?.hidden ?? null,
+    );
+    await pressEscape(cdp); // the sheet closes alone
+    await sleep(150);
+    return { ...read.row, hidden };
+  };
+  const english = await rowNow();
+  await pickLanguage(page, cdp, "de");
+  const german = await rowNow();
+  await pickLanguage(page, cdp, "ja");
+  const japanese = await rowNow();
+  await pickLanguage(page, cdp, "vi");
+  const vietnamese = await rowNow();
+  // The player's words follow the game's language: German's button is in
+  // German.
+  const offers = (r, words) =>
+    r.hidden === false && r.state === "absent" && words.test(r.download ?? "");
+  check(
+    "the Voice row offers the download in the base and in German, whose lines the model would make",
+    offers(english, /^Download voice model \(3\.3\sGB\)$/) &&
+      offers(german, /\(3,3\sGB\)/),
+    { english, german },
+  );
+  check(
+    "in Japanese, whose every line is recorded, the Voice row is a slider with no download",
+    japanese.hidden === false &&
+      japanese.state === null &&
+      japanese.download === null &&
+      japanese.readout !== null,
+    japanese,
+  );
+  check(
+    "in Vietnamese, which the engine lacks and which has no recordings, there is no Voice row",
+    vietnamese.hidden === true,
+    vietnamese,
+  );
+}
+
 export const parts = [
   rowShown,
   download,
@@ -1444,4 +1856,7 @@ export const parts = [
   streamedLeave,
   streamedForward,
   streamedSlow,
+  languageRequests,
+  languageRecordings,
+  languageRow,
 ];

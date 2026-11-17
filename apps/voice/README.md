@@ -269,8 +269,8 @@ at once while an install or a line is running. Events have no `id`:
 `done` and `total` count the whole install, packages and model together,
 on the same scale as `status`'s `downloadBytes`. Progress comes at most
 four times a second, and after every file. Log events are for the app's
-log; one with `"message": "speaking", "target": <id>` marks a line
-starting on the engine.
+log; one with `"message": "speaking", "target": <id>, "lang": <lang>`
+marks a line starting on the engine.
 
 | Op | Request fields | Answer fields |
 | --- | --- | --- |
@@ -280,7 +280,7 @@ starting on the engine.
 | `remove` | | |
 | `warm` | | `loadSeconds` (0 when already loaded) |
 | `voice` | `voice`: the reference clip's bytes in base64; `format`: `wav`, `flac` or `mp3`; `text`: its transcript (optional, unused by Chatterbox) | `voiceId`: the clip's sha256 |
-| `speak` | `voiceId`, `text`, `priority` (integer, default 0), `lang` (default `en`), `stream` (default `false`) | `wav`: base64 WAV, 24 kHz 16-bit mono; `seconds`; `genSeconds` (0 for a cached line); `cached`; `firstSeconds` (a streamed line that was generated: seconds to its first chunk) |
+| `speak` | `voiceId`, `text`, `priority` (integer, default 0), `lang` (default `en`; one of the engine's languages below), `stream` (default `false`) | `wav`: base64 WAV, 24 kHz 16-bit mono; `seconds`; `genSeconds` (0 for a cached line); `cached`; `firstSeconds` (a streamed line that was generated: seconds to its first chunk) |
 | `quit` | | (then the helper exits with status 0) |
 
 - **install** runs the lock's steps with progress events: download the
@@ -298,6 +298,14 @@ starting on the engine.
   load also runs one short line, so the Metal kernels are compiled before
   the reader's first line. A `speak` naming a voice registered in an
   earlier run works: the helper prepares it from the stored clip.
+- **speak** takes `lang`, the engine's language for the text, one of
+  Chatterbox multilingual's 23: `ar da de el en es fi fr he hi it ja ko ms
+  nl no pl pt ru sv sw tr zh` (`engine.py` `LANGUAGES`; the player keeps
+  the same list in player/src/render/linevoice.ts and maps a BCP 47 tag to
+  it by its primary subtag, `nb` and `nn` to `no`, as `engine_language`
+  does). Another value is a `bad-request`. The fake engine raises its
+  tone a little for each language but English, so a test hears which one
+  a line was made in.
 - **speak** answers at once from the cache when the line is there. The
   cache key is the sha256 of the engine id, the model revisions, the
   engine settings, the voiceId, the language and the text. Otherwise the

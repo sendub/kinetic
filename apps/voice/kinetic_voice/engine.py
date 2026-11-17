@@ -19,6 +19,29 @@ from pathlib import Path
 
 SAMPLE_RATE = 24000
 
+#: The languages the engine speaks: Chatterbox multilingual's language ids
+#: (its ``SUPPORTED_LANGUAGES``), the same for the MLX and PyTorch builds.
+#: A ``speak`` in another is refused. The player keeps the same list
+#: (player/src/render/linevoice.ts, ``ENGINE_LANGUAGES``) and
+#: tests/test_voice_units.py checks that the two agree.
+LANGUAGES = ("ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi",
+             "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv",
+             "sw", "tr", "zh")
+
+#: Primary language subtags the engine knows by another id: Norwegian
+#: Bokmål and Nynorsk are both its ``no``.
+_ENGINE_ALIASES = {"nb": "no", "nn": "no"}
+
+
+def engine_language(tag: str) -> str | None:
+    """The engine's id for the BCP 47 tag `tag` (``de``, ``pt-BR``,
+    ``zh-Hans``, ``nb``), by its primary language subtag; None when the
+    engine does not speak it. The player maps tags the same way
+    (linevoice.ts ``engineLanguage``)."""
+    primary = tag.split("-", 1)[0].lower()
+    primary = _ENGINE_ALIASES.get(primary, primary)
+    return primary if primary in LANGUAGES else None
+
 
 class Engine:
     """What the helper needs from a speech engine."""
@@ -77,7 +100,7 @@ class FakeEngine(Engine):
         self.delay = delay
 
     def identity(self) -> dict:
-        return {"engine": self.name, "version": 1}
+        return {"engine": self.name, "version": 2}
 
     def load(self) -> None:
         print("fake engine loaded")  # a library print, as mlx_audio makes
@@ -92,28 +115,38 @@ class FakeEngine(Engine):
 
     def speak(self, voice: object, text: str, lang: str) -> tuple[bytes, int]:
         time.sleep(self.delay)
-        return self._tone(voice, 0, self._frames(text)), SAMPLE_RATE
+        return self._tone(self._pitch(voice, lang), 0,
+                          self._frames(text)), SAMPLE_RATE
 
     def speak_stream(self, voice: object, text: str,
                      lang: str) -> Iterator[tuple[bytes, int, bool]]:
         """The same tone as ``speak``, in CHUNK_SECONDS pieces, the delay
         spread over them."""
         frames = self._frames(text)
+        pitch = self._pitch(voice, lang)
         step = int(SAMPLE_RATE * self.CHUNK_SECONDS)
         starts = range(0, frames, step)
         for start in starts:
             time.sleep(self.delay / len(starts))
             end = min(start + step, frames)
-            yield (self._tone(voice, start, end), SAMPLE_RATE,
+            yield (self._tone(pitch, start, end), SAMPLE_RATE,
                    end == frames)
+
+    @staticmethod
+    def _pitch(voice: object, lang: str) -> float:
+        """The voice's pitch: as it is for English, raised a little by
+        each other language's place in LANGUAGES, so a test can tell
+        which language a line was made in."""
+        step = 0 if lang == "en" or lang not in LANGUAGES \
+            else 1 + LANGUAGES.index(lang)
+        return float(voice) + 7 * step  # type: ignore[arg-type]
 
     @staticmethod
     def _frames(text: str) -> int:
         return int(SAMPLE_RATE * (0.2 + 0.05 * len(text)))
 
     @staticmethod
-    def _tone(voice: object, start: int, end: int) -> bytes:
-        pitch = float(voice)  # type: ignore[arg-type]
+    def _tone(pitch: float, start: int, end: int) -> bytes:
         step = 2 * math.pi * pitch / SAMPLE_RATE
         return array.array("h", (int(8000 * math.sin(step * i))
                                  for i in range(start, end))).tobytes()

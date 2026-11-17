@@ -63,6 +63,26 @@ function own(record: unknown, key: string): unknown {
 }
 
 /**
+ * The language file's text for item `itemId`, or null when it has none
+ * to draw (the item then shows the base text): the test of "this line is
+ * translated" that render/linevoice.ts uses for the voice.
+ */
+export function fileItemText(
+  file: LanguageFile | null,
+  itemId: string,
+): string | null {
+  return file === null ? null : translated(own(file.items, itemId));
+}
+
+/**
+ * An own property of a language file's table, never one from its
+ * prototype (render/linevoice.ts reads its `voice` block through it).
+ */
+export function ownEntry(record: unknown, key: string): unknown {
+  return own(record, key);
+}
+
+/**
  * The words of `manifest` shown through `file` (null: the base alone).
  * Every string falls back to the manifest's on its own.
  */

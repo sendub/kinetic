@@ -109,11 +109,24 @@ describe("createVoiceClient", () => {
     expect("text" in (last(sent) ?? {})).toBe(false);
   });
 
+  it("asks for a line in the engine's language it is given", () => {
+    const { sent, client, event } = setup();
+    event({ event: "status", ...READY });
+    const line = client.speak("v-7", "Guten Morgen.", 3, "de");
+    void line.result.catch(() => undefined);
+    expect(last(sent)).toMatchObject({
+      op: "speak",
+      id: line.id,
+      text: "Guten Morgen.",
+      lang: "de",
+    });
+  });
+
   it("speaks a line with its priority and resolves with the WAV and its length", async () => {
     const { sent, client, event } = setup();
     event({ event: "status", ...READY });
-    const a = client.speak("v-7", "Hello there.", 3);
-    const b = client.speak("v-7", "Bye.", 2);
+    const a = client.speak("v-7", "Hello there.", 3, "en");
+    const b = client.speak("v-7", "Bye.", 2, "en");
     expect(a.id).not.toBe(b.id);
     expect(sent.slice(-2)).toEqual([
       {
@@ -123,6 +136,7 @@ describe("createVoiceClient", () => {
         voiceId: "v-7",
         text: "Hello there.",
         priority: 3,
+        lang: "en",
       },
       {
         type: "voice",
@@ -131,6 +145,7 @@ describe("createVoiceClient", () => {
         voiceId: "v-7",
         text: "Bye.",
         priority: 2,
+        lang: "en",
       },
     ]);
     event({ event: "speech", id: b.id, wav: "UklGRg==", seconds: 1.5 });
@@ -142,7 +157,7 @@ describe("createVoiceClient", () => {
   it("rejects a request the host answers with an error, and ignores an error with no id", async () => {
     const { client, event } = setup();
     event({ event: "status", ...READY });
-    const line = client.speak("v-7", "Hello.", 3);
+    const line = client.speak("v-7", "Hello.", 3, "en");
     event({ event: "error", code: "engine", message: "The engine stopped." });
     event({
       event: "error",
@@ -156,7 +171,7 @@ describe("createVoiceClient", () => {
   it("drops a line: tells the host, rejects at once, and ignores its late answer", async () => {
     const { sent, client, event } = setup();
     event({ event: "status", ...READY });
-    const line = client.speak("v-7", "Hello.", 3);
+    const line = client.speak("v-7", "Hello.", 3, "en");
     const failed = vi.fn();
     line.result.catch(failed);
     client.drop(line.id);
@@ -173,7 +188,7 @@ describe("createVoiceClient", () => {
   it("rejects a line the host drops on its own", async () => {
     const { client, event } = setup();
     event({ event: "status", ...READY });
-    const line = client.speak("v-7", "Hello.", 3);
+    const line = client.speak("v-7", "Hello.", 3, "en");
     event({ event: "dropped", id: line.id });
     await expect(line.result).rejects.toThrow();
   });
@@ -182,7 +197,7 @@ describe("createVoiceClient", () => {
     const { client, event } = setup();
     event({ event: "status", ...READY });
     const voice = client.register("QUJD", "wav");
-    const line = client.speak("v-7", "Hello.", 3);
+    const line = client.speak("v-7", "Hello.", 3, "en");
     event({ event: "status", state: "absent", downloadBytes: 1 });
     await expect(voice).rejects.toThrow();
     await expect(line.result).rejects.toThrow();
@@ -191,7 +206,7 @@ describe("createVoiceClient", () => {
   it("reads a speech event whose fields are wrong as a failure, not a line", async () => {
     const { client, event } = setup();
     event({ event: "status", ...READY });
-    const line = client.speak("v-7", "Hello.", 3);
+    const line = client.speak("v-7", "Hello.", 3, "en");
     event({ event: "speech", id: line.id, wav: 7, seconds: 1 });
     await expect(line.result).rejects.toThrow();
   });
@@ -199,7 +214,7 @@ describe("createVoiceClient", () => {
   it("takes its handler off the window when destroyed, and rejects what waits", async () => {
     const { win, client, event } = setup();
     event({ event: "status", ...READY });
-    const line = client.speak("v-7", "Hello.", 3);
+    const line = client.speak("v-7", "Hello.", 3, "en");
     client.destroy();
     expect(win.__kineticVoice).toBeUndefined();
     await expect(line.result).rejects.toThrow();
@@ -216,8 +231,14 @@ describe("createVoiceClient", () => {
     it("asks for chunks with stream: true only when given a chunk listener", () => {
       const { sent, client, event } = setup();
       event({ event: "status", ...READY });
-      const plain = client.speak("v-7", "Plain.", 3);
-      const streamed = client.speak("v-7", "Streamed.", 3, () => undefined);
+      const plain = client.speak("v-7", "Plain.", 3, "en");
+      const streamed = client.speak(
+        "v-7",
+        "Streamed.",
+        3,
+        "en",
+        () => undefined,
+      );
       const [a, b] = sent.slice(-2);
       expect(a?.id).toBe(plain.id);
       expect("stream" in (a ?? {})).toBe(false);
@@ -228,6 +249,7 @@ describe("createVoiceClient", () => {
         voiceId: "v-7",
         text: "Streamed.",
         priority: 3,
+        lang: "en",
         stream: true,
       });
     });
@@ -236,7 +258,7 @@ describe("createVoiceClient", () => {
       const { client, event } = setup();
       event({ event: "status", ...READY });
       const heard: unknown[] = [];
-      const line = client.speak("v-7", "Hello.", 3, (c) => heard.push(c));
+      const line = client.speak("v-7", "Hello.", 3, "en", (c) => heard.push(c));
       event({
         event: "chunk",
         id: line.id,
@@ -265,7 +287,7 @@ describe("createVoiceClient", () => {
       const { client, event } = setup();
       event({ event: "status", ...READY });
       const heard: unknown[] = [];
-      const plain = client.speak("v-7", "Plain.", 3);
+      const plain = client.speak("v-7", "Plain.", 3, "en");
       const voice = client.register("QUJD", "wav");
       void voice.catch(() => undefined);
       void plain.result.catch(() => undefined);
@@ -282,7 +304,7 @@ describe("createVoiceClient", () => {
       event(chunk(undefined));
       event(chunk(7));
       expect(heard).toEqual([]);
-      client.speak("v-7", "S.", 3, (c) => heard.push(c));
+      client.speak("v-7", "S.", 3, "en", (c) => heard.push(c));
       event(chunk("k1"));
       expect(heard).toEqual([]);
     });
@@ -292,13 +314,13 @@ describe("createVoiceClient", () => {
       event({ event: "status", ...READY });
       const heard: unknown[] = [];
       const listener = (c: unknown) => heard.push(c);
-      const dropped = client.speak("v-7", "A.", 3, listener);
+      const dropped = client.speak("v-7", "A.", 3, "en", listener);
       void dropped.result.catch(() => undefined);
       client.drop(dropped.id);
-      const answered = client.speak("v-7", "B.", 3, listener);
+      const answered = client.speak("v-7", "B.", 3, "en", listener);
       event({ event: "speech", id: answered.id, wav: "W", seconds: 1 });
       await answered.result;
-      const failed = client.speak("v-7", "C.", 3, listener);
+      const failed = client.speak("v-7", "C.", 3, "en", listener);
       void failed.result.catch(() => undefined);
       event({ event: "error", id: failed.id, code: "x", message: "no" });
       for (const id of [dropped.id, answered.id, failed.id]) {
@@ -318,7 +340,7 @@ describe("createVoiceClient", () => {
       const { client, event } = setup();
       event({ event: "status", ...READY });
       const heard: unknown[] = [];
-      const line = client.speak("v-7", "Hello.", 3, (c) => heard.push(c));
+      const line = client.speak("v-7", "Hello.", 3, "en", (c) => heard.push(c));
       const bad = [
         { index: "0", wav: "A", seconds: 1, final: false },
         { index: 0, wav: 5, seconds: 1, final: false },
@@ -336,7 +358,7 @@ describe("createVoiceClient", () => {
     it("keeps a throwing listener from breaking the client", async () => {
       const { client, event } = setup();
       event({ event: "status", ...READY });
-      const line = client.speak("v-7", "Hello.", 3, () => {
+      const line = client.speak("v-7", "Hello.", 3, "en", () => {
         throw new Error("listener");
       });
       expect(() =>

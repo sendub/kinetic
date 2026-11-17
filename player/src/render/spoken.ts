@@ -10,7 +10,14 @@
 // recorded line always wins), and a voice: its speaker's in `voices`, or,
 // with no speaker (absent or empty), the `narrator`. A thought is spoken in
 // its speaker's voice. The text goes as written; the speaker's name is not
-// spoken.
+// spoken. Each line carries the engine's language it is spoken in, and is
+// asked for in it (Phase 54 item 6). With a game's language shown, the line
+// of each item is the one render/linevoice.ts `lineVoice` gives: the text
+// shown and its language, or none (a recording plays, or the engine lacks
+// the language); the options' `line` gives it, and `setLines` changes it on
+// a language switch: the item on show is asked for again in the new
+// language, a line playing in the old one stops, and every request for
+// lines no longer wanted (the old language's) is dropped.
 //
 // What is asked for (`createSpokenLines`): on each arrival the director
 // applies with its voice (render/audiorules.ts: a read at once, a walk or a
@@ -66,10 +73,29 @@ const NARRATOR = "narrator";
 export interface SpokenLine {
   /** The voice: `speaker:<name>` or `narrator`. */
   readonly voice: string;
-  /** The item's text, as written. */
+  /** The text shown, as written. */
   readonly text: string;
-  /** What the line is cached and asked for by: voice and text. */
+  /** The engine's language id it is spoken in (render/linevoice.ts). */
+  readonly lang: string;
+  /** What the line is cached and asked for by: voice, language and text. */
   readonly key: string;
+}
+
+/** The voice key an item would speak in, cast or not. */
+export function voiceKeyOf(item: Pick<Item, "speaker">): string {
+  const speaker = item.speaker;
+  return speaker === undefined || speaker === ""
+    ? NARRATOR
+    : `speaker:${speaker}`;
+}
+
+/** The line `text` in `voice`, spoken in the engine's language `lang`. */
+export function makeSpokenLine(
+  voice: string,
+  text: string,
+  lang: string,
+): SpokenLine {
+  return { voice, text, lang, key: `${voice}\n${lang}\n${text}` };
 }
 
 /** How many lines past the current one are asked for. */
@@ -126,13 +152,16 @@ export function clipFormat(file: string): string {
 }
 
 /**
- * The line `item` speaks, or null (see the header). `active`: spoken lines
- * are on and the engine is ready.
+ * The line `item` speaks in its manifest text, or null (see the header).
+ * `active`: spoken lines are on and the engine is ready. `lang`: the
+ * engine's language of the manifest's text (render/linevoice.ts
+ * `engineLanguage`).
  */
 export function spokenLine(
   item: Item | undefined,
   cast: Cast,
   active: boolean,
+  lang = "en",
 ): SpokenLine | null {
   if (!active || item === undefined) return null;
   const text = item.text;
@@ -142,7 +171,7 @@ export function spokenLine(
   const voice =
     speaker === undefined || speaker === "" ? NARRATOR : `speaker:${speaker}`;
   if (castVoice(cast, voice) === undefined) return null;
-  return { voice, text, key: `${voice}\n${text}` };
+  return makeSpokenLine(voice, text, lang);
 }
 
 /**
@@ -157,11 +186,31 @@ export function linesAhead(
   count = LINES_AHEAD,
   scan = AHEAD_SCAN,
 ): number[] {
+  if (!active) return [];
+  return linesAheadOf(
+    items.length,
+    cursor,
+    (i) => spokenLine(items[i], cast, true),
+    count,
+    scan,
+  );
+}
+
+/**
+ * `linesAhead` with each item's line given by `line` (in the language
+ * shown), over `length` items.
+ */
+export function linesAheadOf(
+  length: number,
+  cursor: number,
+  line: (index: number) => SpokenLine | null,
+  count = LINES_AHEAD,
+  scan = AHEAD_SCAN,
+): number[] {
   const found: number[] = [];
-  if (!active) return found;
-  const end = Math.min(items.length, cursor + 1 + scan);
+  const end = Math.min(length, cursor + 1 + scan);
   for (let i = cursor + 1; i < end && found.length < count; i += 1) {
-    if (spokenLine(items[i], cast, true) !== null) found.push(i);
+    if (line(i) !== null) found.push(i);
   }
   return found;
 }
@@ -215,6 +264,11 @@ export interface SpokenBuffer extends Decoded {
 export interface SpokenOptions<B extends SpokenBuffer> {
   items: readonly Item[];
   cast: Cast;
+  /**
+   * Item `index`'s line in the language shown (render/linevoice.ts
+   * `LineVoices.live`); absent: the manifest's own (`spokenLine`, English).
+   */
+  line?: (index: number) => SpokenLine | null;
   client: Pick<
     VoiceClient,
     "status" | "subscribe" | "register" | "speak" | "drop"
@@ -259,6 +313,12 @@ export interface SpokenLines<B extends SpokenBuffer> {
   started(index: number, remaining: number, more?: boolean): void;
   /** `spokenOn` changed (the Voice volume crossed 0). */
   setOn(on: boolean): void;
+  /**
+   * The language shown changed: `line` gives each item's line now. The
+   * item on show is asked for again, a line of it playing in the old
+   * language stops, and requests no longer wanted are dropped.
+   */
+  setLines(line: (index: number) => SpokenLine | null): void;
   /** Item `index`'s generated line, when it is kept. */
   cached(index: number): B | undefined;
   destroy(): void;
@@ -286,6 +346,10 @@ export function createSpokenLines<B extends SpokenBuffer>(
   options: SpokenOptions<B>,
 ): SpokenLines<B> {
   const { items, cast, client } = options;
+  let lineAt =
+    options.line ??
+    ((index: number): SpokenLine | null =>
+      spokenLine(items[index], cast, true));
   const capBytes = options.capBytes ?? SPOKEN_CAP_BYTES;
   let on = options.on;
   /** The item the reader is on (arrived, not left), and its line. */
@@ -414,6 +478,7 @@ export function createSpokenLines<B extends SpokenBuffer>(
           id,
           line.text,
           priority,
+          line.lang,
           stream ? onChunk : undefined,
         );
         req.id = asked.id;
@@ -472,8 +537,8 @@ export function createSpokenLines<B extends SpokenBuffer>(
     };
     if (wanted !== null) {
       add(wanted.line);
-      for (const i of linesAhead(items, wanted.index, cast, true)) {
-        add(spokenLine(items[i], cast, true));
+      for (const i of linesAheadOf(items.length, wanted.index, lineAt)) {
+        add(lineAt(i));
       }
     }
     const asked = new Map(
@@ -491,7 +556,7 @@ export function createSpokenLines<B extends SpokenBuffer>(
 
   /** The reader is on item `wanted.index`: its line, at once or asked for. */
   function want(w: NonNullable<typeof wanted>): void {
-    const line = spokenLine(items[w.index], cast, true);
+    const line = lineAt(w.index);
     w.line = line;
     w.played = false;
     if (line !== null) {
@@ -558,8 +623,24 @@ export function createSpokenLines<B extends SpokenBuffer>(
       on = next;
       follow();
     },
+    setLines(next) {
+      lineAt = next;
+      const w = wanted;
+      if (w === null || !active) return;
+      const line = lineAt(w.index);
+      if (line?.key === w.line?.key) {
+        plan(); // the lines ahead may differ
+        return;
+      }
+      abandon(w);
+      if (w.line !== null) {
+        if (w.played) options.stop();
+        options.hold(w.index, null);
+      }
+      want(w);
+    },
     cached(index) {
-      const line = spokenLine(items[index], cast, true);
+      const line = lineAt(index);
       return line === null ? undefined : cache.get(line.key);
     },
     destroy() {

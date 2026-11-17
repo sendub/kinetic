@@ -1483,6 +1483,31 @@ The tool keeps `manifest.json` in its own indentation, rewrites
 Assemble the folder as usual: the `lines/` files stay out of it and
 their scripts go in.
 
+A game with language files (docs/content-format.md, "Translations")
+can have each language's lines recorded too. `--lang TAG` records one language into its language file:
+
+```sh
+.venv/bin/python tools/record_lines.py my-novel --lang de --dry-run
+.venv/bin/python tools/record_lines.py my-novel --lang de
+```
+
+It speaks the German text of every item `lang/de.json` translates whose
+speaker has a voice (or the narrator, for a line with no speaker),
+skipping an item the file already gives a recording of your own and,
+when the file says `keepOriginalVoice`, an item whose base recording
+plays under the German. The engine speaks German for it, as it would
+live with German shown. The files go under `my-novel/lang/de/lines/`,
+the tracks into the file's `voice.tracks` and the items into its
+`voice.items`, and the tool rewrites `lang/de.json` and `lang/de.js`;
+the manifest is not touched. Reruns, Ctrl-C and cleanup work as above,
+within that language. The engine speaks 23 languages (Arabic, Chinese,
+Danish, Dutch, English, Finnish, French, German, Greek, Hebrew, Hindi,
+Italian, Japanese, Korean, Malay, Norwegian, Polish, Portuguese,
+Russian, Spanish, Swahili, Swedish and Turkish); the tool refuses
+another. A language it lacks stays silent in play unless you record
+the lines yourself into the language file (docs/content-format.md,
+"Translations").
+
 ### Hearing it
 
 Assemble the folder and add the Mac app or the Windows program as usual

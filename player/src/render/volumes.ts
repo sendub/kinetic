@@ -32,6 +32,12 @@
 // is hidden by it hands focus on, to the new slider when the model is
 // ready. The Voice volume is the only control of spoken lines: at 0 none
 // are made (render/spoken.ts `spokenOn`).
+//
+// A game in several languages (docs/plan.md Phase 54 item 6): what sound
+// there is can change with the language shown (`setContent`), so the sheet
+// builds every row the game may need (`rows`) and shows those the language
+// shown has; the Voice row offers the model only while that language needs
+// it, and is a plain slider otherwise.
 
 import { formatNumber, localized, t } from "../i18n/catalogue.ts";
 import type { MachineSettings } from "../machine/types";
@@ -138,13 +144,23 @@ export interface VolumesOverlay {
    */
   open(opener: HTMLElement | null): void;
   close(): void;
+  /**
+   * What sound the language shown has now: the rows it lacks hide, and the
+   * Voice row offers the model only when `needsModel`.
+   */
+  setContent(content: SoundContent): void;
 }
 
 export interface VolumesOverlayOptions {
   /** The `#app` element; the sheet is a sibling of the other panels. */
   root: HTMLElement;
-  /** What sound the game has: the rows. */
+  /** What sound the game has: the rows on show. */
   content: SoundContent;
+  /**
+   * The rows built, which `setContent` may show (a game in several
+   * languages); absent: `content`'s.
+   */
+  rows?: SoundContent;
   /**
    * The voice engine, when some line needs the model (`content.needsModel`);
    * absent otherwise: the Voice row is a plain slider.
@@ -165,6 +181,7 @@ export interface VolumesOverlayOptions {
 export function mountVolumesOverlay({
   root,
   content,
+  rows,
   voiceModel,
   suspended,
   settings,
@@ -223,6 +240,10 @@ export function mountVolumesOverlay({
   const modelControls: HTMLElement[] = [];
   /** Each row's fixed words, drawn again in a new UI language. */
   const labellers: (() => void)[] = [];
+  /** What sound the language shown has (`setContent`). */
+  let showing = content;
+  /** Each row's cell, to show or hide. */
+  const cells = new Map<VolumeSetting, HTMLElement>();
 
   function move(row: VolumeRow, volume: number): void {
     current = { ...current, [row.setting]: volume };
@@ -230,10 +251,11 @@ export function mountVolumesOverlay({
     onChange(current);
   }
 
-  for (const row of volumeRows(content)) {
+  for (const row of volumeRows(rows ?? content)) {
     const cell = doc.createElement("div");
     cell.className = "config-row config-slide volume-row";
     cell.setAttribute("data-volume", row.setting);
+    cells.set(row.setting, cell);
     const label = doc.createElement("span");
     label.className = "config-label";
     const down = button("config-step", "−", "", `volume-${row.name}-down`);
@@ -359,6 +381,15 @@ export function mountVolumesOverlay({
       const stepControls: HTMLElement[] = [down, slider, up, value];
       const dropRemove = removeButton;
       paintModel = () => {
+        if (!showing.needsModel) {
+          // The language shown needs no model: a plain slider.
+          cell.removeAttribute("data-state");
+          for (const el of stepControls) el.hidden = false;
+          cell.setAttribute("data-slider", "on");
+          dropRemove.hidden = true;
+          area.hidden = true;
+          return;
+        }
         const status = model.status();
         const view = voiceModelView(status);
         const focused = doc.activeElement as HTMLElement | null;
@@ -368,7 +399,7 @@ export function mountVolumesOverlay({
         cell.setAttribute("data-state", status?.state ?? "checking");
         // The slider stands in for the model only with no recorded lines:
         // recorded lines keep it, and the model takes a second line.
-        const sliderShown = content.recordedVoice || view.ready;
+        const sliderShown = showing.recordedVoice || view.ready;
         for (const el of stepControls) el.hidden = !sliderShown;
         cell.setAttribute("data-slider", sliderShown ? "on" : "off");
         dropRemove.hidden = !view.removable;
@@ -420,6 +451,12 @@ export function mountVolumesOverlay({
   function paint(next: MachineSettings): void {
     for (const painter of painters) painter(next);
   }
+  /** Shows the rows the language shown has. */
+  function showRows(): void {
+    const on = new Set(volumeRows(showing).map((row) => row.setting));
+    for (const [setting, cell] of cells) cell.hidden = !on.has(setting);
+  }
+  showRows();
   // The sheet's words, drawn again (with the model's state) in each new UI
   // language.
   localized(() => {
@@ -519,5 +556,10 @@ export function mountVolumesOverlay({
       onOpenChange(true);
     },
     close,
+    setContent(next) {
+      showing = next;
+      showRows();
+      paintModel();
+    },
   };
 }

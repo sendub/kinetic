@@ -11,9 +11,17 @@
 //   host offers voice, a line the voice model would speak: an item the live
 //   rule (render/spoken.ts `spokenLine`) speaks, so with text, a cast voice
 //   and no recorded line. The model is offered only then (`needsModel`).
+//
+// With a game's language shown (docs/plan.md Phase 54 item 6), the Voice
+// row and the model follow what that language would play: each item's
+// voice as render/linevoice.ts `lineVoice` gives it, a recording (the
+// manifest's, under `keepOriginalVoice` or a fallback line, or the language
+// file's own) or a live line in a language the engine speaks. So a language
+// whose every line is recorded offers no download. main.ts derives it again
+// on each language switch.
 
 import type { Manifest } from "../machine/types";
-import { spokenLine } from "./spoken";
+import { createLineVoices, type LineVoices } from "./linevoice";
 
 export interface SoundContent {
   /** Music or ambience: the Music row. */
@@ -35,12 +43,14 @@ export interface SoundContent {
 
 /**
  * The content of `manifest`. `hostVoice`: the host offers voice
- * (`kineticHost.voice`). One pass over the items, ended early once every
+ * (`kineticHost.voice`). `voices`: each item's voice in the language shown
+ * (absent: the base's). One pass over the items, ended early once every
  * answer is known.
  */
 export function soundContent(
   manifest: Manifest,
   hostVoice: boolean,
+  voices: LineVoices = createLineVoices(manifest, null),
 ): SoundContent {
   const known = new Set(Object.keys(manifest.audio?.tracks ?? {}));
   const has = (id: string | null | undefined): boolean =>
@@ -49,7 +59,7 @@ export function soundContent(
   let effects = false;
   let recordedVoice = false;
   let needsModel = false;
-  for (const item of manifest.items) {
+  for (const [index, item] of manifest.items.entries()) {
     const audio = item.audio;
     if (audio !== undefined) {
       if (!music) {
@@ -61,10 +71,11 @@ export function soundContent(
           (audio.sfx ?? []).some((cue) => has(cue.track)) ||
           ("videoSound" in audio && has(audio.videoSound?.track));
       }
-      if (!recordedVoice) recordedVoice = audio.voice !== undefined;
     }
-    if (hostVoice && !needsModel) {
-      needsModel = spokenLine(item, manifest, true) !== null;
+    if (!recordedVoice || (hostVoice && !needsModel)) {
+      const voice = voices.at(index);
+      if (!recordedVoice) recordedVoice = voice?.kind === "recorded";
+      if (hostVoice && !needsModel) needsModel = voice?.kind === "live";
     }
     if (music && effects && recordedVoice && (needsModel || !hostVoice)) break;
   }

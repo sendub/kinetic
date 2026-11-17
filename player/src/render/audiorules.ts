@@ -269,6 +269,11 @@ export function sampleTrack(
     tracks: Readonly<Record<string, AudioTrack>>;
     cursor: number;
     lastSfx: string | null;
+    /**
+     * The voice line of the item at `cursor` in the language shown
+     * (render/linevoice.ts); absent: its own `audio.voice`.
+     */
+    voice?: string | null;
   },
 ): string | null {
   const known = (id: string | null | undefined): id is string =>
@@ -281,7 +286,10 @@ export function sampleTrack(
     }
     return null;
   }
-  const own = game.items[game.cursor]?.audio?.voice;
+  const own =
+    game.voice !== undefined
+      ? game.voice
+      : game.items[game.cursor]?.audio?.voice;
   if (known(own)) return own;
   for (const item of game.items) {
     if (known(item.audio?.voice)) return item.audio?.voice ?? null;

@@ -3899,6 +3899,20 @@ The orchestrator's choices, within those decisions:
    receives the shown language; base recordings silent under a
    translation without `keepOriginalVoice`, playing with it), Chrome
    and WebKit, and `machost` on WebKit.
+6b. Sound controls per language, and base recordings in the base
+   language (leads from item 6). The Sound row, the Volumes...
+   button and `v` are decided at boot from the base and the starting
+   language only: a language with voice where neither has sound gets no
+   button, and a language with no sound opens an empty sheet. Decide
+   them from what the shown language can play, live on a switch (rows,
+   the button, `v`, and the Keys row for `v`). `record_lines.py`
+   without `--lang` records in the helper's default `en`; record base
+   lines in the manifest's `language` (refusing a base language the
+   engine lacks). A game whose every line in every language is recorded
+   creates no voice client, so it sends the host no `status`. Tests:
+   unit tests of the per-language sound content; `spoken` and `audio`
+   scenario checks on copies with sound in only one language, Chrome and
+   WebKit; record_lines tests for a German-base game.
 7. The game apps. The page tells the host its language
    (`{type: "language", tag, dir}` through `send`); the Mac app retitles
    its menu items and window title from a table the build generates

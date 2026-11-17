@@ -109,6 +109,7 @@ import {
   type LanguageControl,
   mountLanguageControl,
 } from "./render/languagecontrol";
+import { createLineVoices, type LineVoices } from "./render/linevoice";
 import { DEFAULT_LANGUAGE, loadManifest } from "./render/manifest";
 import {
   layOutStrip,
@@ -119,7 +120,8 @@ import {
 import { mountRouteAnnouncements } from "./render/routes";
 import { mountSegmentNotes } from "./render/segmentnote";
 import { mountSkipAnnouncements } from "./render/skip";
-import { soundContent } from "./render/soundrows";
+import { type SoundContent, soundContent } from "./render/soundrows";
+import { hasVoices } from "./render/spoken";
 import { mountTrace } from "./render/trace";
 import { takeUrlStart } from "./render/urlstart";
 import { createVoiceClient } from "./render/voiceclient";
@@ -316,6 +318,12 @@ function start(): void {
         }
       }
       words = createGameWords(manifest, loadedFiles.get(shownLanguage) ?? null);
+      // Each item's voice in the language shown (docs/plan.md Phase 54 item
+      // 6): its recording, its live line or nothing (render/linevoice.ts).
+      let lineVoices: LineVoices = createLineVoices(
+        manifest,
+        loadedFiles.get(shownLanguage) ?? null,
+      );
       drawPageTitle();
       // The player's own words follow the reader's pick when the
       // catalogue has it (none yet in a game they have not switched).
@@ -327,11 +335,22 @@ function start(): void {
         manifest.items,
         manifest.branches ?? [],
       );
-      const machineWordsOf = (shown: GameWords): MachineWords => ({
+      const machineWordsOf = (
+        shown: GameWords,
+        voices: LineVoices,
+      ): MachineWords => ({
         itemText: (index) => holdTextOf(shown, manifest.items[index]),
         prompt: (decisionId, base) => shown.prompt(decisionId, base).text,
         label: (decisionId, routeId, base) =>
           shown.label(decisionId, routeId, base).text,
+        voice: (index) => {
+          const id = voices.recorded(index);
+          if (id === null) return null;
+          return {
+            id,
+            track: voices.tracks[id] ?? manifest.audio?.tracks[id],
+          };
+        },
       });
       const mapWordsOf = (shown: GameWords): MapWords => ({
         prompt: (decision, base) =>
@@ -381,7 +400,7 @@ function start(): void {
         items: manifest.items,
         branches: manifest.branches,
         audio: manifest.audio,
-        words: machineWordsOf(words),
+        words: machineWordsOf(words, lineVoices),
         settings: currentSettings,
         ...resumeOptionsFor(persisted, codec),
         ...(startAt >= 0 ? { startAt } : {}),
@@ -390,17 +409,30 @@ function start(): void {
       // What sound the game has, and so which sound controls show (docs/plan.md
       // Phase 52 item 10): derived once, here.
       const hostVoice = hostLink.host()?.voice === true;
-      const content = soundContent(manifest, hostVoice);
+      // In the language shown, and in the base (Phase 54 item 6: the
+      // Voice row follows the language shown, `contentFor`).
+      const contentFor = (voices: LineVoices): SoundContent =>
+        soundContent(manifest, hostVoice, voices);
+      const content = contentFor(lineVoices);
+      const baseContent =
+        lineVoices.shown.file === null
+          ? content
+          : contentFor(createLineVoices(manifest, null));
       // Spoken lines (docs/plan.md Phase 52): in a game app whose host
       // offers voice, a game with a line the model would speak (one with no
       // recording) talks to its voice engine, and offers its download in the
       // Volumes sheet. None in a browser tab, nor when every line is
-      // recorded or the game has no voices.
-      const voiceClient = content.needsModel
-        ? createVoiceClient(window, (message) => {
-            hostLink.send(message);
-          })
-        : null;
+      // recorded or the game has no voices. A game with voices and language
+      // files has one whenever the host offers voice: another language may
+      // need the model.
+      const voiceClient =
+        content.needsModel ||
+        baseContent.needsModel ||
+        (hostVoice && hasVoices(manifest) && gameLanguages.length > 0)
+          ? createVoiceClient(window, (message) => {
+              hostLink.send(message);
+            })
+          : null;
       // The sound (docs/plan.md Phase 47): null for a game without audio
       // (and without spoken lines), which then makes no audio element at
       // all. The controls (Sound row, Volumes..., `v`) follow `content`.
@@ -410,10 +442,25 @@ function start(): void {
         machine,
         settings: currentSettings,
         voice: voiceClient,
+        voices: lineVoices,
       });
       // The Sound row, Volumes... and `v` exist only for a game with a sound
-      // the reader can turn (a Music, Effects or Voice row).
-      const soundControls = audio !== null && content.any;
+      // the reader can turn (a Music, Effects or Voice row), in the language
+      // shown or the base.
+      const soundControls = audio !== null && (content.any || baseContent.any);
+      // The Volumes sheet's rows: those of the base and the language shown,
+      // and the Voice row in any game with language files (another
+      // language may have voice lines); each shows while the language
+      // shown has its sound.
+      const voiceRow =
+        content.voice || baseContent.voice || gameLanguages.length > 0;
+      const sheetRows: SoundContent = {
+        ...content,
+        music: content.music || baseContent.music,
+        effects: content.effects || baseContent.effects,
+        voice: voiceRow,
+        any: true,
+      };
       // A video's sound plays with the stage's video (item 6), which follows
       // it and starts as it is heard (item 19).
       if (audio !== null) {
@@ -597,6 +644,7 @@ function start(): void {
         }
         shownLanguage = tag;
         currentSettings = { ...currentSettings, language: tag };
+        lineVoices = createLineVoices(manifest, file);
         showWords(createGameWords(manifest, file));
         persistUrgently();
         applyUiLanguage(tag);
@@ -606,7 +654,11 @@ function start(): void {
         mapWords = mapWordsOf(next);
         routeLabel = routeLabelOf(next);
         shell.setWords(next);
-        machine.setWords(machineWordsOf(next)); // an open choice redraws
+        machine.setWords(machineWordsOf(next, lineVoices)); // an open choice redraws
+        // The voices follow (Phase 54 item 6): the item's voice in the new
+        // language, the Voice row and the model's offer.
+        audio?.setVoices(lineVoices);
+        volumes?.setContent(contentFor(lineVoices));
         help.setHeading(next.title(), next.version());
         drawPageTitle();
         languageControl?.refresh();
@@ -723,6 +775,7 @@ function start(): void {
         ? mountVolumesOverlay({
             root,
             content,
+            rows: sheetRows,
             ...(voiceClient === null
               ? {}
               : {

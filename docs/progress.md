@@ -5053,9 +5053,27 @@ truthful: an unchecked box means nothing was accepted.
       tests. Verified by the orchestrator: npm test 1660/1660, check
       clean; `verify -- branches rtl` 203/203 Chrome and WebKit; the
       subagent's `uilanguages languages` 5418/5418 on both.)
-- [ ] Spoken lines per language (item 6): `lang` to the helper,
+- [x] Spoken lines per language (item 6): `lang` to the helper,
       per-language recordings, `keepOriginalVoice`,
-      `record_lines.py --lang`.
+      `record_lines.py --lang`. (Evidence: `lineVoice` in
+      `render/linevoice.ts` decides per item: the language file's own
+      recording, else the base recording under `keepOriginalVoice`,
+      else a live line of the shown text in the engine's language, else
+      silence; base text keeps today's rule, spoken in the base
+      language. 23 engine codes in one table (`nb`/`nn` to `no`); the
+      helper refuses others. `speak` carries `lang` through both hosts
+      unchanged; the cache key includes it. A language switch stops an
+      old-language line and drops its requests. The language file's
+      `voice: {tracks, items}` block in lang.schema.json, checked by the
+      validator as manifest tracks are. `record_lines.py --lang TAG`
+      writes `lang/<tag>/lines/` and the file's `voice` block. Verified
+      by the orchestrator: pytest voice helper, record_lines,
+      validate_content 557 passed; npm test 1688/1688, check clean;
+      `verify -- spoken audio` 143/143 Chrome, `--webkit spoken machost
+      audio` 196/196. The subagent's runs: Go tests and vet clean,
+      build_apps 127 passed, smoke 6/6 both engines.)
+- [ ] Sound controls per language, and base recordings in the base
+      language (item 6b, leads from item 6).
 - [ ] The game apps (item 7): menus, window titles and early dialogs
       in the reader's language.
 - [ ] The translator tools (item 8): `tools/translations.py export`,

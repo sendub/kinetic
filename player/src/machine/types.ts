@@ -351,6 +351,15 @@ export interface LanguageFile {
   speakers?: Readonly<Record<string, string>>;
   /** Decision id to its prompt and labels. */
   decisions?: Readonly<Record<string, TranslatedDecision>>;
+  /**
+   * This language's own recorded voice lines (docs/plan.md Phase 54 item
+   * 6): its tracks, ids of its own, and item id to the track speaking the
+   * item's translated text.
+   */
+  voice?: {
+    tracks?: Readonly<Record<string, AudioTrack>>;
+    items?: Readonly<Record<string, string>>;
+  };
   /** Base voice recordings play under this language's text; default false. */
   keepOriginalVoice?: boolean;
 }
@@ -376,6 +385,17 @@ export interface MachineWords {
   prompt(decisionId: string, base: string): string;
   /** A route's label as drawn; `base` is the manifest's. */
   label(decisionId: string, routeId: string, base: string): string;
+  /**
+   * Item `index`'s recorded voice line in the language shown (docs/plan.md
+   * Phase 54 item 6; render/linevoice.ts): the track's key in the sound's
+   * table and the track, undefined when no table has it; null for none
+   * (a translation's line spoken live, or silent). Absent: the item's own
+   * `audio.voice` and the manifest's tracks.
+   */
+  voice?(index: number): {
+    readonly id: string;
+    readonly track: AudioTrack | undefined;
+  } | null;
 }
 
 /** Player-side pacing settings (docs/content-format.md, "Timing"). */

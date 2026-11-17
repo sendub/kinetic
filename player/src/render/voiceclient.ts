@@ -7,8 +7,10 @@
 //   free its space);
 // - `voice` `{ id, data, format, text? }`: registers a voice from its
 //   reference clip's bytes (base64) and file extension;
-// - `speak` `{ id, voiceId, text, priority }`: asks for a line, higher
-//   priority first;
+// - `speak` `{ id, voiceId, text, priority, lang }`: asks for a line, higher
+//   priority first, spoken in the engine's language `lang` (an id of
+//   render/linevoice.ts `ENGINE_LANGUAGES`, which the helper checks; Phase 54
+//   item 6);
 // - `drop` `{ id }`: a line the page no longer needs.
 // The host answers by calling `window.__kineticVoice(event)`:
 // `{ event: "status", state, downloadBytes, done?, total?, message? }`,
@@ -83,15 +85,16 @@ export interface VoiceClient {
   /** Registers a voice; resolves with the host's id for it. */
   register(data: string, format: string, text?: string): Promise<string>;
   /**
-   * Asks for a line; `id` is what `drop` takes. With `onChunk` the line is
-   * asked for streamed (`stream: true`, about 1.6 times the work): each
-   * chunk goes to it as it arrives, before the promise settles with the
-   * whole line.
+   * Asks for a line in the engine's language `lang`; `id` is what `drop`
+   * takes. With `onChunk` the line is asked for streamed (`stream: true`,
+   * about 1.6 times the work): each chunk goes to it as it arrives, before
+   * the promise settles with the whole line.
    */
   speak(
     voiceId: string,
     text: string,
     priority: number,
+    lang: string,
     onChunk?: (chunk: SpeechChunk) => void,
   ): { readonly id: string; readonly result: Promise<Speech> };
   /** Drops a line: the host is told, and its promise rejects at once. */
@@ -283,7 +286,7 @@ export function createVoiceClient(
       });
       return result;
     },
-    speak(voiceId, text, priority, onChunk) {
+    speak(voiceId, text, priority, lang, onChunk) {
       const { id, result } = request<Speech>("speech", onChunk);
       post({
         type: "voice",
@@ -292,6 +295,7 @@ export function createVoiceClient(
         voiceId,
         text,
         priority,
+        lang,
         ...(onChunk === undefined ? {} : { stream: true }),
       });
       return { id, result };

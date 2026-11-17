@@ -51,7 +51,9 @@ hash of the base text now) and per item text over 1.5 times its base
 or longer than the game's longest base text, each kind capped at 20
 lines and a count of the rest; then one coverage line per language
 (`<dir>: de: 31 of 32 strings (96.8%), 1 stale, 0 unchecked`) and a
-count. They never change the exit status, and a manifest without
+count. A language file's recorded voice lines add the track warnings
+(an Ogg file, a track no item names) and one per line for an item the
+file gives no text, which never plays. They never change the exit status, and a manifest without
 `languages` prints none.
 
 Two layers of checking, per docs/content-format.md §Rules and validator
@@ -81,8 +83,10 @@ invariants:
    a present `manifest.js` shim embeds JSON equal to `manifest.json`;
    and each language file the manifest's `languages` lists exists with
    its script, passes `docs/lang.schema.json`, and names only items,
-   speakers, decisions and routes the manifest has
-   (docs/content-format.md § Translations).
+   speakers, decisions and routes the manifest has, and its recorded
+   voice lines (`voice`) check as the manifest's tracks do, each naming
+   an item with text and a track of that file (docs/content-format.md
+   § Translations).
 """
 
 from __future__ import annotations
@@ -1657,14 +1661,115 @@ def language_problems(content_dir: Path, manifest: Any,
                 "language file JSON")
         if data is None:
             continue
+        schema_locs: set[str] = set()
         if lang_schema is not None:
             pairs = schema_problems(data, lang_schema)
             pairs.sort(key=lambda pair: (_sort_key(pair[0]), pair[1]))
             problems += [_line(_loc(parts), reason, json_rel)
                          for parts, reason in pairs]
+            schema_locs = {_loc(parts) for parts, _reason in pairs}
         if isinstance(data, dict):
             problems += _language_file_problems(data, tag, base, json_rel)
+            problems += _language_voice_problems(content_dir, data, base,
+                                                 json_rel, schema_locs)
     return problems
+
+
+# A language file's recorded lines (`voice`) are tracks under a
+# manifest's track rules: the manifest's checks run on them as they stand
+# in a stand-in manifest, and their lines are moved to the language file.
+_AUDIO_TRACKS_LOC = "audio.tracks."
+_VOICE_TRACKS_LOC = "voice.tracks."
+
+
+def _voice_block(data: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """(tracks, items) of a language file's `voice`; {} for each part that
+    is absent or malformed (the schema reports a malformed one)."""
+    voice = data.get("voice") if isinstance(data, dict) else None
+    if not isinstance(voice, dict):
+        return {}, {}
+    tracks, items = voice.get("tracks"), voice.get("items")
+    return (tracks if isinstance(tracks, dict) else {},
+            items if isinstance(items, dict) else {})
+
+
+def _voice_stand_in(tracks: dict[str, Any],
+                    items: dict[str, Any]) -> dict[str, Any]:
+    """A manifest holding a language file's voice tracks as its own, each
+    item entry an item whose voice is its track."""
+    return {"audio": {"tracks": tracks},
+            "items": [{"audio": {"voice": track_id}}
+                      for track_id in items.values()]}
+
+
+def _relocated(lines: list[str], file: str) -> list[str]:
+    """Lines the manifest's checks gave for the stand-in, as lines of the
+    language file `file`: `manifest.json: audio.tracks.X...` becomes
+    `<file>: voice.tracks.X...`, a warning's prefix kept."""
+    out = []
+    head = _line(_AUDIO_TRACKS_LOC, "")[:-len(": ")]
+    for line in lines:
+        prefix = WARNING_PREFIX if line.startswith(WARNING_PREFIX) else ""
+        body = line[len(prefix):]
+        if body.startswith(head):
+            body = (f"{file}: {_VOICE_TRACKS_LOC}"
+                    f"{body[len(head):]}")
+        out.append(prefix + body)
+    return out
+
+
+def _language_voice_problems(content_dir: Path, data: dict[str, Any],
+                             base: _Base, file: str,
+                             schema_locs: set[str]) -> list[str]:
+    """A language file's recorded lines: each track checks as a manifest
+    track does (its range, its file's path and existence, its script
+    beside it), and each `voice.items` entry names an item with text and
+    a track of this file (docs/content-format.md § Translations)."""
+    tracks, items = _voice_block(data)
+    voice = data.get("voice")
+    # Malformed tracks are the schema's to report, not every item's.
+    tracks_named = not isinstance(voice, dict) or isinstance(
+        voice.get("tracks", {}), dict)
+    problems: list[str] = []
+    stand_in = _voice_stand_in(tracks, {})
+    locs = {_AUDIO_TRACKS_LOC + loc[len(_VOICE_TRACKS_LOC):]
+            for loc in schema_locs if loc.startswith(_VOICE_TRACKS_LOC)}
+    problems += _relocated(_track_range_problems(tracks), file)
+    problems += _relocated(media_problems(content_dir, stand_in, locs), file)
+    problems += _relocated(audio_script_problems(content_dir, stand_in, locs),
+                           file)
+    for item_id, track_id in items.items():
+        loc = f"voice.items.{item_id}"
+        if item_id not in base.item_ids:
+            problems.append(_line(loc, f"no item has id {item_id!r}", file))
+        elif item_id not in base.texts:
+            problems.append(_line(loc, f"item {item_id!r} has no text to "
+                                       "speak", file))
+        if isinstance(track_id, str) and track_id not in tracks \
+                and tracks_named:
+            problems.append(_line(loc, f"no track in voice.tracks has id "
+                                       f"{track_id!r}", file))
+    return problems
+
+
+def _language_voice_warnings(content_dir: Path, data: dict[str, Any],
+                             base: _Base, file: str) -> list[str]:
+    """A language file's recorded lines: the manifest's track warnings
+    (an Ogg file, a track no item uses), and a line for an item this file
+    gives no text, which would never play: the item shows the base text
+    then, and the base's voice."""
+    tracks, items = _voice_block(data)
+    warnings = _relocated(audio_warnings(_voice_stand_in(tracks, items),
+                                         content_dir), file)
+    texts = data.get("items")
+    texts = texts if isinstance(texts, dict) else {}
+    for item_id in items:
+        if item_id in base.texts and _entry_text(texts.get(item_id)) is None:
+            warnings.append(WARNING_PREFIX + _line(
+                f"voice.items.{item_id}",
+                "this file has no text for the item, so its voice line "
+                "never plays (the item shows the base text)", file))
+    return warnings
 
 
 def _language_file_problems(data: dict[str, Any], tag: str, base: _Base,
@@ -1825,6 +1930,7 @@ def language_warnings(manifest: Any, content_dir: Path
                         f"{loc}.text",
                         f"{len(translated)} characters, "
                         + " and ".join(reasons), file))
+        warnings += _language_voice_warnings(content_dir, data, base, file)
         warnings += _capped(missing, file, "strings without a translation")
         warnings += _capped(stale, file, "stale translations")
         warnings += _capped(long, file, "long translations")

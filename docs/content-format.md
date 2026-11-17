@@ -1084,7 +1084,10 @@ writes such recordings of every line that would be generated, so a game
 whose lines are all recorded needs no voice engine; it names its tracks
 `rec-` and 32 hex digits and keeps them in `lines/` (CREATE.md,
 "Recording the lines"). Speaker names are not spoken, only the text.
-Lines are spoken as written: the format has no direction markup.
+Lines are spoken as written: the format has no direction markup. A line is
+spoken in the engine's language for the manifest's `language`; with a
+translation shown, the shown text in that language's (Translations,
+"Spoken lines per language").
 
 The validator warns, without failing, about a voice no item's `speaker`
 names and about a `narrator` when no item has text without a speaker.
@@ -1147,6 +1150,12 @@ A language file:
       }
     }
   },
+  "voice": {
+    "tracks": {
+      "rec-01": { "file": "lang/de/lines/rec-01.webm", "durationSeconds": 2.1 }
+    },
+    "items": { "title-001": "rec-01" }
+  },
   "keepOriginalVoice": false
 }
 ```
@@ -1171,6 +1180,18 @@ A language file:
   `label`. A route id is unique only within its decision, hence the
   nesting. The branch limits hold in every language: a prompt is
   shorter than 200 characters and a label shorter than 120.
+- `voice` (optional): this language's own recorded voice lines.
+  `tracks` maps a track id to a track, exactly as the manifest's
+  `audio.tracks` does (Tracks): a media path, its `durationSeconds` and
+  the rest, with its script beside the file (The script beside each audio
+  file). The ids are this file's own namespace: they may equal the
+  manifest's or another language's without meeting them. `items` maps an
+  item id to one of those track ids: the item's line in this language.
+  By convention the files sit under `lang/<tag>/lines/`, where
+  `tools/record_lines.py --lang` writes them (CREATE.md, "Recording the
+  lines"). An `items` entry names an item with text and a track of this
+  file; one for an item this file gives no text is a validator warning,
+  since the line would never play.
 - `keepOriginalVoice` (optional, default `false`): `true` plays the
   base recordings of voice lines (`audio.voice`, Item audio) under this
   language's text, like subtitles.
@@ -1192,7 +1213,8 @@ Rules of meaning:
 - What is translatable: item `text`, speaker names, decision prompts,
   route labels, and the manifest's `title` and `version`. Nothing else
   is: `thought`, media, timing, audio, branches and every id stay the
-  manifest's, the same in every language.
+  manifest's, the same in every language, apart from voice lines, which
+  a language may record for itself (`voice`; Spoken lines per language).
 - One item, one text. A translation never splits an item over several
   screens or merges items, so saves, bookmarks, the seen set and
   progress, all kept by id, hold in every language.
@@ -1210,10 +1232,43 @@ Rules of meaning:
   picks, seen set and bookmarks. Each string drawn is marked with the
   language it is in, so a fallback line carries the base's tag.
 
+### Spoken lines per language
+
+What voice an item has depends on the language its text is shown in
+(docs/plan.md Phase 54 item 6; player/src/render/linevoice.ts). When the
+text shown comes from the language file:
+
+1. the file's own recording for the item (`voice.items`), if any;
+2. else, with `keepOriginalVoice`, the item's base recording
+   (`audio.voice`), if it has one;
+3. else a line generated live (Voices) from the translated text, in the
+   speaker's voice (or the narrator's), in the voice engine's language
+   for the file's tag, when the engine speaks it;
+4. else silence. A base recording never plays under a translation
+   without `keepOriginalVoice`.
+
+When the text shown is the base's (no language chosen, the base chosen,
+or this item's text missing from the file), the manifest's own rule
+holds: its `audio.voice`, else a live line of the base text in the
+engine's language for the manifest's `language`.
+
+The engine (Chatterbox multilingual) speaks Arabic, Chinese, Danish,
+Dutch, English, Finnish, French, German, Greek, Hebrew, Hindi, Italian,
+Japanese, Korean, Malay, Norwegian, Polish, Portuguese, Russian,
+Spanish, Swahili, Swedish and Turkish. A tag counts by its primary
+language: `pt-BR` and `pt-PT` are Portuguese, `zh-Hans` and `zh-Hant`
+Chinese, `nb` and `nn` Norwegian. A line in another language is not
+generated: it stays silent, unless the file records it. Recorded lines
+play in a browser too; generated ones need a Kinetic app with the voice
+model, as in the base. The Volumes sheet's Voice row and the model's
+download follow the language shown: a language whose every line is
+recorded offers no download.
+
 The converter's Python helper for these files is
 `converter/kinetic_extract/language_file.py`: the hash
-(`base_hash`), tag casing (`canonical_tag`), and a writer of a
-language file and its script together (`write_language_file`).
+(`base_hash`), tag casing (`canonical_tag`), a writer of a language
+file and its script together (`write_language_file`), and the
+recorded lines' folder (`voice_lines_dir`).
 
 ## Naming conventions
 

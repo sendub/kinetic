@@ -502,6 +502,24 @@ func TestVoiceInstallSpeakAndRemove(t *testing.T) {
 		t.Errorf("a reread = %v", e)
 	}
 
+	// The line's language reaches the helper (docs/plan.md Phase 54 item
+	// 6): the same text in German is made again, then cached as German,
+	// and a language the engine lacks is refused.
+	h.send(`{"type":"voice","op":"speak","id":5,"voiceId":"` + voiceID + `","text":"Hello there.","priority":1,"lang":"de"}`)
+	if e = h.waitFor("German speech", isEvent("speech", 5)); e["cached"] != false {
+		t.Errorf("the line in German = %v, want it made, not the English line's cache", e)
+	}
+
+	h.send(`{"type":"voice","op":"speak","id":6,"voiceId":"` + voiceID + `","text":"Hello there.","priority":1,"lang":"de"}`)
+	if e = h.waitFor("cached German speech", isEvent("speech", 6)); e["cached"] != true {
+		t.Errorf("the German line again = %v", e)
+	}
+
+	h.send(`{"type":"voice","op":"speak","id":7,"voiceId":"` + voiceID + `","text":"Hello there.","priority":1,"lang":"vi"}`)
+	if e = h.waitFor("refused speech", isEvent("error", 7)); e["code"] != "bad-request" {
+		t.Errorf("a language the engine lacks = %v", e)
+	}
+
 	h.send(`{"type":"voice","op":"status"}`)
 	h.waitFor("ready", isStatus("ready"))
 

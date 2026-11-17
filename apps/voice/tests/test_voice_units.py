@@ -145,3 +145,40 @@ def test_real_lock_engine_settings():
                                      "contextSeconds"}
     assert 0 < engine["stream"]["firstSeconds"] <= engine["stream"][
         "limitSeconds"]
+
+
+# The engine's languages (docs/plan.md Phase 54 item 6).
+
+def test_engine_languages_are_chatterbox_multilingual_s():
+    from kinetic_voice.engine import LANGUAGES
+    assert LANGUAGES == ("ar", "da", "de", "el", "en", "es", "fi", "fr",
+                         "he", "hi", "it", "ja", "ko", "ms", "nl", "no",
+                         "pl", "pt", "ru", "sv", "sw", "tr", "zh")
+
+
+@pytest.mark.parametrize(("tag", "code"), [
+    ("de", "de"), ("de-AT", "de"), ("en-GB", "en"), ("ja", "ja"),
+    ("ar", "ar"), ("nb", "no"), ("nn", "no"), ("no", "no"),
+    ("zh-Hans", "zh"), ("zh-Hant", "zh"), ("pt-BR", "pt"), ("pt-PT", "pt"),
+    ("es-419", "es"), ("he", "he"), ("sw", "sw"),
+    ("vi", None), ("uk", None), ("fa", None), ("ur", None), ("th", None),
+    ("ca", None), ("id", None),
+])
+def test_engine_language_by_primary_subtag(tag, code):
+    from kinetic_voice.engine import engine_language
+    assert engine_language(tag) == code
+
+
+def test_the_player_keeps_the_same_languages():
+    """player/src/render/linevoice.ts holds the list the page checks
+    before it asks for a line; it must be this one."""
+    from kinetic_voice.engine import LANGUAGES
+    source = (VOICE_DIR.parent.parent / "player" / "src" / "render"
+              / "linevoice.ts").read_text(encoding="utf-8")
+    found = re.search(r"ENGINE_LANGUAGES[^=]*=\s*\[([^\]]*)\]", source)
+    assert found is not None, "linevoice.ts has no ENGINE_LANGUAGES list"
+    assert tuple(re.findall(r'"([a-z]+)"', found.group(1))) == LANGUAGES
+    aliases = re.search(r"ENGINE_ALIASES[^=]*=\s*\{([^}]*)\}", source)
+    assert aliases is not None
+    assert dict(re.findall(r'(\w+):\s*"([a-z]+)"', aliases.group(1))) == {
+        "nb": "no", "nn": "no"}

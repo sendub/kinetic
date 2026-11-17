@@ -522,6 +522,58 @@ async function install({ check }) {
         wav,
       },
     );
+    // The line's language reaches the helper (docs/plan.md Phase 54 item
+    // 6): the same text in German is made again, not served from the
+    // English line's cache (the fake engine's pitch follows the language),
+    // and a language the engine lacks is refused.
+    await send(page, "speak", {
+      id: "line-de",
+      voiceId: voiceEvent?.voiceId,
+      text,
+      priority: 2,
+      lang: "de",
+    });
+    const german = await waitEvent(
+      page,
+      (e) => e.event === "speech" && e.id === "line-de",
+    );
+    await send(page, "speak", {
+      id: "line-de-2",
+      voiceId: voiceEvent?.voiceId,
+      text,
+      priority: 2,
+      lang: "de",
+    });
+    const germanAgain = await waitEvent(
+      page,
+      (e) => e.event === "speech" && e.id === "line-de-2",
+    );
+    await send(page, "speak", {
+      id: "line-vi",
+      voiceId: voiceEvent?.voiceId,
+      text,
+      priority: 2,
+      lang: "vi",
+    });
+    const refused = await waitEvent(
+      page,
+      (e) => e.event === "error" && e.id === "line-vi",
+    );
+    check(
+      "speak's lang reaches the helper: German is made in German (not the English line's cache, another tone), then cached as German; a language the engine lacks is refused (bad-request)",
+      speech?.cached === false &&
+        german?.cached === false &&
+        german.wav !== speech.wav &&
+        Math.abs(german.seconds - speech.seconds) < 0.01 &&
+        germanAgain?.cached === true &&
+        germanAgain.wav === german.wav &&
+        refused?.code === "bad-request",
+      {
+        german: german && { ...german, wav: `${german.wav.length} chars` },
+        germanAgain: germanAgain?.cached,
+        refused,
+      },
+    );
     const before = (await events(page)).length;
     await send(page, "status");
     const again = await waitEvent(

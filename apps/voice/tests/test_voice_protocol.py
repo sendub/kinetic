@@ -377,3 +377,67 @@ def test_a_queued_streamed_line_can_be_cancelled(start_helper):
     assert helper.wait(queued)["code"] == "cancelled"
     assert helper.wait(busy)["ok"] is True
     assert _chunks(helper, queued) == []
+
+
+# Languages (docs/plan.md Phase 54 item 6): `speak` takes the engine's
+# language id, which reaches the engine and the cache key.
+
+def _pitch_crossings(wav: bytes) -> int:
+    """How often the fake engine's tone crosses zero: its pitch."""
+    import array
+    import io
+    import wave as wavelib
+    with wavelib.open(io.BytesIO(wav), "rb") as w:
+        samples = array.array("h", w.readframes(w.getnframes()))
+    return sum(1 for a, b in zip(samples, samples[1:]) if a < 0 <= b)
+
+
+def test_lang_reaches_the_engine_and_keys_the_cache(start_helper):
+    helper = start_helper()
+    voice = helper.request("voice", voice=b64(make_wav()), format="wav")
+    english = helper.request("speak", voiceId=voice["voiceId"],
+                             text="Hallo.")
+    german = helper.request("speak", voiceId=voice["voiceId"],
+                            text="Hallo.", lang="de")
+    german_again = helper.request("speak", voiceId=voice["voiceId"],
+                                  text="Hallo.", lang="de")
+    english_again = helper.request("speak", voiceId=voice["voiceId"],
+                                   text="Hallo.", lang="en")
+    # Not the English line from the cache: the engine made it in German
+    # (the fake engine's pitch follows the language).
+    assert german["cached"] is False
+    assert german["wav"] != english["wav"]
+    assert _pitch_crossings(base64.b64decode(german["wav"])) > \
+        _pitch_crossings(base64.b64decode(english["wav"]))
+    assert german_again["cached"] is True
+    assert german_again["wav"] == german["wav"]
+    assert english_again["cached"] is True  # `en` is the default
+    assert english_again["wav"] == english["wav"]
+    speaking = [e for e in helper.events
+                if e.get("event") == "log" and e.get("message") == "speaking"]
+    assert [e["lang"] for e in speaking] == ["en", "de"]
+
+
+def test_a_streamed_line_speaks_its_lang(start_helper):
+    helper = start_helper()
+    voice = helper.request("voice", voice=b64(make_wav()), format="wav")
+    whole = helper.request("speak", voiceId=voice["voiceId"],
+                           text="Bonjour à tous.", lang="fr")
+    other = helper.request("speak", voiceId=voice["voiceId"],
+                           text="Bonjour à tous!", lang="fr", stream=True)
+    plain = helper.request("speak", voiceId=voice["voiceId"],
+                           text="Bonjour à tous!", stream=True)
+    assert whole["cached"] is False and other["cached"] is False
+    assert plain["cached"] is False
+    assert _pitch_crossings(base64.b64decode(other["wav"])) > \
+        _pitch_crossings(base64.b64decode(plain["wav"]))
+
+
+def test_a_lang_the_engine_lacks_is_refused(start_helper):
+    helper = start_helper()
+    voice = helper.request("voice", voice=b64(make_wav()), format="wav")
+    for lang in ("vi", "de-DE", "DE", ""):
+        reply = helper.request("speak", voiceId=voice["voiceId"],
+                               text="Xin chào.", lang=lang)
+        assert reply["ok"] is False
+        assert reply["code"] == "bad-request"

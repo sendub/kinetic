@@ -1075,3 +1075,86 @@ describe("a spoken line holds auto-forward (Phase 52)", () => {
     m.destroy();
   });
 });
+
+describe("a language's voice line (Phase 54 item 6)", () => {
+  // MachineWords.voice gives each item's recorded line in the language
+  // shown (render/linevoice.ts): the target's voice and the hold read it.
+  const tracks = { base: { file: "base.mp3", durationSeconds: 8.4 } };
+  const german = {
+    file: "lang/de/lines/a.webm",
+    durationSeconds: 3,
+  };
+  const words = (
+    voice: (index: number) => {
+      id: string;
+      track: { file: string; durationSeconds: number } | undefined;
+    } | null,
+  ) => ({
+    itemText: () => ({ text: undefined, factor: 1 }),
+    prompt: (_d: string, b: string) => b,
+    label: (_d: string, _r: string, b: string) => b,
+    voice,
+  });
+
+  it("targets and holds for the language's line, and none when it gives none", () => {
+    vi.useFakeTimers();
+    const m = createMachine({
+      items: [image("a", { voice: "base" }), image("b")],
+      settings: SETTINGS,
+      autoAdvance: true,
+      audio: { tracks },
+      words: words((i) =>
+        i === 0 ? { id: "lang:de:a", track: german } : null,
+      ),
+    });
+    m.setVoiceAudible(true);
+    expect(m.targetSound().voice).toBe("lang:de:a");
+    vi.advanceTimersByTime(2999);
+    expect(m.getState().cursor).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(m.getState().cursor).toBe(1);
+    m.destroy();
+  });
+
+  it("silences the base recording when the language gives no line", () => {
+    const m = createMachine({
+      items: [image("a", { voice: "base" }), image("b")],
+      settings: SETTINGS,
+      audio: { tracks },
+      words: words(() => null),
+    });
+    expect(m.targetSound().voice).toBeNull();
+    m.destroy();
+  });
+
+  it("gives a language's line on a manifest without audio", () => {
+    const m = createMachine({
+      items: [image("a"), image("b")],
+      settings: SETTINGS,
+      words: words((i) =>
+        i === 0 ? { id: "lang:de:a", track: german } : null,
+      ),
+    });
+    expect(m.targetSound()).toEqual({
+      music: null,
+      ambience: [],
+      voice: "lang:de:a",
+      videoSound: null,
+    });
+    m.destroy();
+  });
+
+  it("a language switch changes the target's voice on the same arrival", () => {
+    const m = createMachine({
+      items: [image("a", { voice: "base" }), image("b")],
+      settings: SETTINGS,
+      audio: { tracks },
+    });
+    expect(m.targetSound().voice).toBe("base");
+    m.setWords(words(() => ({ id: "lang:de:a", track: german })));
+    expect(m.targetSound().voice).toBe("lang:de:a");
+    m.setWords(null);
+    expect(m.targetSound().voice).toBe("base");
+    m.destroy();
+  });
+});

@@ -92,6 +92,15 @@
 // start tells render/spoken.ts how long it has left, for the auto-forward
 // hold. Without a voice host such a game mounts nothing, as before.
 //
+// Per language (docs/plan.md Phase 54 item 6; render/linevoice.ts): the
+// voice of an item is the one `LineVoices` gives for the language shown, a
+// recording (the manifest's, or the language file's own, whose tracks join
+// the table under `languageTrackKey`) or a live line in the shown text and
+// its language. `setVoices` changes the language: on the item the reader
+// is on, a voice of the old language stops and the new one starts. A game
+// with language files mounts the sound even with no `audio`, as a file may
+// carry recordings.
+//
 // A streamed line (Phase 52 item 4b; render/spokenstream.ts) arrives in
 // decoded chunks. They play on the same voice sound, through its gain and
 // the Voice group: each chunk's source is scheduled on the context's clock
@@ -168,6 +177,7 @@ import {
   videoSoundStart,
 } from "./audiorules";
 import { readHost } from "./host";
+import type { LineVoices } from "./linevoice";
 import {
   createSpokenLines,
   hasVoices,
@@ -253,17 +263,20 @@ export function upcomingSoundFiles(
   tracks: Readonly<Record<string, AudioTrack>>,
   cursor: number,
   ahead: number,
+  voiceOf: (index: number) => string | null = (index) =>
+    items[index]?.audio?.voice ?? null,
 ): string[] {
   const files = new Set<string>();
   for (let i = cursor + 1; i < items.length && i <= cursor + ahead; i += 1) {
     const item = items[i];
     const audio = item.audio;
     const video = item.type === "video" ? item.audio?.videoSound : undefined;
+    const voice = voiceOf(i);
     const ids = [
       ...(typeof audio?.music === "string" ? [audio.music] : []),
       ...(audio?.ambience ?? []),
       ...(audio?.sfx ?? []).map((cue) => cue.track),
-      ...(audio?.voice === undefined ? [] : [audio.voice]),
+      ...(voice === null ? [] : [voice]),
       ...(video === undefined ? [] : [video.track]),
     ];
     for (const id of ids) {
@@ -299,6 +312,12 @@ export interface AudioPlayer {
    */
   sample(group: "effects" | "voice"): void;
   /**
+   * The language shown changed (docs/plan.md Phase 54 item 6): each item's
+   * voice is `voices`'s now. On the item the reader is on, a voice of the
+   * old language stops and the new one starts.
+   */
+  setVoices(voices: LineVoices): void;
+  /**
    * The reader's settings changed (main.ts's `setSettings` path): sound on
    * or off and the three volumes act at once.
    */
@@ -330,6 +349,11 @@ export interface AudioOptions {
    * the sound even without `audio`. Absent or null: none.
    */
   voice?: VoiceClient | null;
+  /**
+   * Each item's voice in the language shown at mount (render/linevoice.ts);
+   * absent: the manifest's own.
+   */
+  voices?: LineVoices;
 }
 
 /** A spoken line's track id on the voice sound (the hook shows it). */
@@ -405,10 +429,24 @@ const now = (): number => globalThis.performance.now();
  */
 export function mountAudio(options: AudioOptions): AudioPlayer | null {
   const { root, manifest, machine } = options;
-  const tracks = manifest.audio?.tracks;
+  const ownTracks = manifest.audio?.tracks ?? {};
+  let voices: LineVoices | null = options.voices ?? null;
+  /** The manifest's tracks and the shown language file's, by key. */
+  let tracks: Readonly<Record<string, AudioTrack>> = {
+    ...ownTracks,
+    ...voices?.tracks,
+  };
   const voiceClient =
     options.voice != null && hasVoices(manifest) ? options.voice : null;
-  if (!hasSound(manifest) && voiceClient === null) return null;
+  const languageFiles = (manifest.languages ?? []).length > 0;
+  if (!hasSound(manifest) && voiceClient === null && !languageFiles) {
+    return null;
+  }
+  /** Item `index`'s recorded voice in the language shown, or null. */
+  const recordedVoice = (index: number): string | null =>
+    voices === null
+      ? (items[index]?.audio?.voice ?? null)
+      : voices.recorded(index);
   const doc = root.ownerDocument;
   const win = doc.defaultView ?? globalThis;
   if (typeof win.AudioContext !== "function") return null;
@@ -489,6 +527,8 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   const sfx: (Sound | undefined)[] = [];
   const pool = createSfxPool(SFX_POOL_SIZE);
   let voice: Sound | null = null;
+  /** The item whose voice the director started (its arrival), -1 for none. */
+  let voiceArrived = -1;
   /** The item the voice's line belongs to, -1 for none. */
   let voiceItem = -1;
   /**
@@ -650,7 +690,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   }
 
   const trackVolume = (s: Sound): number | undefined =>
-    s.track === null ? undefined : tracks?.[s.track]?.volume;
+    s.track === null ? undefined : tracks[s.track]?.volume;
   /** The group a slot's volume comes from: a sample takes what it samples. */
   const groupOfSlot = (slot: AudioSlot): Exclude<AudioSlot, "sample"> =>
     slot === "sample" ? sampleOf : slot;
@@ -954,7 +994,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
 
   /** Loads track `id` into `s` at its start, faded to `fade`; false if unknown. */
   function load(s: Sound, id: string, fade: number): boolean {
-    const track = tracks?.[id];
+    const track = tracks[id];
     if (track === undefined) return false;
     stopSource(s);
     s.stream = null;
@@ -1043,8 +1083,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
 
   // --- what plays ----------------------------------------------------------------
   function applyMusic(wanted: string | null, fadeMs: number): void {
-    const id =
-      wanted !== null && tracks?.[wanted] !== undefined ? wanted : null;
+    const id = wanted !== null && tracks[wanted] !== undefined ? wanted : null;
     if (id === musicId) return; // still wanted: it plays on, never restarted
     const old = musicId;
     musicId = id;
@@ -1073,7 +1112,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   }
 
   function applyAmbience(ids: readonly string[], fadeMs: number): void {
-    const want = new Set(ids.filter((id) => tracks?.[id] !== undefined));
+    const want = new Set(ids.filter((id) => tracks[id] !== undefined));
     const at = ctx.currentTime;
     for (const s of ambience) {
       if (s.track === null) continue;
@@ -1101,7 +1140,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   }
 
   function startVoice(id: string | null, item: number): void {
-    if (id === null || tracks?.[id] === undefined) return;
+    if (id === null || tracks[id] === undefined) return;
     if (voiceItem === item && voice?.track === id) return; // already its own
     voice ??= makeSound("voice");
     if (load(voice, id, 1)) voiceItem = item;
@@ -1261,7 +1300,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
   }
 
   function fire(cue: SfxCue): void {
-    if (tracks?.[cue.track] === undefined) return;
+    if (tracks[cue.track] === undefined) return;
     lastSfx = cue.track;
     if (!canRun()) {
       // Its moment passes while sound waits for a key.
@@ -1409,7 +1448,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
    * change falls on one sample.
    */
   function followPass(s: Sound): void {
-    const track = s.track === null ? undefined : tracks?.[s.track];
+    const track = s.track === null ? undefined : tracks[s.track];
     if (track === undefined || s.plan === null) return;
     const next = planFor(s, track, s.buffer ?? undefined);
     if (samePlan(next, s.plan)) return;
@@ -1623,7 +1662,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     const want =
       stage?.plays === true ? machine.targetSound().videoSound : null;
     const id =
-      want !== null && tracks?.[want.track] !== undefined ? want.track : null;
+      want !== null && tracks[want.track] !== undefined ? want.track : null;
     if (id === null) {
       endVideoStart();
       cancelRestart();
@@ -1825,6 +1864,11 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       : createSpokenLines<AudioBuffer>({
           items,
           cast: manifest,
+          ...(voices === null
+            ? {}
+            : {
+                line: (index: number) => voices?.live(index) ?? null,
+              }),
           client: voiceClient,
           on: spokenOn(settings),
           clip: (file) =>
@@ -1858,6 +1902,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         applyAmbience(target.ambience, fadeMs);
         if (withVoice) {
           const cursor = machine.getState().cursor;
+          voiceArrived = cursor;
           startVoice(target.voice, cursor);
           spoken?.arrive(cursor);
         }
@@ -1865,6 +1910,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       },
       fire,
       leave() {
+        voiceArrived = -1;
         stopVoice();
         spoken?.leave();
       },
@@ -1874,6 +1920,7 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
         }
       },
       silence() {
+        voiceArrived = -1;
         silence();
         spoken?.leave();
         delete hook.dataset.target;
@@ -1904,7 +1951,13 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       warmQueued = false;
       if (destroyed || !settings.soundOn) return;
       const cursor = machine.getState().cursor;
-      const files = upcomingSoundFiles(items, tracks ?? {}, cursor, WARM_AHEAD);
+      const files = upcomingSoundFiles(
+        items,
+        tracks,
+        cursor,
+        WARM_AHEAD,
+        recordedVoice,
+      );
       for (const file of files.slice(0, WARM_CAP)) {
         cache.load(file).catch(() => undefined);
       }
@@ -1937,9 +1990,10 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
     sample(group) {
       const id = sampleTrack(group, {
         items,
-        tracks: tracks ?? {},
+        tracks,
         cursor: machine.getState().cursor,
         lastSfx,
+        voice: recordedVoice(machine.getState().cursor),
       });
       // With no recorded line, a Voice change samples the item's generated
       // line when it is kept (render/spoken.ts).
@@ -1966,6 +2020,26 @@ export function mountAudio(options: AudioOptions): AudioPlayer | null {
       syncSound(sampler);
       const s = sampler;
       sampleTimer = setTimeout(() => release(s), SAMPLE_MS);
+    },
+    setVoices(next) {
+      voices = next;
+      tracks = { ...ownTracks, ...next.tracks };
+      // The live line first: it stops a line of the old language playing.
+      spoken?.setLines((index) => next.live(index));
+      const cursor = machine.getState().cursor;
+      if (voiceArrived === cursor) {
+        const target = machine.targetSound();
+        const own = voice !== null && !isSpoken(voice) && voiceItem === cursor;
+        if (!own || voice?.track !== target.voice) {
+          if (own) stopVoice();
+          startVoice(target.voice, cursor);
+        }
+        if (hook.dataset.target !== undefined) {
+          hook.dataset.target = JSON.stringify(target);
+        }
+      }
+      sync();
+      scheduleWarm();
     },
     setSettings(next) {
       const wasOn = settings.soundOn;

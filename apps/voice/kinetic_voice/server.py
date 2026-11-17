@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from .cache import FORMATS, LineCache, VoiceStore, line_key
-from .engine import Engine, pcm_to_wav
+from .engine import LANGUAGES, Engine, pcm_to_wav
 from .pipe import input_lines
 from .install import Installer, InstallError
 from .jobs import JobQueue
@@ -185,6 +185,10 @@ class Server:
             raise RequestError("bad-request", "text is empty")
         if not isinstance(voice_id, str) or not isinstance(lang, str):
             raise RequestError("bad-request", "voiceId and lang are strings")
+        if lang not in LANGUAGES:
+            raise RequestError("bad-request",
+                               f"the engine does not speak lang {lang!r}; "
+                               f"it speaks {', '.join(LANGUAGES)}")
         if not isinstance(priority, int):
             raise RequestError("bad-request", "priority is an integer")
         stream = msg.get("stream", False)
@@ -242,7 +246,7 @@ class Server:
             self.reply(rid, voiceId=voice_id)
         elif kind == "speak":
             _, voice_id, text, lang, key, stream = job
-            self.log("speaking", target=rid)
+            self.log("speaking", target=rid, lang=lang)
             self._ensure_loaded()
             handle = self._handle(voice_id, self.voices.find(voice_id))
             started = time.perf_counter()

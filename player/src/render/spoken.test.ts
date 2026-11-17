@@ -6,8 +6,10 @@ import {
   createSpokenLines,
   hasVoices,
   linesAhead,
+  makeSpokenLine,
   planSpeech,
   SPOKEN_WAIT_MS,
+  type SpokenLine,
   spokenLine,
   spokenOn,
   TOP_PRIORITY,
@@ -54,8 +56,12 @@ describe("spokenLine: what is spoken, and in which voice", () => {
     expect(spokenLine(ITEMS[1], CAST, true)).toEqual({
       voice: "speaker:Mei",
       text: "Two.",
-      key: "speaker:Mei\nTwo.",
+      lang: "en",
+      key: "speaker:Mei\nen\nTwo.",
     });
+    expect(spokenLine(ITEMS[1], CAST, true, "de")?.key).toBe(
+      "speaker:Mei\nde\nTwo.",
+    );
     expect(spokenLine(ITEMS[3], CAST, true)?.voice).toBe("speaker:Mei");
     const spaced: Item = {
       id: "t",
@@ -183,6 +189,7 @@ interface Asked {
   voiceId: string;
   text: string;
   priority: number;
+  lang: string;
   /** Asked for streamed: the listener the chunks go to. */
   onChunk: ((chunk: SpeechChunk) => void) | undefined;
   /** The host sends a chunk (whoever is listening gets it). */
@@ -221,6 +228,7 @@ class FakeClient {
     voiceId: string,
     text: string,
     priority: number,
+    lang: string,
     onChunk?: (chunk: SpeechChunk) => void,
   ) {
     const id = `s${String(this.asked.length + 1)}`;
@@ -236,6 +244,7 @@ class FakeClient {
       voiceId,
       text,
       priority,
+      lang,
       onChunk,
       chunk: (chunk) => onChunk?.(chunk),
       resolve: (speech) => {
@@ -833,5 +842,93 @@ describe("streamed lines: the line the reader waits for comes in chunks", () => 
     t.tick(15_000);
     t.lines.started(0, 3, true);
     expect(last(t.holds)?.[1]).toBeGreaterThan(1000 + SPOKEN_WAIT_MS);
+  });
+});
+
+describe("createSpokenLines: the language shown (Phase 54 item 6)", () => {
+  /** Each line's German: its text marked, spoken in `de`. */
+  const german = (index: number): SpokenLine | null => {
+    const line = spokenLine(ITEMS[index], CAST, true);
+    return line === null
+      ? null
+      : makeSpokenLine(line.voice, `de:${line.text}`, "de");
+  };
+
+  it("asks for each line in its language", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    expect(t.client.asked.map((a) => a.lang)).toEqual(["en", "en", "en", "en"]);
+  });
+
+  it("a switch drops the old language's requests and asks for the new, the line on show first", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    const old = t.client.asked.map((a) => a.id);
+    t.lines.setLines(german);
+    await flush();
+    expect(old.every((id) => t.client.dropped.includes(id))).toBe(true);
+    expect(t.client.live()).toEqual([
+      "de:One.",
+      "de:Two.",
+      "de:Three.",
+      "de:Six.",
+    ]);
+    expect(t.client.line("de:One.")).toMatchObject({ lang: "de" });
+    expect(t.client.line("de:One.").onChunk).toBeDefined(); // the one waited for streams
+    expect(last(t.holds)).toEqual([0, t.now() + SPOKEN_WAIT_MS]);
+  });
+
+  it("a switch stops a line of the old language playing, and plays the new one when it comes", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    t.answer("One.");
+    await flush();
+    expect(t.played.map(([, b]) => b.from)).toEqual(["One.:2.5"]);
+    t.lines.setLines(german);
+    expect(t.stops()).toBe(1);
+    await flush();
+    t.answer("de:One.");
+    await flush();
+    expect(t.played.map(([, b]) => b.from)).toEqual([
+      "One.:2.5",
+      "de:One.:2.5",
+    ]);
+    // Back to English: the kept line plays at once, nothing is asked again.
+    const asked = t.client.asked.filter((a) => a.text === "One.").length;
+    t.lines.setLines((i) => spokenLine(ITEMS[i], CAST, true));
+    expect(last(t.played)?.[1].from).toBe("One.:2.5");
+    await flush();
+    expect(t.client.asked.filter((a) => a.text === "One.")).toHaveLength(asked);
+  });
+
+  it("a switch to a language the engine lacks asks for nothing and lets the hold go", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    t.lines.setLines(() => null);
+    await flush();
+    expect(t.client.live()).toEqual([]);
+    expect(last(t.holds)).toEqual([0, null]);
+  });
+
+  it("a switch that keeps the line on show keeps its request", async () => {
+    const t = setup();
+    t.lines.arrive(0);
+    await flush();
+    const first = t.client.line("One.").id;
+    t.lines.setLines((i) =>
+      i === 0 ? spokenLine(ITEMS[0], CAST, true) : german(i),
+    );
+    await flush();
+    expect(t.client.dropped).not.toContain(first);
+    expect(t.client.live()).toEqual([
+      "One.",
+      "de:Two.",
+      "de:Three.",
+      "de:Six.",
+    ]);
   });
 });
