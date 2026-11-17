@@ -79,6 +79,13 @@ class ItemRecord:
     # naming ids of TimelineResult.audio_tracks (kinetic_extract.
     # audio_cues); kept out of `item` until the tracks ship.
     audio: dict[str, Any] | None = None
+    # The say statement the item's text came from ("game/<rel>:LINE"),
+    # which Ren'Py's translations are matched to (``source`` is the
+    # visual's line for a media item); None for an item without text.
+    text_source: str | None = None
+    # Language tag -> the item's text in that language, read from the
+    # game's tl/ folders (kinetic_extract.translations).
+    translations: dict[str, str] = field(default_factory=dict)
 
 
 def set_video_duration(record: ItemRecord,
@@ -221,14 +228,16 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         pending = None
 
     def emit_media(pend: _Pending, speaker: str | None,
-                   text: str | None) -> ItemRecord:
+                   text: str | None,
+                   line_source: str | None = None) -> ItemRecord:
         item_id = result._next_id(_slug(pend.name or pend.asset_rel,
                                         "scene" if pend.kind == "image"
                                         else "movie"))
         item: dict[str, Any] = {"id": item_id, "type": pend.kind}
         record = ItemRecord(item=item, source=pend.source,
                             asset=pend.asset_rel, asset_abs=pend.asset_abs,
-                            source_ref=pend.source_ref)
+                            source_ref=pend.source_ref,
+                            text_source=line_source)
         record.notes.extend(pend.notes)
         if pend.from_archive:
             # Provenance for assets resolved out of an .rpa archive
@@ -411,14 +420,16 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         cues.line_dropped()
                         continue
                     if pending is not None and not pending.consumed:
-                        emit_media(pending, event.speaker, event.text)
+                        emit_media(pending, event.speaker, event.text,
+                                   event.source)
                         pending.consumed = True
                     else:
                         item_id = result._next_id("line")
                         item: dict[str, Any] = {"id": item_id,
                                                 "type": "text"}
                         record = ItemRecord(item=item, source=event.source,
-                                            asset=None)
+                                            asset=None,
+                                            text_source=event.source)
                         if pending is None:
                             record.notes.append(
                                 "dialogue with no preceding visual in flow")

@@ -289,7 +289,8 @@ def script_entries(game_dir: Path, files_glob: str | None = None,
             failed.append({"archive": arc.path.name, "error": str(exc)})
             continue
         for key in sorted(names):
-            if not key.endswith((".rpy", ".rpyc")):
+            if not key.endswith((".rpy", ".rpyc")) or key.startswith("tl/"):
+                # tl/ members are Ren'Py translations, not story flow.
                 continue
             if files_glob and not (fnmatch.fnmatch(key, files_glob)
                                    or fnmatch.fnmatch(

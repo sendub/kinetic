@@ -164,9 +164,15 @@ def test_every_declared_path_is_the_sha256_of_its_bytes(tmp_path: Path) -> None:
     for ref in declared:
         assert is_content_addressed(out, ref), ref
     # Nothing shipped sits outside media/: the folder holds nothing but the
-    # four folder files plus media/<xx>/<sha256>.<ext>, and no assets/.
+    # four folder files, the language files the demo's game/tl/ makes
+    # (with lang.schema.json) plus media/<xx>/<sha256>.<ext>, and no
+    # assets/.
+    languages = {f"lang/{tag}.{ext}" for tag in manifest["languages"]
+                 for ext in ("json", "js")} | {"lang.schema.json"}
     on_disk = [p.relative_to(out).as_posix() for p in out.rglob("*")
                if p.is_file() and p.name not in FOLDER_FILES]
+    assert languages <= set(on_disk)
+    on_disk = [ref for ref in on_disk if ref not in languages]
     assert all(len(ref.split("/")) == 3 and ref.startswith("media/")
                for ref in on_disk), on_disk
     assert set(on_disk) == set(declared) | audio_scripts(manifest)

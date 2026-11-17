@@ -25,7 +25,9 @@ Deliberate mislabels exercise content sniffing (docs/plan.md Phase 10:
 corpus files lie): `mislabeled.png` holds BMP bytes and `mislabeled.jpg`
 holds PNG bytes. `photo-noise.png` is a 256x256 photo-like texture where
 lossless JPEG XL beats PNG; `anim.gif` is an animated image that must stay
-byte-identical (never re-encoded).
+byte-identical (never re-encoded). `tl/de/data/bg-room.png` is a
+per-language replacement of `bg-room.png` (Ren'Py's `game/tl/<language>/`
+file replacement), which the converter ignores and counts.
 """
 
 from __future__ import annotations
@@ -49,7 +51,7 @@ BITEXACT = ["-fflags", "+bitexact", "-flags", "+bitexact",
 
 
 def gradient(name: str, top: tuple[int, int, int],
-             bottom: tuple[int, int, int]) -> None:
+             bottom: tuple[int, int, int], folder: Path = DATA_DIR) -> None:
     img = Image.new("RGB", (WIDTH, HEIGHT))
     draw = ImageDraw.Draw(img)
     for y in range(HEIGHT):
@@ -57,7 +59,8 @@ def gradient(name: str, top: tuple[int, int, int],
         g = (top[1] * (HEIGHT - y) + bottom[1] * y) // HEIGHT
         b = (top[2] * (HEIGHT - y) + bottom[2] * y) // HEIGHT
         draw.line([(0, y), (WIDTH, y)], fill=(r, g, b))
-    img.save(DATA_DIR / name, format="PNG", optimize=True)
+    folder.mkdir(parents=True, exist_ok=True)
+    img.save(folder / name, format="PNG", optimize=True)
 
 
 def movie(name: str, frames: bytes, sound: list[str]) -> None:
@@ -182,6 +185,10 @@ def main() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     gradient("bg-room.png", (40, 60, 90), (10, 14, 24))
     gradient("bg-yard.png", (30, 90, 50), (8, 20, 12))
+    # Ren'Py's per-language file replacement: German players would see
+    # this room instead; the converter leaves it out and counts it.
+    gradient("bg-room.png", (90, 60, 40), (24, 14, 10),
+             GAME_DIR / "tl" / "de" / "data")
     mislabeled()
     photo_noise()
     tiny_gif()

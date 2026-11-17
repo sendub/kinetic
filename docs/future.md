@@ -267,6 +267,20 @@ To settle:
 - How `kinetic-media ship`, the media ledger, `rebuild`, poster checks
   and preloading handle files per language.
 
+## Ren'Py auto-voice files (maybe, 2026-11-17)
+
+Ren'Py's `config.auto_voice` plays `voice/<identifier>.ogg` for a line,
+named by the line's translation identifier. Phase 54's converter now
+computes those identifiers (on a converted corpus game 3,978 of its
+lines matched such files), so kinetic-extract could ship them as the
+items' recorded voice lines.
+
+To settle:
+
+- Whether to ship them by default, and how the author confirms the
+  pattern.
+- Per-language voice folders, if a game has them.
+
 ## Not wanted
 
 - Web hosting, such as itch.io (the user, 2026-11-14). A game stays a

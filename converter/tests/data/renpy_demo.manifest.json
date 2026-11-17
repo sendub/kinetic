@@ -3,6 +3,10 @@
   "schemaVersion": 1,
   "storyId": "renpy_demo",
   "title": "renpy demo",
+  "languages": [
+    "de",
+    "zh-Hans"
+  ],
   "width": 320,
   "height": 180,
   "audio": {

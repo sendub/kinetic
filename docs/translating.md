@@ -5,7 +5,11 @@ work back in, as PO files (gettext), the format Poedit, Weblate, Crowdin
 and every other translation tool read (docs/plan.md Phase 54, item 8).
 The language files it writes are those of docs/content-format.md,
 "Translations". CREATE.md, "Translating a game", walks an author and a
-contributor through it; this page is the reference.
+contributor through it; this page is the reference. A game converted
+from Ren'Py arrives with a language file per language its `game/tl/`
+folders translate, written by kinetic-extract (docs/extracting.md,
+"Translations"); `status` shows what they cover, and `export` hands the
+rest to a translator.
 
 ```sh
 .venv/bin/python tools/translations.py export GAME_FOLDER TAG [--out FILE] [--force]

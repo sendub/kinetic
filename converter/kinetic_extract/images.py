@@ -12,7 +12,8 @@ references instead of dropping them.
 Index keys (task order, "exact key -> path-with-directory key ->
 basename key"):
 
-- every image/video file under ``game/`` recursively, keyed by its path
+- every image/video file under ``game/`` recursively, outside ``tl/``
+  (per-language replacements), keyed by its path
   without extension (``images/beach 00001``) and separately by its
   basename (``beach 00001``);
 - archive members likewise, resolved lazily through
@@ -56,7 +57,12 @@ class ImplicitImages:
         the corpus volume are fine; greps inside files are not)."""
         by_key: dict[str, list[str]] = {}
         by_base: dict[str, list[str]] = {}
-        for dirpath, _dirs, files in os.walk(self._game_dir):
+        for dirpath, dirs, files in os.walk(self._game_dir):
+            if Path(dirpath) == self._game_dir and "tl" in dirs:
+                # Ren'Py's per-language file replacements (game/tl/<lang>/)
+                # name no image of their own (docs/extracting.md,
+                # "Translations").
+                dirs.remove("tl")
             for fname in files:
                 ext = os.path.splitext(fname)[1].lstrip(".").lower()
                 if ext not in _ASSET_EXTS:

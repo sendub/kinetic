@@ -3954,6 +3954,21 @@ The orchestrator's choices, within those decisions:
    table, coverage and the report; a read-only real check on the corpus
    example (coverage per language in the evidence note, the game not
    named).
+9b. Converter leads from item 9. (a) An `extend` line becomes an item
+   of its own whose speaker is drawn as "extend": append it to the
+   previous say's item, as Ren'Py shows it (this changes output only
+   where today's is wrong; list any changed item ids in the evidence).
+   (b) `define x = Character(_("Name"))` and similar wrapped names are
+   read as the display name, so `strings` blocks can translate speakers.
+   (c) `--base-language TAG` names a game's own language (written to the
+   manifest's `language`), so a game written in another language that
+   ships `tl/english` gets an English language file. (d) A block whose
+   English changed since translation is kept, with `from` set to the
+   hash of the old English in its commented code, so it shows as stale
+   instead of being dropped. (e) `tl/` scripts inside `.rpa` archives
+   are read (compiled-only `.rpyc` stay counted, not read). Tests:
+   synthetic converter cases for each; the demo's golden output updated
+   only where (a) changes it.
 10. Tools and docs around it. `check-game --lang TAG` walks with that
     language shown and reports fallbacks and stale lines met;
     `tools/assemble_folder.py` and `tools/upgrade_folder.py` carry

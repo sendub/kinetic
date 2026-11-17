@@ -28,6 +28,13 @@ something more of an author.
   already has, and marking for review a translation whose original has
   changed), `import` writes the language file from the translated file,
   and `status` shows each language's coverage (docs/translating.md).
+- `kinetic-extract` reads a Ren'Py game's own translations (`game/tl/`):
+  each language becomes a language file, its lines matched to the story
+  by Ren'Py's translation identifiers and its menu choices, captions and
+  character names taken from its `strings` blocks; the summary reports
+  what matched and the coverage. `--language-map NAME=TAG` names a
+  language the converter does not know, and `--no-translations` leaves
+  them out (docs/extracting.md, "Translations").
 
 ## 1.10.1 (2026-11-17)
 

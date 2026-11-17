@@ -159,9 +159,9 @@ with the current schema.
 
 `build-ledger.json` sits beside the manifest; the player and validator
 ignore it. Besides the walk's record (`inputs`, `items`, `report`,
-`branchDetection`, the `rpyc*`/`rpa*` source lists, `slice`, and the
+`branchDetection`, the `rpyc*`/`rpa*` source lists, `slice`, the
 sound's `audioTracks` and video items' `sound`: Shipping the sound,
-below), it holds
+below, and `translations`: Translations, below), it holds
 enough to make every shipped media file again from the original game
 files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
 
@@ -1411,6 +1411,169 @@ error), and the run summary prints all three with their sources
 (`game version: (none)` when there is none). `--version` prints
 Kinetic's own version, not the game's. Keep the `storyId` the same when you
 re-extract an updated game, or readers' progress will not follow it.
+
+## Translations
+
+A Ren'Py project may ship translations under `game/tl/<language>/`
+(Ren'Py's "Generate Translations"). kinetic-extract reads them by
+default (docs/plan.md Phase 54 item 9) and writes one language file per
+language, `lang/<tag>.json` and its `lang/<tag>.js`, in the format of
+docs/content-format.md, "Translations"; `--no-translations` leaves them
+out. The code is `converter/kinetic_extract/translations.py`.
+
+What is read, per language:
+
+- **Dialogue blocks**, `translate <language> <identifier>:`. Each is
+  matched to the item made from the same say statement by Ren'Py's own
+  translation identifier, which kinetic-extract computes from the game's
+  `.rpy` sources (every loose `.rpy` under `game/` outside `tl/`, in
+  Ren'Py's load order) as Ren'Py does (`renpy/translation/__init__.py`
+  and `Say.get_code()` in `renpy/ast.py`): the enclosing label (`.` as
+  `_`), `_`, and the first 8 hex digits of the MD5 of the say
+  statement's code in Ren'Py's canonical form (speaker, attributes,
+  `@` attributes, the text re-quoted after Ren'Py's own string reading,
+  `nointeract`, `id`, arguments, `with`), each statement's code followed
+  by `\r\n`, the `voice`, `voice sustain` and `nvl clear` statements just
+  before it included. A repeated identifier gets `_1`, `_2`, ... across
+  the label and the files loaded before; a label starting with `_`, a
+  hidden label, a local `.label`, a named `menu` and an explicit
+  `id` clause count as in Ren'Py; say statements inside `if`, `while`,
+  `menu` and `init` blocks count, those in `python`, `screen` and
+  similar blocks do not. A block's say statements give the item's text,
+  read with the converter's own string reading, so text tags and
+  `[interpolation]` stay as the manifest has them; a block with several
+  (a translator's split) joins them with a space, an `extend` line
+  continuing the line before as written. A block of `pass` (or without a
+  say statement) gives no translation.
+- **The location comment** Ren'Py writes above each block,
+  `# game/script.rpy:LINE`, names the line of the block's first
+  statement when the file was generated. The report counts whether it
+  names the identifier's line (agree) or another (disagree: it goes stale
+  as the script is edited; a converted corpus game, below, has stale
+  comments on about half its blocks). When the identifier names no
+  statement, the comment is the fallback, taken only when the statement
+  on that line is the one Ren'Py commented inside the block (`    #
+  e "Hello."`), so a stale comment never gives a line another line's
+  translation.
+- **String blocks**, `translate <language> strings:`, `old`/`new`
+  pairs: a menu's choices become its route labels, its caption the
+  decision's prompt (a prompt the converter supplied, "What happens
+  next?", has none), the speakers' names (the manifest's `speaker`, the
+  `Character` name) their translations, and the manifest's `title` and
+  `version` theirs, each matched with runs of spaces read as one. A
+  translated prompt of 200 characters or more, a label of 120 or more, a
+  title over 200 or a version over 40 is skipped with a warning; an
+  empty `new` is no translation.
+- **Ignored and counted**: `translate <language> style` blocks (fonts:
+  Kinetic draws with system fonts), `translate <language> python`
+  blocks, and every other file under `tl/<language>/` (Ren'Py's
+  per-language file replacements, such as images: pictures are the same
+  in every language). A compiled `.rpyc` with no `.rpy` beside it is not
+  read, and counted. The replacements are never story flow or image
+  names: `tl/` is left out of the script walk, whatever `--files` says,
+  and out of the implicit image index.
+
+Each translated string records `from`, the hash of the manifest's base
+text, so the validator can later tell a stale one. The manifest gains
+`languages`, the tags of the language files written, sorted; its
+`language` stays absent (English), since a Ren'Py project does not say
+which language its script is in. When the game has `voice` statements
+the converter turned into recorded voice lines, every language file
+says `"keepOriginalVoice": true`, as Ren'Py plays the original voice
+under a translation. A language with no translated string gets no file.
+The files are written before the schema copy, so the folder gets
+`lang.schema.json` and each file opens with `"$schema":
+"../lang.schema.json"`.
+
+### Language names and tags
+
+A language is known by its Ren'Py name, the name in its `translate`
+statements (by convention the `tl/` folder's name), mapped to a
+canonical BCP 47 tag:
+
+| Ren'Py name | Tag |
+| --- | --- |
+| a code, `de`, `fr`, `ja`, `ko`, `ru`, `pl`, `tr`, `it`, `es`, ... | itself |
+| a code and region, `ptBR`, `ptPT`, `pt_BR`, `zh-TW` | `pt-BR`, `pt-PT`, `pt-BR`, `zh-Hant` |
+| `zh`, `zhCN`, `zhSG`, `chinese`, `schinese`, `SimplifiedChinese` | `zh-Hans` |
+| `zhTW`, `zhHK`, `tchinese`, `TraditionalChinese` | `zh-Hant` |
+| `esLT`, `esLA`, `latam`, `SpanishLatinAmerican` | `es-419` |
+| `brazilian`, `PortugueseBrazil` | `pt-BR` |
+| `english`, `french`, `german`, `spanish`, `russian`, `japanese`, `korean`, `italian`, `polish`, `turkish`, `portuguese`, `ukrainian`, `czech`, `dutch`, `indonesian`, `vietnamese`, `thai`, `arabic`, `hebrew`, `greek`, `hungarian`, ... | `en`, `fr`, `de`, `es`, `ru`, `ja`, `ko`, `it`, `pl`, `tr`, `pt`, `uk`, `cs`, `nl`, `id`, `vi`, `th`, `ar`, `he`, `el`, `hu`, ... |
+
+Names are matched without regard to case, and long names written
+together (`SpanishSpain`, `chinese_simplified`) as one word. A code is
+accepted only for a known ISO 639 language, so a typo is not taken for a
+tag. The whole table is `LANGUAGE_NAMES`, `SQUASHED_NAMES` and
+`KNOWN_LANGUAGES` in the module. `None`, Ren'Py's untranslated
+placeholder, is skipped silently. An unknown name is skipped with a
+warning naming it and `--language-map NAME=TAG` (repeatable), which
+gives its tag and also overrides the table (`--language-map
+klingon=tlh`, `--language-map zhCN=zh-Hant`); a malformed TAG is a usage
+error. A name whose tag is the base language (`english`) is skipped
+with a warning. When several names give one tag (an older translation
+named `German` left beside the current `de`), the one a `tl/` folder is
+named after wins, then the one with more dialogue blocks, and the rest
+are skipped with a warning.
+
+### The report
+
+The run summary gains, after the sound's lines, the warnings and then a
+line per language file written and per language skipped, and per
+language: its dialogue blocks matched to items (and of those, through
+the comment alone), those for lines the walk made no item of (inside a
+skipped block, a dropped item, a file the walk did not read), `pass` or
+empty, and unmatched (with up to five by `file:line` and identifier);
+the identifier and comment agreements and disagreements (up to five
+examples); the strings used of those read; the blocks of several lines
+joined, duplicates and translations equal to the base text; the coverage
+line as the validator writes it; and the ignored style blocks, python
+blocks and replacement files:
+
+```text
+translations: 2 language file(s) written (de, zh-Hans); skipped: klingon (unknown name)
+  de (tl/de): dialogue blocks 12: matched to items 8 (by comment only 1), lines not in the story 2, pass or empty 1, unmatched 1; identifier and comment: agree 10, disagree 0, no comment 0
+    strings used 4 of 5; several lines joined 1, duplicates 0, same as the base text 0; coverage de: 12 of 28 strings (42.8%), 0 stale, 0 unchecked; ignored: style blocks 1, python blocks 1, replacement files 1
+    unmatched: game/tl/de/script.rpy:77 (inside_deadbeef)
+```
+
+The ledger's `translations` holds the same counts per tag
+(`languages`) and the names skipped (`skipped`).
+
+Not read: translations inside `.rpa` archives and compiled-only `tl/`
+scripts, and translations of statements the converter itself does not
+make items of. Run `.venv/bin/python tools/translations.py status
+<folder>` for each language's coverage afterwards, and `export` to hand
+a language's missing lines to a translator (docs/translating.md).
+
+### Real check
+
+A converted corpus game ships `tl/` folders for 14 languages (and
+`None`), and in them blocks under 12 more names: a lowercase twin,
+`eslt`, and 11 older names (`German`, `SpanishSpain`, ...). Read
+without its media (the parsing and matching layer called directly, the
+walk given every script under `game/`), each of its 14 current languages
+(`de`, `es`, `esLT`, `fr`, `it`, `ja`, `ko`, `pl`, `ptBR`, `ptPT`, `ru`,
+`tr`, `zhCN`, `zhTW`) has 4,316 dialogue blocks (4,318 for `zhCN`), and:
+
+- identifiers name a statement for 4,314 (99.95%); the other two
+  translate lines whose English has changed since, and are left out
+  (their comments point at other statements now);
+- the comment names the identifier's line for 1,450 blocks, another
+  statement's line for 1,694 and no statement's first line for 1,170:
+  the script was edited after the files were generated (1 to 62 lines
+  off);
+- the walk made 641 text items, and the 571 that are dialogue are
+  translated in every one of the 14 languages (88.5% of the 645 strings
+  the validator would count, the rest being 70 strings of code the walk
+  took for lines and the 4 speakers);
+- 3,978 of the 4,316 computed identifiers also name the game's own voice
+  files, which its `config.auto_voice` names by the same identifier.
+
+`eslt` and 10 of the older names were skipped as duplicates of current
+languages; `SpanishSpain` (59 old blocks, 33 matched) became `es-ES`.
+No strings were used: the game's menus are not detected as decisions,
+and its `Character` names are interpolations or `_()`-wrapped.
 
 ## Media tools
 

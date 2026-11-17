@@ -714,7 +714,9 @@ cp player/dist/index.html player/dist/app.js ~/games/RainyDay-Kinetic/
    not convert (a playlist, `set_volume`, a file named by a variable) is
    listed (docs/extracting.md, "Reading Ren'Py audio" and "Shipping the
    sound").
-2. The validator prints nothing and exits 0 on a good folder.
+2. The validator prints nothing and exits 0 on a good folder (for a
+   game with translations, below, it also warns about each string a
+   language lacks and prints a coverage line per language).
 3. The `cp` adds the player (run `npm run build` in `player/` first if
    `player/dist/` is missing or stale). Double-click `index.html` to
    play (Playing the folder, below).
@@ -747,6 +749,22 @@ The extractor also writes `manifest.schema.json`, a copy of the schema,
 beside the manifest, and opens the manifest with `"$schema":
 "./manifest.schema.json"`, so your editor checks the manifest as you
 edit it (Manifest). The assembled folder leaves the copy out.
+
+A project with Ren'Py translations under `game/tl/` gets a language file
+per language, `lang/<tag>.json` and `lang/<tag>.js`, listed in the
+manifest's `languages` (docs/content-format.md, "Translations"): each
+`translate` dialogue block goes to the item made from the same line,
+found by Ren'Py's own translation identifier, and the `strings` blocks
+give the menus' choices and captions, the speakers' names and the
+title. The summary prints, per language, the blocks matched and not
+(with examples by `file:line`) and the coverage. Ren'Py's fonts (`translate
+... style`), `translate ... python` blocks and per-language replacement
+files are left out. A `tl/` folder name the extractor does not know
+(`klingon`) is skipped with a warning; give its language tag with
+`--language-map klingon=tlh` (repeatable). `--no-translations` converts
+the base language alone. Fill in what is missing with the translator
+tools (docs/translating.md). Reference: docs/extracting.md,
+"Translations".
 
 ### Several episodes, one game
 

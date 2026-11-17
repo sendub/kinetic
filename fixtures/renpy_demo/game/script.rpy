@@ -71,6 +71,8 @@ label start:
 
 label inside:
     scene bg-room
+    if persistent.seen_ending:
+        d "Good night."
     a "Back inside, where it is quiet."
     d "Good night."
     scene mislabel-bmp
@@ -87,3 +89,8 @@ label inside:
     d "The television hums along."
     stop movie
     return
+
+# Translations: game/tl/ holds German (de), Simplified Chinese (zhCN) and an
+# unknown language name (klingon). The line inside the `if` of label inside
+# repeats a later line of the same label, so Ren'Py suffixes the later one's
+# translation identifier with _1.

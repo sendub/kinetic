@@ -7,6 +7,7 @@ Usage:
                     [--label NAME] [--max-items N] [--files GLOB]
                     [--title TEXT] [--game-version TEXT] [--story-id ID]
                     [--decoder MODULE:FUNC ...]
+                    [--no-translations] [--language-map NAME=TAG ...]
 
 <renpy_project> may be a directory containing ``game/``, a ``game/``
 directory itself, or a macOS ``.app`` bundle (the ``game`` dir is resolved
@@ -58,6 +59,16 @@ media once. The story id, title and game version come from the first
 project unless given; the display size is the most common across all.
 The slice options work only with one project. A single project's output
 is unchanged.
+
+Ren'Py translations under ``game/tl/<language>/`` (docs/plan.md Phase 54
+item 9; docs/extracting.md, "Translations") become language files,
+``lang/<tag>.json`` and ``lang/<tag>.js``, listed in the manifest's
+``languages``: dialogue blocks matched to items by Ren'Py's own
+translation identifier, ``strings`` blocks for route labels, prompts,
+speakers, title and version (kinetic_extract.translations).
+``--no-translations`` leaves them out; ``--language-map NAME=TAG``
+(repeatable) names the tag of a language the built-in table does not
+know, or overrides it.
 """
 
 from __future__ import annotations
@@ -78,15 +89,18 @@ from .audio_cues import AudioFiles, carry_dropped_audio, rename_tracks
 from .audio_ship import SoundShipment, ship_sound
 from .decoders import Decoder, DecoderError, load_decoder
 from .images import ImplicitImages
+from .language_file import DEFAULT_LANGUAGE, write_language_file
 from .media import (DEFAULT_SIZE, ExistingFileError,
                     most_common_image_size)
 from .media_cache import open_cache
 from .media_tools import MediaToolsError, run_tools
 from .parser import ID_MAX, FileParse, Report, parse_project, slug
 from .rpa import AssetArchives
-from .schema_copy import SCHEMA_REF, write_schema_copy
+from .schema_copy import LANG_SCHEMA_REF, SCHEMA_REF, write_schema_copy
 from .selftest import ensure_ready
 from .timeline import TimelineResult, build_timeline
+from .translations import (ProjectTranslations, language_files,
+                           language_map_option, read_project, summary_lines)
 from .version import add_version_option
 
 SIMPLIFICATIONS = [
@@ -254,6 +268,14 @@ def story_id_option(text: str) -> str:
     return text
 
 
+def _language_map_arg(text: str) -> tuple[str, str]:
+    """argparse type for `--language-map`: (Ren'Py name, canonical tag)."""
+    try:
+        return language_map_option(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def decoder_option(text: str) -> Decoder:
     """argparse type for `--decoder`: the loaded hook, or a usage error."""
     try:
@@ -268,6 +290,7 @@ def build_manifest(result: TimelineResult, width: int, height: int,
                    title: str | None = None,
                    version: str | None = None,
                    audio_tracks: dict[str, dict[str, Any]] | None = None,
+                   languages: list[str] | None = None,
                    ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
         # First, where editors look: the schema copy write_outputs puts
@@ -281,6 +304,10 @@ def build_manifest(result: TimelineResult, width: int, height: int,
         manifest["title"] = title
     if version:
         manifest["version"] = version
+    if languages:
+        # The language files kinetic-extract wrote from game/tl/
+        # (docs/content-format.md, "Translations").
+        manifest["languages"] = languages
     manifest |= {
         "width": width,
         "height": height,
@@ -342,6 +369,8 @@ def finalize_branches(result: TimelineResult,
             "prompt": rec.prompt,
             "routes": routes,
         })
+        # The decision the candidate became, for its translations.
+        cand["branch"] = branches[-1]
         decision_of[id(rec)] = decision_id
     notes: list[dict[str, str]] = []
     for _rel, parsed in parses:
@@ -455,13 +484,19 @@ def build_ledger(result: TimelineResult, reports: list[Report],
 
 
 def write_outputs(out_dir: Path, manifest: dict[str, Any],
-                  ledger: dict[str, Any]) -> None:
+                  ledger: dict[str, Any],
+                  languages: list[dict[str, Any]] | None = None) -> None:
+    """Write the folder's manifest, its script, the language files
+    (`languages`, before the schema copies so that a folder with them
+    gets lang.schema.json), the schema copies and the ledger."""
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_json = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
     (out_dir / "manifest.json").write_text(manifest_json, encoding="utf-8")
     shim = ("window.KINETIC_MANIFEST = "
             + json.dumps(manifest, ensure_ascii=False) + ";\n")
     (out_dir / "manifest.js").write_text(shim, encoding="utf-8")
+    for data in languages or []:
+        write_language_file(out_dir, data)
     write_schema_copy(out_dir)
     (out_dir / "build-ledger.json").write_text(
         json.dumps(ledger, indent=2, ensure_ascii=False) + "\n",
@@ -475,6 +510,7 @@ def print_summary(result: TimelineResult, reports: list[Report],
                   title: tuple[str, str] | None = None,
                   sound: SoundShipment | None = None,
                   version: tuple[str | None, str] | None = None,
+                  translation_lines: list[str] | None = None,
                   ) -> None:
     counts: dict[str, int] = {}
     for record in result.items:
@@ -509,6 +545,8 @@ def print_summary(result: TimelineResult, reports: list[Report],
             print(f"warning: {record.source}: {record.item['id']}: "
                   f"{warning}")
     for line in sound.summary() if sound is not None else []:
+        print(line)
+    for line in translation_lines or []:
         print(line)
     note_count = sum(len(r.notes) for r in result.items)
     print(f"reported statements: {len(reports)}; item notes: {note_count}")
@@ -566,8 +604,19 @@ def main(argv: list[str] | None = None) -> int:
                            "bytes of every media source before format "
                            "detection; returns bytes, or None for "
                            "unchanged; repeatable, chained in order")
+    argp.add_argument("--no-translations", dest="translations",
+                      action="store_false",
+                      help="leave out the Ren'Py translations under "
+                           "game/tl/ (default: each language becomes a "
+                           "language file, lang/<tag>.json)")
+    argp.add_argument("--language-map", type=_language_map_arg,
+                      action="append", default=[], metavar="NAME=TAG",
+                      help="the BCP 47 tag of the game/tl language NAME, "
+                           "for a name the built-in table does not know "
+                           "or to override it (repeatable)")
     add_version_option(argp)
     args = argp.parse_args(argv)
+    args.language_map = dict(args.language_map)
     projects: list[Path] = args.renpy_project
     several = len(projects) > 1
     if several and (args.label is not None or args.max_items is not None
@@ -647,6 +696,18 @@ def main(argv: list[str] | None = None) -> int:
                               story_id=story_id, title=title,
                               version=version,
                               audio_tracks=sound.tracks)
+    projects_tl = [e.translations for e in episodes
+                   if e.translations is not None]
+    lang_files, lang_stats, lang_warnings = language_files(
+        manifest, result.items, result.branch_candidates, projects_tl,
+        LANG_SCHEMA_REF if manifest.get("$schema") == SCHEMA_REF else None)
+    if lang_files:
+        manifest = build_manifest(result, width, height, branches=branches,
+                                  story_id=story_id, title=title,
+                                  version=version,
+                                  audio_tracks=sound.tracks,
+                                  languages=[d["language"]
+                                             for d in lang_files])
     slice_opts = {"label": args.label, "maxItems": args.max_items,
                   "files": args.files}
     folders = [project_folder_name(e.project) for e in episodes]
@@ -661,13 +722,27 @@ def main(argv: list[str] | None = None) -> int:
                           decoders=args.decoder,
                           projects=folders if several else None,
                           audio_tracks=sound.ledger)
-    write_outputs(args.out_dir, manifest, ledger)
+    skipped_tl = [name for p in projects_tl for name in p.skipped]
+    if lang_stats or skipped_tl:
+        # Per Ren'Py language read from game/tl/: its tag, the dialogue
+        # blocks matched and not, the strings used, the coverage and
+        # what was ignored (docs/extracting.md, "Translations").
+        ledger["translations"] = {
+            "languages": {tag: lang_stats[tag].ledger()
+                          for tag in sorted(lang_stats)},
+            "skipped": skipped_tl,
+        }
+    write_outputs(args.out_dir, manifest, ledger, lang_files)
     if several:
         print(f"projects: {len(folders)} ({', '.join(folders)})")
     print_summary(result, reports, f"{width}x{height} ({source_note})",
                   skipped, branch_notes, (story_id, story_source),
                   (title, title_source), sound,
-                  (version, version_source))
+                  (version, version_source),
+                  [f"warning: {w}" for w in lang_warnings]
+                  + summary_lines(lang_stats,
+                                  [d["language"] for d in lang_files],
+                                  skipped_tl))
     if len(derived_ids) > 1:
         print("note: the projects derive different story ids ("
               + ", ".join(derived_ids) + "); using the first; --story-id "
@@ -685,6 +760,9 @@ class _Episode:
     parses: list[tuple[str, FileParse]]
     sources: dict[str, Any]
     result: TimelineResult
+    # Its game/tl/ translations, matched to its items (None with
+    # --no-translations).
+    translations: ProjectTranslations | None = None
 
 
 def _walk_project(project: Path, args: argparse.Namespace
@@ -708,7 +786,11 @@ def _walk_project(project: Path, args: argparse.Namespace
                             audio_files=AudioFiles(game_dir, asset_archives))
     if asset_archives.failed:
         sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
-    return _Episode(project, game_dir, parses, sources, result)
+    translations = (read_project(game_dir, result.items, args.language_map,
+                                 DEFAULT_LANGUAGE)
+                    if args.translations else None)
+    return _Episode(project, game_dir, parses, sources, result,
+                    translations)
 
 
 def _identity_configs(episode: _Episode,

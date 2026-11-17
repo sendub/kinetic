@@ -799,6 +799,14 @@ def _ledger_rel(path: Path, game_dir: Path) -> str:
         return f"game/{Path(real).name}"
 
 
+def _in_tl(path: Path, game_dir: Path) -> bool:
+    """Whether `path` (a glob result under `game_dir`) is under tl/."""
+    try:
+        return path.relative_to(game_dir).parts[:1] == ("tl",)
+    except ValueError:
+        return False
+
+
 def parse_project(game_dir: Path, files_glob: str | None = None,
                   cache_dir: Path | None = None,
                   ) -> tuple[list[tuple[str, FileParse]],
@@ -833,8 +841,12 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     ``rpaFailed`` (archives whose index could not be read). Concatenating
     the files in filename order is an MVP simplification.
     """
-    rpy_files = sorted(game_dir.glob(files_glob or "*.rpy"))
-    rpyc_files = sorted(game_dir.glob(_rpyc_glob(files_glob)))
+    # game/tl/ holds Ren'Py's translations, never story flow
+    # (kinetic_extract.translations reads it), whatever --files says.
+    rpy_files = [p for p in sorted(game_dir.glob(files_glob or "*.rpy"))
+                 if not _in_tl(p, game_dir)]
+    rpyc_files = [p for p in sorted(game_dir.glob(_rpyc_glob(files_glob)))
+                  if not _in_tl(p, game_dir)]
 
     # Merge both kinds into one filename-ordered plan. A .rpy always beats a
     # same-stem .rpyc (which may be stale); a .rpyc is used only when no

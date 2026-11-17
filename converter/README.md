@@ -180,6 +180,20 @@ and `version` come from the first project unless given. Ledger media sources car
 project's output is unchanged. Details: docs/extracting.md, "Several
 episodes, one game".
 
+Ren'Py translations (docs/plan.md Phase 54 item 9) under
+`game/tl/<language>/` become language files, `lang/<tag>.json` and
+`lang/<tag>.js`, listed in the manifest's `languages`, with
+`lang.schema.json` beside the manifest: dialogue blocks matched to items
+by Ren'Py's own translation identifier (computed from the sources by
+kinetic_extract.translations), `strings` blocks for route labels,
+prompts, speakers, title and version. Style and python blocks and
+per-language replacement files are ignored and counted, and the summary
+reports each language's matches and coverage. `--language-map NAME=TAG`
+(repeatable) gives the tag of a language name the built-in table does
+not know, or overrides it; `--no-translations` leaves translations out.
+`tl/` is never part of the script walk. Details: docs/extracting.md,
+"Translations".
+
 ### kinetic-media ship
 
 ```sh

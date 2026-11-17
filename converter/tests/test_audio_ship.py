@@ -101,10 +101,14 @@ def validate(out: Path) -> subprocess.CompletedProcess[str]:
 
 
 def assert_valid_without_warnings(out: Path) -> None:
+    """Valid, with no warning but the translation ones: the demo's
+    language files are partial on purpose (test_renpy_translations)."""
     proc = validate(out)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert proc.stdout.strip() == "" and "warning" not in proc.stderr, \
-        proc.stderr
+    warnings = [line for line in proc.stderr.splitlines()
+                if "warning" in line and not line.startswith("warning: lang/")
+                and not line.endswith(" translation warnings")]
+    assert proc.stdout.strip() == "" and not warnings, proc.stderr
 
 
 def audio_of(manifest: dict) -> dict[str, Any]:

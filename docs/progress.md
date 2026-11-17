@@ -5131,7 +5131,31 @@ truthful: an unchecked box means nothing was accepted.
       tests 557 passed; a Japanese export and unchanged import of the
       language demo left the folder byte-identical; `status` as
       expected.)
-- [ ] kinetic-extract reads Ren'Py translations (item 9).
+- [x] kinetic-extract reads Ren'Py translations (item 9). (Evidence:
+      `converter/kinetic_extract/translations.py` computes Ren'Py's
+      translation identifiers as Ren'Py 8.5 does (label plus 8 hex of the
+      MD5 of each say statement's canonical code, with repeat suffixes),
+      the `# file:line` comment counted and used as a fallback only when
+      it still names the same code; `strings` blocks feed route labels,
+      prompts, speakers, title and version; style and python blocks and
+      replacement files ignored and counted; a folder-name table to BCP
+      47 tags with `--language-map` and `--no-translations`; language
+      files written before the schema copy with `$schema`;
+      `keepOriginalVoice` when items have recorded voice; per-language
+      counts in the summary and ledger. `tl/` is never story flow.
+      fixtures/renpy_demo gained `tl/de`, `tl/zhCN` and `tl/klingon`.
+      Real check on a converted corpus game (read-only, 14 languages):
+      identifiers name a statement for 4,314 of 4,316 blocks (the 2
+      others changed English), every one of its 571 dialogue items
+      translated in all 14, and 3,978 identifiers equal its
+      auto-voice file names. Verified by the orchestrator: full `pytest
+      converter/ tools/` 1524 passed (after renaming the converter's test
+      file to `test_renpy_translations.py`, which clashed with
+      `tools/test_translations.py`); the demo extracts de and zh-Hans,
+      validates (exit 0) and `status` reports 12 and 1 of 28.)
+- [ ] Converter leads from item 9 (item 9b): `extend` lines,
+      `_()`-wrapped names, `--base-language`, stale blocks kept as
+      stale, `tl/` inside archives.
 - [ ] Tools and docs around it (item 10): `check-game --lang`,
       assemble and upgrade carry `lang/`, CREATE.md "Translating a
       game".
