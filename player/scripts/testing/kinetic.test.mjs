@@ -618,6 +618,32 @@ describe("openGame before it starts a browser", () => {
     }
   });
 
+  it("refuses an http that is not true, false, { port } or { url }, before any browser starts", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kinetic-open-"));
+    try {
+      writeFileSync(join(dir, "index.html"), "<!doctype html>");
+      writeFileSync(join(dir, "app.js"), "");
+      for (const http of [
+        "yes",
+        null,
+        { port: "80" },
+        { port: 1.5 },
+        { url: "ftp://example.com/" },
+        { url: "https://example.com/game" },
+        { url: "https://example.com/", port: 80 },
+      ]) {
+        await expect(
+          openGame(dir, { engine: "chrome", http }),
+          JSON.stringify(http),
+        ).rejects.toThrow(
+          "openGame: http must be true, false, { port } or { url }",
+        );
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a playAll that is not true, false or null", async () => {
     const dir = mkdtempSync(join(tmpdir(), "kinetic-open-"));
     try {
@@ -1142,6 +1168,23 @@ describe("failed load reasons", () => {
     expect(failedLoadReason(url("media/gone.jpg"), null)).toBeNull();
   });
 
+  it("reads a URL under the folder's HTTP address (openGame's http) as the file at its path", () => {
+    const served = "http://127.0.0.1:4321/";
+    expect(failedLoadReason(`${served}media/gone.jpg`, folder, served)).toBe(
+      "not found",
+    );
+    expect(
+      failedLoadReason(`${served}media/junk%20pic.jpg`, folder, served),
+    ).toBe("could not decode");
+    expect(failedLoadReason(`${served}media/out.jpg`, folder, served)).toBe(
+      "a symbolic link out of the folder",
+    );
+    expect(
+      failedLoadReason("http://127.0.0.1:9999/media/gone.jpg", folder, served),
+    ).toBeNull();
+    expect(failedLoadReason(`${served}media/gone.jpg`, folder)).toBeNull();
+  });
+
   describe("collectErrors with the folder", () => {
     const missing = url("media/gone.jpg");
     const chromeOwn = {
@@ -1178,6 +1221,25 @@ describe("failed load reasons", () => {
       expect(collect(reporter(junk), reporter(beside))).toEqual([
         `[error] Failed to load resource: ${junk} (could not decode)`,
         `[error] Failed to load resource: ${beside}`,
+      ]);
+    });
+
+    it("over HTTP, says why for a file in the folder and leaves out Chrome's own favicon request", () => {
+      const served = "http://127.0.0.1:4321/";
+      const handlers = {};
+      const errors = collectErrors(
+        { on: (event, fn) => (handlers[event] = fn) },
+        { folder, served },
+      );
+      const own = (at) => ({
+        type: () => "error",
+        text: () => "Failed to load resource: the server responded with 404",
+        location: () => ({ url: at }),
+      });
+      handlers.console(own(`${served}favicon.ico`));
+      handlers.console(own(`${served}media/gone.jpg`));
+      expect(errors).toEqual([
+        `[error] Failed to load resource: ${served}media/gone.jpg (not found)`,
       ]);
     });
   });

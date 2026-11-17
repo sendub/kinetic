@@ -280,6 +280,9 @@ Web, so the unsigned exe in it first meets SmartScreen's "Windows
 protected your PC" (More info, Run anyway), unless the reader unblocks
 the zip before extracting it (CREATE.md, "Building the apps").
 
+A folder also plays from any static web host as it is (CREATE.md,
+"Serving from a web host"); it is not a target Kinetic designs for.
+
 ## Size expectations
 
 The bundle is about 1.4 MB (`app.js` about 1.28 MB, `index.html` about

@@ -78,7 +78,7 @@ def test_the_distribution_is_kinetic() -> None:
 @pytest.mark.parametrize("tool", [
     "validate_content.py", "assemble_folder.py", "build_apps.py",
     "setup_media_tools.py", "upgrade_folder.py", "translations.py",
-    "build_wheel.py"])
+    "build_wheel.py", "publish_demo.py"])
 def test_tool_version_prints_kinetic_version_and_does_nothing_else(
         tool, tmp_path) -> None:
     env = {k: v for k, v in os.environ.items()

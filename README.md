@@ -8,6 +8,9 @@ app beside it. There is nothing to install, no server and no network. An
 author converts an existing Ren'Py game with one command, or writes the
 folder by hand.
 
+**[Try it in your browser](https://sendub.github.io/kinetic/)**: the
+demo tour, where every line explains what it shows.
+
 ![A speaker's line in her own colours, with italic and bold from Ren'Py text tags](docs/images/reading.png)
 
 ## Why not Ren'Py?

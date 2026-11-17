@@ -20,15 +20,22 @@ export const STUCK_MS = 2000;
 const NEVER_SHOWN_NAMED = 10;
 
 export const USAGE =
-  "usage: node check-game.mjs <game-folder> [--engine webkit|chrome|auto] [--steps N|all] [--start-at ID] [--until ID] [--no-media-check] [--trace FILE] [--lang TAG]\n       node check-game.mjs --version";
+  "usage: node check-game.mjs <game-folder> [--engine webkit|chrome|auto] [--steps N|all] [--start-at ID] [--until ID] [--no-media-check] [--trace FILE] [--lang TAG] [--http | --url URL]\n       node check-game.mjs --version";
 
 /**
  * check-game's first line: the engine, the folder and the folder's player
  * version (`version`, null for an older player's app.js with no stamp),
- * then, for a `--lang` walk, the game language shown (`language`).
+ * then, for a `--lang` walk, the game language shown (`language`), and for
+ * an `--http` walk the page's address (`served`).
  */
-export const headerLine = (engine, folder, version, language = null) =>
-  `${engine}: ${folder} (Kinetic ${version ?? "unknown"})${language === null ? "" : `, language ${language}`}`;
+export const headerLine = (
+  engine,
+  folder,
+  version,
+  language = null,
+  served = null,
+) =>
+  `${engine}: ${folder} (Kinetic ${version ?? "unknown"})${language === null ? "" : `, language ${language}`}${served === null ? "" : `, over HTTP at ${served}`}`;
 
 /**
  * The presses `--steps all` makes at most: twice the manifest's item count
@@ -73,9 +80,10 @@ const screenKey = (now) =>
 
 /**
  * check-game.mjs's command line: `{ folder, engine, steps, startAt, until,
- * mediaCheck, trace, language }` (`steps` a whole number or "all", default
- * 10; `mediaCheck` false for `--no-media-check`; `trace` the file
- * `--trace` names, else null; `language` the `--lang` tag, else null),
+ * mediaCheck, trace, language, http }` (`steps` a whole number or "all",
+ * default 10; `mediaCheck` false for `--no-media-check`; `trace` the file
+ * `--trace` names, else null; `language` the `--lang` tag, else null;
+ * `http` true for `--http`, `{ url }` for `--url URL`, else false),
  * `{ version: true }` when `--version` is
  * anywhere on it (print Kinetic's version, nothing else), or `{ error }`
  * for anything else (exit 2 with USAGE).
@@ -89,8 +97,10 @@ export function readArgs(argv) {
     until: null,
     trace: null,
     lang: null,
+    url: null,
   };
   let mediaCheck = true;
+  let http = false;
   let stepsGiven = false;
   const folders = [];
   for (let at = 0; at < argv.length; at += 1) {
@@ -101,6 +111,10 @@ export function readArgs(argv) {
     }
     if (arg === "--no-media-check") {
       mediaCheck = false;
+      continue;
+    }
+    if (arg === "--http") {
+      http = true;
       continue;
     }
     const name = arg.slice(2);
@@ -128,6 +142,15 @@ export function readArgs(argv) {
   if (options.trace === "") {
     return { error: "--trace takes a file to write, not an empty name" };
   }
+  if (options.url !== null) {
+    if (http) return { error: "give --http or --url, not both" };
+    if (!/^https?:\/\/[^/]+\/(.*\/)?$/.test(options.url)) {
+      return {
+        error: `--url takes the folder's http or https address ending in "/", not ${options.url}`,
+      };
+    }
+    http = { url: options.url };
+  }
   const steps = options.steps === "all" ? "all" : Number(options.steps);
   if (
     steps !== "all" &&
@@ -146,6 +169,7 @@ export function readArgs(argv) {
     mediaCheck,
     trace: options.trace,
     language: options.lang,
+    http,
   };
 }
 

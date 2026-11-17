@@ -44,6 +44,7 @@ import {
   setPlayAll,
   sleep,
 } from "./core.mjs";
+import { serveFolder } from "./serve.mjs";
 
 // Browser profiles and crash dumps: the checkout's .tmp, or the folder
 // KINETIC_SCRATCH_DIR names (`kinetic check` from an installed Kinetic
@@ -1060,6 +1061,16 @@ export function countChecked(previous, open) {
  *   errors() lists only the failed loads the page's own elements report
  *   and checkMedia() throws (check-game's `--no-media-check`). Default
  *   true.
+ * - `http`: true serves the folder over HTTP on 127.0.0.1 (serve.mjs, as a
+ *   web host would) and opens it there in place of its file:// address;
+ *   `{ port }` picks the port, else the system picks one. The server
+ *   stops at close(). The page's storage is per origin, the port
+ *   included, so a kept `profile` resumes the place over HTTP only on the
+ *   same port, and never what a file:// open saved. `{ url }` starts no
+ *   server: the folder is already served at `url` (http or https, ending
+ *   in "/"), such as a copy on a web host, and the game opens there,
+ *   while the manifest and the reasons for failed loads still come from
+ *   the folder on disk. Default false.
  * - `log`: gets openGame's notes (default: stderr); null for none. Besides
  *   the engine "auto" picked, one note names symbolic links in the folder
  *   that point outside it (outsideLinks), on either engine: WebKit and
@@ -1090,6 +1101,7 @@ export async function openGame(folder, options = {}) {
     language = null,
     mediaChecks = true,
     trace = false,
+    http = false,
     log = (line) => console.error(line),
   } = options;
   const dir = resolve(folder);
@@ -1105,6 +1117,22 @@ export async function openGame(folder, options = {}) {
   }
   if (typeof trace !== "boolean") {
     throw new Error("openGame: trace must be true or false");
+  }
+  if (
+    !(
+      typeof http === "boolean" ||
+      (http !== null &&
+        typeof http === "object" &&
+        (http.url === undefined
+          ? Number.isInteger(http.port ?? 0)
+          : http.port === undefined &&
+            typeof http.url === "string" &&
+            /^https?:\/\/[^/]+\/(.*\/)?$/.test(http.url)))
+    )
+  ) {
+    throw new Error(
+      'openGame: http must be true, false, { port } or { url } (an http or https address ending in "/")',
+    );
   }
   if (startAt !== null) checkStartAt(dir, startAt);
   const offered = language === null ? null : checkLanguage(dir, language);
@@ -1122,21 +1150,36 @@ export async function openGame(folder, options = {}) {
     mkdirSync(join(scratch, "game-test-profiles"), { recursive: true });
     temp = mkdtempSync(join(scratch, "game-test-profiles", "chrome-"));
   }
-  const browser = await launchBrowser(chosen, {
-    profile: kept ?? temp,
-    crashDumpsDir: join(scratch, "crashdumps"),
-    ...(language === null ? {} : { languages: [language] }),
-  });
+  const server =
+    http === false || http.url !== undefined
+      ? null
+      : await serveFolder(dir, http === true ? {} : { port: http.port });
+  const served = server?.url ?? (http === false ? null : http.url);
+  let browser;
+  try {
+    browser = await launchBrowser(chosen, {
+      profile: kept ?? temp,
+      crashDumpsDir: join(scratch, "crashdumps"),
+      ...(language === null ? {} : { languages: [language] }),
+    });
+  } catch (error) {
+    await server?.close();
+    throw error;
+  }
   let closed = false;
   const close = async () => {
     if (closed) return;
     closed = true;
     await closeBrowser(browser);
+    await server?.close();
     if (temp !== null) rmSync(temp, { recursive: true, force: true });
   };
   try {
     const page = await browser.newPage();
-    const errors = collectErrors(page, { folder: dir });
+    const errors = collectErrors(page, {
+      folder: dir,
+      served,
+    });
     const linked = outsideLinksError(links);
     if (linked !== null) errors.push(linked);
     await page.setViewport({ ...viewport, deviceScaleFactor: 1 });
@@ -1145,7 +1188,10 @@ export async function openGame(folder, options = {}) {
     });
     if (trace) await page.evaluateOnNewDocument(TRACE_FLAG);
     const cdp = await page.createCDPSession();
-    const url = pathToFileURL(join(dir, "index.html")).href;
+    const url =
+      served === null
+        ? pathToFileURL(join(dir, "index.html")).href
+        : `${served}index.html`;
     await page.goto(
       startAt === null ? url : `${url}#start=${encodeURIComponent(startAt)}`,
     );

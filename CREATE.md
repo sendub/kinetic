@@ -1829,6 +1829,18 @@ open instead of `index.html` (Building the apps, below). A game with
 character voices speaks its lines in the Mac app and the Windows program
 (Giving characters voices, below).
 
+### Serving from a web host
+
+The folder is static files, so any static web host serves it as it is:
+upload the folder and readers open its `index.html` address in a
+browser. Kinetic's own demo plays this way, on GitHub Pages. Nothing in
+a game changes for this, and Kinetic designs for no host's rules. The
+browser keeps a reader's progress per site, so what they read from disk
+does not carry over to the web copy, or back; Export and Import on the
+Esc screen move it. check-game's `--http` and the testing library's
+`http` option play a folder this way on your own machine, and its
+`--url` walks the uploaded copy (Testing your game).
+
 ## Giving characters voices
 
 A game can speak its lines. Each character gets a voice, and the reader's
@@ -2602,6 +2614,13 @@ engine. The other options:
 - `--lang TAG` walks with that game language shown, and reports the
   lines that fell back to the original or are out of date (Checking a
   translation, below).
+- `--http` serves the folder over HTTP on 127.0.0.1, as a web host
+  would, and walks it there instead of from disk (Serving from a web
+  host). The first line ends `, over HTTP at <address>`.
+- `--url URL` walks the copy of the folder already served at URL, such
+  as the one you uploaded to a web host (`https://...`, ending in `/`).
+  The manifest and the list of media files to check come from the folder
+  on disk, the files themselves from URL.
 
 Any walk stops at the story's end, whatever `--steps` says. The story
 has ended when Space changes nothing (the same item, line, picture,
@@ -3344,6 +3363,15 @@ as a folder, exits 2 before any browser starts.
   throws. `true` by default.
 - `trace`: `true` turns the item trace on before the player starts, on
   every load, for `trace()` to read (The item trace, above). `false` by
+  default.
+- `http`: `true` serves the folder over HTTP on 127.0.0.1, as a web
+  host would, and opens it there instead of from disk; `{ port: N }`
+  picks the port, otherwise the system picks a free one. The server
+  stops at `close()`, and the game's `url` is the page's address. The
+  browser keeps progress per site, the port included, so a `profile`
+  resumes the place over HTTP only on the same port, and never what an
+  open from disk saved. `{ url: URL }` starts no server and opens the
+  copy already served at URL, as check-game's `--url` does. `false` by
   default.
 - `log`: a function given openGame's notes (the engine `auto` chose,
   and any links out of the folder, below), printed to stderr by default,

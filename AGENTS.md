@@ -60,8 +60,8 @@ are implementing and docs/stack.md for settled decisions.
   apps` with no Swift or Go on PATH (about a minute).
 - `--version` on `kinetic`, `kinetic-extract`, `kinetic-media`, `tools/`
   `validate_content.py`, `assemble_folder.py`, `build_apps.py`,
-  `setup_media_tools.py`, `upgrade_folder.py`, `translations.py` and
-  `build_wheel.py`, and `check-game.mjs`
+  `setup_media_tools.py`, `upgrade_folder.py`, `translations.py`,
+  `build_wheel.py` and `publish_demo.py`, and `check-game.mjs`
   prints `Kinetic <VERSION>` and exits, needing no media tools. A built
   `app.js` opens with `/*! Kinetic <version> */`; read a folder's with
   `kinetic_extract.version.folder_player_version` (Python) or
@@ -100,6 +100,19 @@ are implementing and docs/stack.md for settled decisions.
   object; CREATE.md, "Validating"). Upgrade a game folder's player:
   `.venv/bin/kinetic upgrade <folder>` after `npm run build` (refuses a
   stale `player/dist/`; CREATE.md, "Upgrading to a newer Kinetic").
+- The demo on GitHub Pages (https://sendub.github.io/kinetic/):
+  `.venv/bin/python tools/publish_demo.py [--dry-run] [--out DIR]`
+  builds the player and fixtures/demo afresh, assembles them into a site
+  folder (default `.tmp/publish-demo/site/`) and replaces the `gh-pages`
+  branch with one parentless commit of it, pushed as this checkout
+  pushes; it refuses changed or untracked files under `VERSION`,
+  `LICENSE`, `player/` or `fixtures/` (its docstring lists the
+  exclusions). `--dry-run` builds and stops. Its test,
+  `.venv/bin/pytest tools/test_publish_demo.py -q`, pushes only to a
+  throwaway repo. check-game's `--http` (openGame's `http`) plays a
+  folder served from 127.0.0.1, as a web host serves it, and `--url
+  https://sendub.github.io/kinetic/` with the site folder walks the
+  live copy.
 - Media only, no story parse: `.venv/bin/kinetic media ship <game_root>
   <out> --list requests.json` (format: docs/extracting.md). Both
   `ship` and `rebuild` take `--jobs N` (default: one per core) and
@@ -299,6 +312,10 @@ GH_TOKEN=$(gh auth token --user sendub) gh release create vX.Y.Z \
   dist/kinetic-X.Y.Z-py3-none-any.whl --repo sendub/kinetic --verify-tag \
   --title "Kinetic X.Y.Z" --notes-file .tmp/release-notes.md
 ```
+
+Then it republishes the demo with `.venv/bin/python
+tools/publish_demo.py` (from the clean release commit), so the site
+plays the release.
 
 After changing `VERSION`, rerun the converter's editable install so its
 package metadata matches (the version test reads it).

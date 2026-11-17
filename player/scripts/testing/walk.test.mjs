@@ -476,6 +476,7 @@ describe("readArgs", () => {
       mediaCheck: true,
       trace: null,
       language: null,
+      http: false,
     });
     expect(
       readArgs([
@@ -492,6 +493,7 @@ describe("readArgs", () => {
         "out/trace.jsonl",
         "--lang",
         "de",
+        "--http",
       ]),
     ).toEqual({
       folder: "game",
@@ -502,8 +504,30 @@ describe("readArgs", () => {
       mediaCheck: true,
       trace: "out/trace.jsonl",
       language: "de",
+      http: true,
     });
     expect(readArgs(["game", "--steps", "0"]).steps).toBe(0);
+  });
+
+  it("reads --url as the folder's address, http or https ending in a slash, and not with --http", () => {
+    expect(
+      readArgs(["game", "--url", "https://example.com/kinetic/"]).http,
+    ).toEqual({ url: "https://example.com/kinetic/" });
+    expect(readArgs(["game", "--url", "http://127.0.0.1:8000/"]).http).toEqual({
+      url: "http://127.0.0.1:8000/",
+    });
+    for (const url of [
+      "https://example.com/kinetic",
+      "ftp://example.com/",
+      "example.com/",
+    ]) {
+      expect(readArgs(["game", "--url", url]).error, url).toBe(
+        `--url takes the folder's http or https address ending in "/", not ${url}`,
+      );
+    }
+    expect(
+      readArgs(["game", "--http", "--url", "https://example.com/"]).error,
+    ).toBe("give --http or --url, not both");
   });
 
   it("reads --lang and its tag, which it leaves for the manifest to judge", () => {
@@ -599,6 +623,20 @@ describe("headerLine", () => {
     );
     expect(headerLine("webkit", "/games/demo", "1.10.0", null)).toBe(
       "webkit: /games/demo (Kinetic 1.10.0)",
+    );
+  });
+
+  it("ends with the page's address for an --http walk", () => {
+    expect(
+      headerLine(
+        "chrome",
+        "/games/demo",
+        "1.12.0",
+        null,
+        "http://127.0.0.1:5000/index.html",
+      ),
+    ).toBe(
+      "chrome: /games/demo (Kinetic 1.12.0), over HTTP at http://127.0.0.1:5000/index.html",
     );
   });
 });

@@ -226,6 +226,47 @@ def bundle_dir() -> Path:
     return REPO_ROOT / "player" / "dist"
 
 
+def assemble(content: Path, out: Path, dist: Path) -> str:
+    """Make `out` (replacing it) from the content folder `content` and the
+    player bundle in `dist`, as the module docstring says, and return the
+    line that reports it. tools/publish_demo.py gives its own fresh
+    bundle."""
+    if out.exists():
+        shutil.rmtree(out)
+
+    # The content minus any stale bundle copies (the output's bundle is
+    # always the one from dist) and the schema copy.
+    content_root = content.resolve()
+    left_at_top = {*BUNDLE_NAMES, *COPY_NAMES}
+
+    def ignore_at_top(top: str, names: list[str]) -> set[str]:
+        if Path(top).resolve() == content_root:
+            return {name for name in names if name in left_at_top}
+        return set()
+
+    shutil.copytree(content, out, ignore=ignore_at_top)
+    for name in BUNDLE_NAMES:
+        shutil.copyfile(dist / name, out / name)
+
+    generated = write_shim(out)
+    language_scripts = write_language_scripts(out)
+    scripts = write_audio_scripts(out)
+    left_out = leave_out_audio_files(out)
+
+    count, size = folder_stats(out)
+    return (f"assembled {out}: {count} files, {size} bytes "
+            f"({size / (1024 * 1024):.2f} MiB)"
+            + ("; generated manifest.js" if generated else "")
+            + (f"; generated {language_scripts} language script"
+               f"{'s' if language_scripts != 1 else ''}"
+               if language_scripts else "")
+            + (f"; wrote {scripts} audio script{'s' if scripts != 1 else ''}"
+               if scripts else "")
+            + (f"; left out {left_out} audio file"
+               f"{'s' if left_out != 1 else ''} (their scripts ship)"
+               if left_out else ""))
+
+
 def main(argv: list[str]) -> None:
     parser = argparse.ArgumentParser(
         prog=Path(argv[0]).name,
@@ -269,40 +310,7 @@ def main(argv: list[str]) -> None:
 
     if out.exists() and any(out.iterdir()) and not args.force:
         fail(1, f"output {out} is not empty; pass --force to replace it")
-    if out.exists():
-        shutil.rmtree(out)
-
-    # The content minus any stale bundle copies (the output's bundle is
-    # always the one from player/dist) and the schema copy.
-    content_root = content.resolve()
-    left_at_top = {*BUNDLE_NAMES, *COPY_NAMES}
-
-    def ignore_at_top(top: str, names: list[str]) -> set[str]:
-        if Path(top).resolve() == content_root:
-            return {name for name in names if name in left_at_top}
-        return set()
-
-    shutil.copytree(content, out, ignore=ignore_at_top)
-    for name in BUNDLE_NAMES:
-        shutil.copyfile(dist / name, out / name)
-
-    generated = write_shim(out)
-    language_scripts = write_language_scripts(out)
-    scripts = write_audio_scripts(out)
-    left_out = leave_out_audio_files(out)
-
-    count, size = folder_stats(out)
-    print(f"assembled {out}: {count} files, {size} bytes "
-          f"({size / (1024 * 1024):.2f} MiB)"
-          + ("; generated manifest.js" if generated else "")
-          + (f"; generated {language_scripts} language script"
-             f"{'s' if language_scripts != 1 else ''}"
-             if language_scripts else "")
-          + (f"; wrote {scripts} audio script{'s' if scripts != 1 else ''}"
-             if scripts else "")
-          + (f"; left out {left_out} audio file"
-             f"{'s' if left_out != 1 else ''} (their scripts ship)"
-             if left_out else ""))
+    print(assemble(content, out, dist))
 
     if build_apps is not None:
         try:

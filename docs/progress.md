@@ -5764,9 +5764,35 @@ truthful: an unchecked box means nothing was accepted.
       screenshot runs. Orchestrator: looked at every image; links
       checked; builder tests 4; npm test 1853; check clean; the source
       diff is comments and two describe names.)
-- [ ] The demo on GitHub Pages (item 11d). The demo tour published
+- [x] The demo on GitHub Pages (item 11d). The demo tour published
       to Pages, the player proven over HTTP(S), linked from the README,
       republished by the closer.
+      (2026-11-17: tools/publish_demo.py builds the player fresh into
+      .tmp, builds and assembles fixtures/demo (no apps) with
+      `.nojekyll`, and force-pushes one parentless commit "demo: Kinetic
+      <version>" (source commit in the body) to `gh-pages` through a
+      temporary index, refusing a dirty VERSION, LICENSE, player/ or
+      fixtures/ (testing and scenario scripts excepted); `--dry-run`.
+      assemble_folder gains `assemble(content, out, dist)`. Testing
+      library: `serve.mjs` (GET/HEAD, MIME types, single ranges 206/416,
+      404 for missing or escaping paths), `openGame` `http` (`true`,
+      `{port}`, `{url}`), check-game `--http` and `--url`; Chrome's own
+      favicon request is left out of errors() when serving; the player
+      unchanged. Scenario `http`: walk 36/36, bookmark with card, reload
+      and reopen resume per origin and port, music plays, 11/11 Chrome
+      and WebKit. Published: gh-pages ee03f079 from develop 0136021;
+      GitHub enabled Pages on gh-pages / with HTTPS enforced, built in
+      about 20 s. README "Try it in your browser" line; CREATE.md
+      "Serving from a web host"; packaging.md; verify-player.md;
+      AGENTS.md (the tool and the closer republishing). The user's
+      decision recorded: releases attach no demo builds. Subagent: npm
+      test 1869; creator, checkgame, http 95/95 Chrome; publish,
+      release_version, assemble 33; the live URL walked 36/36 on Chrome
+      and WebKit. Orchestrator: the live index.html, app.js (stamp
+      1.12.0-dev), manifest.js and .nojekyll return 200 with the right
+      types; check-game `--url https://sendub.github.io/kinetic/` walked
+      36/36 with no console or page errors; http 11/11 Chrome; npm test
+      1869, check clean; the three pytest files 33.)
 - [ ] Phase-closer (Phase 57): full suites; VERSION 1.12.0, the
       CHANGELOG dated, tag v1.12.0, `main` fast-forwarded, the wheel
       attached to the GitHub release.

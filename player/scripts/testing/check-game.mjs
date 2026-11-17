@@ -9,7 +9,7 @@
 //
 //   node player/scripts/testing/check-game.mjs <folder> [--engine webkit|chrome|auto]
 //       [--steps N|all] [--start-at ID] [--until ID] [--no-media-check]
-//       [--trace FILE] [--lang TAG]
+//       [--trace FILE] [--lang TAG] [--http | --url URL]
 //   node player/scripts/testing/check-game.mjs --version
 //
 // The first line names the engine, the folder and the folder's player
@@ -78,6 +78,15 @@
 //              up to ten ids each, in manifest order); neither changes the
 //              exit code (the validator's warnings). For the base:
 //              `language TAG: the game's own, no translation to check`.
+// --http       serves the folder over HTTP on 127.0.0.1 (openGame's
+//              `http`; serve.mjs), as a web host would, and walks it
+//              there in place of its file:// address. The first line
+//              ends `, over HTTP at <url>`.
+// --url URL    walks the copy of the folder already served at URL (http
+//              or https, ending in "/"), such as one on a web host, as
+//              --http does with no server of its own (openGame's
+//              `http: { url }`); the manifest and the media check's list
+//              come from the folder on disk, the files from URL.
 //
 // The window is the manifest's `width` x `height`, as the macOS app first
 // opens it, scaled with its shape kept to fit within 1920 x 1200 or to
@@ -276,6 +285,7 @@ try {
     language: args.language,
     mediaChecks: args.mediaCheck,
     trace: traceFd !== null,
+    http: args.http,
   });
 } catch (error) {
   console.error(error.message);
@@ -342,7 +352,13 @@ async function checkOverflow(now) {
 }
 try {
   console.log(
-    headerLine(game.engine, game.folder, game.kineticVersion, args.language),
+    headerLine(
+      game.engine,
+      game.folder,
+      game.kineticVersion,
+      args.language,
+      args.http === false ? null : game.url,
+    ),
   );
   let last = null;
   try {

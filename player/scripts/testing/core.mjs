@@ -13,7 +13,7 @@ import {
   rmSync,
 } from "node:fs";
 import { platform } from "node:os";
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
 import { TEST_AUDIO_SCRIPT } from "./testaudio.mjs";
@@ -167,14 +167,20 @@ const inside = (dir, path) => {
  * folder" (it resolves outside, which WebKit will not read), "not
  * readable" (no permission) or else "could not decode". null for a URL
  * that is not file://, lies outside the folder, or when `folder` is null.
+ * With `served`, the folder's HTTP address (serve.mjs, ending in "/"), a
+ * URL under it stands for the file at its path in the folder.
  */
-export function failedLoadReason(url, folder) {
-  if (folder === null || typeof url !== "string" || !url.startsWith("file:")) {
-    return null;
-  }
+export function failedLoadReason(url, folder, served = null) {
+  if (folder === null || typeof url !== "string") return null;
   let path;
   try {
-    path = fileURLToPath(url);
+    if (served !== null && url.startsWith(served)) {
+      path = join(resolve(folder), decodeURIComponent(new URL(url).pathname));
+    } else if (url.startsWith("file:")) {
+      path = fileURLToPath(url);
+    } else {
+      return null;
+    }
   } catch {
     return null;
   }
@@ -209,8 +215,13 @@ export function failedLoadReason(url, folder) {
  * load resource: <url> (<reason>)`, the reason read from the disk
  * (failedLoadReason), so both engines say the same. Otherwise, when both
  * report one URL, Chrome's line, which carries its reason, is kept.
+ * `served` is the folder's HTTP address when it is served (openGame's
+ * `http`), so its URLs get their reasons from the disk alike; Chrome's own
+ * request for the site's `/favicon.ico` there (a page over HTTP that names
+ * no icon gets one; a file:// page does not) is not the game's, and is
+ * left out.
  */
-export function collectErrors(page, { folder = null } = {}) {
+export function collectErrors(page, { folder = null, served = null } = {}) {
   const errors = [];
   // Failed URL -> { line: the line listed for it, own: whether Chrome's }.
   const failed = new Map();
@@ -234,8 +245,11 @@ export function collectErrors(page, { folder = null } = {}) {
       const named = text.slice(FAILED_LOAD.length);
       const own = !REPORTED_URL.test(named);
       const url = own ? msg.location?.()?.url : named;
+      if (served !== null && url === new URL("/favicon.ico", served).href) {
+        return;
+      }
       if (url) {
-        const reason = failedLoadReason(url, folder);
+        const reason = failedLoadReason(url, folder, served);
         if (reason !== null) {
           // The same line from either reporter: the first stays.
           listFailedLoad(url, true, `[error] ${FAILED_LOAD}${url} (${reason})`);
