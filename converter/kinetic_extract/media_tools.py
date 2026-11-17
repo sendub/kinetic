@@ -32,9 +32,14 @@ PIN_FILE = CONVERTER_DIR / "media-tools.json"
 TOOLS_ROOT = REPO_ROOT / ".media-tools"
 INSTALLED_FILE = "installed.json"
 TEST_DIR_ENV = "KINETIC_MEDIA_TOOLS_DIR"
-SETUP_CMD = ".venv/bin/python tools/setup_media_tools.py"
+# The setup command as typed on this OS (a Windows venv keeps its
+# interpreter in Scripts\).
+SETUP_CMD = (r".venv\Scripts\python tools\setup_media_tools.py"
+             if os.name == "nt"
+             else ".venv/bin/python tools/setup_media_tools.py")
 TOOL_NAMES = ("ffmpeg", "ffprobe")
-PLATFORMS = ("macos-arm64", "macos-x86_64", "linux-x86_64", "linux-arm64")
+# Intel Macs are not supported (the Mac app is arm64 only too).
+PLATFORMS = ("macos-arm64", "linux-x86_64", "linux-arm64", "windows-x86_64")
 
 # ffmpeg argument groups. GLOBAL leads every command, DECODE goes before
 # each -i (decoder threads), ENCODE goes before every written output.
@@ -58,14 +63,39 @@ def platform_key(system: str | None = None,
     """``macos-arm64``-style key for this OS/arch (a media-tools.json key)."""
     system = (system or platform.system()).lower()
     machine = (machine or platform.machine()).lower()
-    os_name = {"darwin": "macos", "linux": "linux"}.get(system)
+    os_name = {"darwin": "macos", "linux": "linux",
+               "windows": "windows"}.get(system)
     arch = {"arm64": "arm64", "aarch64": "arm64",
             "x86_64": "x86_64", "amd64": "x86_64"}.get(machine)
-    if os_name is None or arch is None:
+    key = f"{os_name}-{arch}"
+    if os_name is None or arch is None or key not in PLATFORMS:
         raise MediaToolsError(
             f"no pinned media tools for {system}/{machine}; supported: "
             + ", ".join(PLATFORMS))
-    return f"{os_name}-{arch}"
+    return key
+
+
+def binary_name(name: str, plat: str | None = None) -> str:
+    """The file name of tool `name` on `plat` (default: this machine):
+    ``ffmpeg.exe`` on Windows, ``ffmpeg`` elsewhere."""
+    plat = plat or platform_key()
+    return f"{name}.exe" if plat.startswith("windows-") else name
+
+
+def unpinned_message(pins: dict[str, Any], plat: str,
+                     names: list[str]) -> str:
+    """Why `plat` has no recorded archive checksum, and what to do."""
+    pinned = [key for key, entries in pins["ffmpeg"]["platforms"].items()
+              if all(entries[name].get("sha256") for name in TOOL_NAMES)]
+    return (
+        f"{', '.join(names)} for {plat} not pinned yet (sha256 null in "
+        f"converter/media-tools.json): no one has verified the {plat} "
+        f"build on a {plat} machine yet. To convert here, run "
+        f"{SETUP_CMD} --pin on this machine: it records the archive "
+        "checksums only when they match the publisher's and only while "
+        "every shared self-test golden matches; then commit "
+        "converter/media-tools.json. Or convert on a pinned platform: "
+        + (", ".join(pinned) or "none yet"))
 
 
 def load_pins(path: Path = PIN_FILE) -> dict[str, Any]:
@@ -88,7 +118,7 @@ def tools_dir() -> Path:
 
 def tool_path(name: str) -> Path:
     """The pinned binary `name`; never looked up on PATH."""
-    path = tools_dir() / name
+    path = tools_dir() / binary_name(name)
     if not (path.is_file() and os.access(path, os.X_OK)):
         raise MediaToolsError(
             f"{name} not found in {path.parent} (the converter uses only "
@@ -145,7 +175,9 @@ def binary_version(name: str) -> str | None:
 
     try:
         proc = subprocess.run([str(tool_path(name)), "-version"],
-                              capture_output=True, text=True, check=False)
+                              capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              check=False)
     except (OSError, MediaToolsError):
         return None
     words = proc.stdout.split()
@@ -190,9 +222,7 @@ def check_installed(pins: dict[str, Any], plat_dir: Path,
                               "entry")
     unpinned = [name for name in TOOL_NAMES if not entries[name]["sha256"]]
     if unpinned:
-        raise MediaToolsError(
-            f"{', '.join(unpinned)} for {plat} not pinned yet (sha256 null in "
-            f"converter/media-tools.json): run {SETUP_CMD} --pin")
+        raise MediaToolsError(unpinned_message(pins, plat, unpinned))
     try:
         installed = json.loads((plat_dir / INSTALLED_FILE).read_text("utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -210,7 +240,7 @@ def check_installed(pins: dict[str, Any], plat_dir: Path,
             raise MediaToolsError(
                 f"installed {name} is not the pinned archive: run "
                 f"{SETUP_CMD}")
-        binary = plat_dir / name
+        binary = plat_dir / binary_name(name, plat)
         actual = sha256_file(binary) if binary.is_file() else None
         if actual != record.get("binarySha256"):
             raise MediaToolsError(

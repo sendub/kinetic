@@ -673,11 +673,13 @@ Two flags change the pins in `converter/media-tools.json`; commit the
 file after either:
 
 - `--pin`: the first setup on a platform whose archive checksums are
-  still null (the pin file lists `macos-arm64`, `macos-x86_64`,
-  `linux-x86_64` and `linux-arm64`; only `macos-arm64` is pinned so
-  far). It records the archives' sha256s. The golden values are shared
-  by every platform and must still match, so `--pin` cannot hide a
-  platform whose tools give different bytes.
+  still null (the pin file lists `macos-arm64`, `linux-x86_64`,
+  `linux-arm64` and `windows-x86_64`; only `macos-arm64` is pinned so
+  far, and Intel Macs are not supported). It records the archives'
+  sha256s once they match the publisher's checksums. The golden values
+  are shared by every platform and must still match, so `--pin` cannot
+  hide a platform whose tools give different bytes. On Windows the
+  commands use `.venv\Scripts\python` in place of `.venv/bin/python`.
 - `--repin CASE`: only after a deliberate change to a media recipe in
   the converter changes one self-test case's output. It re-records that
   case (repeatable) and prints old and new values; every other case

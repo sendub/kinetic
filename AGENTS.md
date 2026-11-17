@@ -21,11 +21,14 @@ are implementing and docs/stack.md for settled decisions.
   `.venv/bin/python tools/setup_media_tools.py` (downloads the static
   ffmpeg/ffprobe named in `converter/media-tools.json` into the
   gitignored `.media-tools/<platform>/` and runs the golden-hash
-  self-test; `--pin` records null checksums and goldens, which the user
-  runs, not agents; the orchestrator, not a subagent, records the golden
-  of a newly added self-test case with `--repin CASE` from the installed
-  pinned tools while every other case still matches, and lists the hash
-  in the item's evidence note). Run `.venv/bin/kinetic-extract
+  self-test; `--pin` records null checksums and goldens). Only the
+  orchestrator, not a subagent, records pins: a platform's archive
+  checksums only by running `--pin` on that platform, only when the
+  download matches the publisher's checksum and only while every
+  shared golden matches; the golden of a newly added self-test case
+  with `--repin CASE` from the installed pinned tools while every other
+  case still matches; and it lists every hash recorded in the item's
+  evidence note. Run `.venv/bin/kinetic-extract
   <renpy_project> <out>`; it refuses to start until that setup has
   passed. Tests
   `.venv/bin/pytest converter/ tools/ -q -n auto` (pytest-xdist, one

@@ -223,9 +223,10 @@ docs/content-format.md.
 - Reproducible media (docs/plan.md Phase 25, 2026-11-02): the converter
   uses only pinned tools, listed in `converter/media-tools.json`.
   Pillow, imagecodecs (libjxl, replacing a system `cjxl`/`djxl`) and
-  numpy are pinned in requirements.txt; ffmpeg/ffprobe are Martin
-  Riedl's static release builds (one version, a timestamped URL and
-  archive sha256 per platform: macOS and Linux, arm64 and x86_64),
+  numpy are pinned in requirements.txt; ffmpeg/ffprobe are static
+  release builds (one version, a URL and archive sha256 per platform:
+  Martin Riedl's for macOS arm64 and Linux arm64 and x86_64, Gyan
+  Doshi's for Windows x86_64; no Intel Macs),
   installed by `tools/setup_media_tools.py` into the gitignored
   `.media-tools/<platform>/`, never looked up on PATH. Encoders run
   single-threaded and bitexact. A golden-hash self-test over committed

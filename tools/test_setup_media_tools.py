@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -79,6 +80,9 @@ def write_pins(path: Path, *, archive_sha: dict[str, str | None],
 
 
 PINNED = {name: sha(data) for name, data in ARCHIVES.items()}
+# The fake ffmpeg and ffprobe are shell scripts, run by the version check.
+posix_only = pytest.mark.skipif(os.name == "nt",
+                                reason="the fake binaries are shell scripts")
 UNPINNED: dict[str, str | None] = {"ffmpeg": None, "ffprobe": None}
 
 
@@ -108,6 +112,7 @@ def pins_of(tmp_path: Path) -> dict[str, Any]:
     return json.loads((tmp_path / "media-tools.json").read_text())
 
 
+@posix_only
 def test_pinned_install_verifies_extracts_and_passes(tmp_path: Path) -> None:
     write_pins(tmp_path / "media-tools.json", archive_sha=PINNED,
                golden=GOLDEN)
@@ -142,8 +147,37 @@ def test_unpinned_without_pin_refuses_before_download(tmp_path: Path) -> None:
     write_pins(tmp_path / "media-tools.json", archive_sha=UNPINNED,
                golden=None)
     fetch = served()
-    with pytest.raises(setup_mod.SetupError, match="--pin to record it"):
+    with pytest.raises(setup_mod.SetupError,
+                       match="no one has verified the linux-x86_64 build.*"
+                             "--pin on this machine"):
         run(tmp_path, fetch)
+    assert fetch.urls == []
+
+
+def test_null_pin_on_linux_arm64_says_why_and_what_to_do(
+        tmp_path: Path) -> None:
+    """linux-arm64 has no machine to verify it on yet: setup says so, and
+    names the --pin route and the platforms that are pinned."""
+    pins = {"ffmpeg": {"version": "9.0.2", "platforms": {
+        "macos-arm64": {name: {"url": url(name), "sha256": PINNED[name]}
+                        for name in ("ffmpeg", "ffprobe")},
+        "linux-arm64": {name: {"url": url(name), "sha256": None}
+                        for name in ("ffmpeg", "ffprobe")}}},
+        "python": dict(VERSIONS), "selftest": {"golden": GOLDEN}}
+    (tmp_path / "media-tools.json").write_text(json.dumps(pins))
+    fetch = served()
+    with pytest.raises(setup_mod.SetupError) as exc:
+        setup_mod.setup(pin=False, force=False, fetch=fetch,
+                        pin_path=tmp_path / "media-tools.json",
+                        root=tmp_path / "tools", plat="linux-arm64",
+                        versions=VERSIONS, runner=Runner(GOLDEN),
+                        check_versions=False, log=lambda _msg: None)
+    message = str(exc.value)
+    assert "ffmpeg, ffprobe for linux-arm64 not pinned yet" in message
+    assert "no one has verified the linux-arm64 build on a linux-arm64 " \
+           "machine yet" in message
+    assert "--pin on this machine" in message
+    assert message.endswith("convert on a pinned platform: macos-arm64")
     assert fetch.urls == []
 
 
@@ -182,14 +216,19 @@ def test_pin_refuses_when_publisher_disagrees(tmp_path: Path) -> None:
 
 
 def test_pin_keeps_existing_goldens_and_verifies(tmp_path: Path) -> None:
+    """A build whose self-test misses a shared golden gets no pin: neither
+    goldens nor archive checksums are written."""
     write_pins(tmp_path / "media-tools.json", archive_sha=UNPINNED,
                golden=GOLDEN)
     with pytest.raises(setup_mod.SetupError, match=r"ffmpeg \(ffmpeg\."
                                                    r"transcode-mp4\): "
                                                    "expected aa, got zz"):
-        run(tmp_path, served(), pin=True,
+        run(tmp_path, served(checksums=PINNED), pin=True,
             runner=Runner({**GOLDEN, "ffmpeg.transcode-mp4": "zz"}))
-    assert pins_of(tmp_path)["selftest"]["golden"] == GOLDEN
+    pins = pins_of(tmp_path)
+    assert pins["selftest"]["golden"] == GOLDEN
+    assert {n: e["sha256"] for n, e in
+            pins["ffmpeg"]["platforms"][PLAT].items()} == UNPINNED
 
 
 def test_unpinned_goldens_without_pin_refuse(tmp_path: Path) -> None:
@@ -224,6 +263,7 @@ def test_installed_pinned_archive_is_not_fetched_again(tmp_path: Path) -> None:
     assert third.urls == [url("ffprobe")]
 
 
+@posix_only
 def test_reported_version_must_match(tmp_path: Path) -> None:
     archives = {**ARCHIVES, "ffprobe": zip_bytes({
         "ffprobe": b"#!/bin/sh\necho 'ffprobe version 9.0.20'\n"})}
@@ -341,3 +381,100 @@ def test_repin_unknown_case_refuses(tmp_path: Path) -> None:
 def test_repin_flag_parses() -> None:
     args = setup_mod.parse_args(["--repin", "a.b", "--repin", "c.d"])
     assert args.repin == ["a.b", "c.d"]
+
+
+# --- Windows builds and publisher checksum files ------------------------------
+
+WIN = "windows-x86_64"
+WIN_URL = "https://builds.example.test/ffmpeg-9.0.2-win64.zip"
+WIN_ZIP = zip_bytes({
+    "ffmpeg-9.0.2-win64/bin/ffmpeg.exe": b"MZ ffmpeg",
+    "ffmpeg-9.0.2-win64/bin/ffprobe.exe": b"MZ ffprobe",
+    "ffmpeg-9.0.2-win64/doc/ffmpeg.html": b"<html>"})
+
+
+def win_pins(path: Path, sha256: str | None,
+             sha256_url: str | None = None) -> None:
+    entry: dict[str, Any] = {"url": WIN_URL, "sha256": sha256}
+    if sha256_url:
+        entry["sha256Url"] = sha256_url
+    pins = {"ffmpeg": {"version": "9.0.2", "platforms": {
+        WIN: {name: dict(entry) for name in ("ffmpeg", "ffprobe")}}},
+        "python": dict(VERSIONS), "selftest": {"golden": GOLDEN}}
+    path.write_text(json.dumps(pins))
+
+
+def run_win(tmp_path: Path, fetch: FakeFetch, *, pin: bool = False,
+            force: bool = False) -> list[str]:
+    log: list[str] = []
+    setup_mod.setup(pin=pin, force=force, fetch=fetch,
+                    pin_path=tmp_path / "media-tools.json",
+                    root=tmp_path / "tools", plat=WIN, versions=VERSIONS,
+                    runner=Runner(GOLDEN), check_versions=False,
+                    log=log.append)
+    return log
+
+
+def test_windows_build_installs_exes_from_one_archive(tmp_path: Path) -> None:
+    """Both tools come from one zip, out of its bin/ folder, downloaded
+    once, and land as .exe files."""
+    win_pins(tmp_path / "media-tools.json", sha(WIN_ZIP))
+    fetch = FakeFetch({WIN_URL: WIN_ZIP})
+    run_win(tmp_path, fetch)
+    assert fetch.urls == [WIN_URL]
+    plat_dir = tmp_path / "tools" / WIN
+    assert (plat_dir / "ffmpeg.exe").read_bytes() == b"MZ ffmpeg"
+    assert (plat_dir / "ffprobe.exe").read_bytes() == b"MZ ffprobe"
+    assert sorted(p.name for p in plat_dir.iterdir()) == [
+        "ffmpeg.exe", "ffprobe.exe", "installed.json",
+        "selftest-cache.json"]
+    again = FakeFetch({WIN_URL: WIN_ZIP})
+    run_win(tmp_path, again)
+    assert again.urls == []
+
+
+def test_pin_cross_checks_a_publisher_checksums_file(tmp_path: Path) -> None:
+    """A publisher listing every archive in one file (``sha256Url``): the
+    line naming this archive is the one compared."""
+    sums_url = "https://builds.example.test/checksums.sha256"
+    sums = (f"{'1' * 64}  ffmpeg-9.0.2-win64-shared.zip\n"
+            f"{sha(WIN_ZIP)}  ffmpeg-9.0.2-win64.zip\n").encode()
+    win_pins(tmp_path / "media-tools.json", None, sums_url)
+    fetch = FakeFetch({WIN_URL: WIN_ZIP, sums_url: sums})
+    log = run_win(tmp_path, fetch, pin=True)
+    entries = pins_of(tmp_path)["ffmpeg"]["platforms"][WIN]
+    assert {e["sha256"] for e in entries.values()} == {sha(WIN_ZIP)}
+    assert fetch.urls.count(WIN_URL) == 1
+    assert any("matches the publisher's" in line for line in log)
+    wrong = (f"{'2' * 64}  ffmpeg-9.0.2-win64.zip\n").encode()
+    win_pins(tmp_path / "media-tools.json", None, sums_url)
+    with pytest.raises(setup_mod.SetupError, match="disagrees with the "
+                                                   "publisher's 2222"):
+        run_win(tmp_path, FakeFetch({WIN_URL: WIN_ZIP, sums_url: wrong}),
+                pin=True, force=True)
+    other = (f"{sha(WIN_ZIP)}  ffmpeg-9.0.2-win64-shared.zip\n").encode()
+    with pytest.raises(setup_mod.SetupError,
+                       match="gives no sha256 for ffmpeg-9.0.2-win64.zip"):
+        run_win(tmp_path, FakeFetch({WIN_URL: WIN_ZIP, sums_url: other}),
+                pin=True, force=True)
+    entries = pins_of(tmp_path)["ffmpeg"]["platforms"][WIN]
+    assert {e["sha256"] for e in entries.values()} == {None}
+
+
+def test_parse_checksums() -> None:
+    digest = "ab" * 32
+    parse = setup_mod.parse_checksums
+    assert parse(f"{digest}\n", "a.zip") == digest
+    assert parse(f"{digest.upper()}  a.zip\n", "a.zip") == digest
+    assert parse(f"{digest} *dir/a.zip\n", "a.zip") == digest
+    assert parse(f"{'0' * 64}  b.zip\n{digest}  a.zip\n", "a.zip") == digest
+    assert parse(f"{digest}  b.zip\n", "a.zip") is None
+    assert parse(f"{digest}\n{'0' * 64}\n", "a.zip") is None
+    assert parse(f"<html>{digest}</html>\n", "a.zip") is None
+    assert parse("", "a.zip") is None
+
+
+def test_pins_flag_points_setup_at_another_file(tmp_path: Path) -> None:
+    assert setup_mod.parse_args([]).pins == setup_mod.PIN_PATH
+    scratch = tmp_path / "scratch.json"
+    assert setup_mod.parse_args(["--pins", str(scratch)]).pins == scratch

@@ -5281,6 +5281,28 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Media tools for Windows and Linux (item 8). Windows and
       linux-x86_64 pinned against the shared goldens, `macos-x86_64`
       dropped, AGENTS.md's pin rule rewritten.
+      (2026-11-17, open: the pins wait on the user. Every x86_64 build
+      differs from the shared goldens on the same 6 cases
+      (ffmpeg.audio-loop-aac, audio-transcode-opus, poster-frame,
+      transcode-mp4, transcode-odd-mp4, pillow.poster-jpeg): gyan.dev
+      9.0.2 essentials and BtbN n9.0.2-17 on Windows, Martin Riedl's
+      linux-x86_64 in WSL, every download matching its publisher's
+      checksum. gyan and BtbN give identical hashes, and Linux matches
+      them on the audio and JPEG cases, so the CPU, not the publisher,
+      makes the difference; nothing was pinned. Done: `macos-x86_64`
+      removed; `windows-x86_64` added (gyan zip, sha256 null);
+      `platform_key`, `.exe` names, UTF-8 tool output; setup's hidden
+      `--pins FILE`, `sha256Url` with a stricter checksums-file parse,
+      one download per archive, `.exe` members under `bin/`, archive
+      checksums saved only after the self-test passes; a null-pin
+      message naming the pinned platforms; AGENTS.md's pin rule as the
+      user decided; CREATE.md, converter/README.md, docs/stack.md.
+      Subagent: on Windows (path with spaces) and in WSL the self-test
+      ran every case and a fixtures/renpy_demo extract, validate, ship
+      and rebuild (15/15) passed with the candidate tools; Windows
+      test_setup_media_tools 23 passed, 2 skipped; PC and WSL cleaned.
+      Orchestrator: setup, media_tools, media_ship and poster tests 84
+      passed; Mac setup self-test 22 cases passed.)
 - [ ] The `kinetic` command and the wheel (item 9). One command with
       the old names as wrappers, the player bundle and a bundled
       check-game inside; installs and runs from a fresh venv.

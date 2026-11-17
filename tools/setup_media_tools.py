@@ -15,8 +15,9 @@ reported version, then runs the golden-hash self-test.
 
 ``--pin`` fills in what ``media-tools.json`` leaves null and verifies the
 rest: a null archive ``sha256`` for this platform is recorded from the
-download (cross-checked against the publisher's ``<url>.sha256`` when it
-is reachable), and null ``selftest.golden`` (or any single case that is
+download (cross-checked against the publisher's checksum when it is
+reachable: ``<url>.sha256``, or the checksums file an entry names in
+``sha256Url``), and null ``selftest.golden`` (or any single case that is
 null or missing, such as a newly added case) is recorded from this run's
 self-test while every pinned case must still match. ``--repin CASE``
 (repeatable) is for a deliberate recipe change: it re-records exactly the
@@ -38,6 +39,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 from typing import Any, Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -50,7 +52,9 @@ from kinetic_extract.version import add_version_option  # noqa: E402
 Fetch = Callable[[str, Path], None]
 Log = Callable[[str], None]
 PIN_PATH = media_tools.PIN_FILE
-_SHA256_RE = re.compile(r"\b[0-9a-fA-F]{64}\b")
+# One line of a checksum file: the hash, then optionally the file name
+# (``sha256sum`` style, ``*`` marking binary mode).
+_SUM_LINE_RE = re.compile(r"([0-9a-fA-F]{64})(?:\s+\*?(\S.*?))?\s*")
 
 
 class SetupError(Exception):
@@ -78,23 +82,79 @@ def save_pins(pins: dict[str, Any], path: Path) -> None:
     os.replace(tmp, path)
 
 
-def published_sha256(url: str, fetch: Fetch, workdir: Path) -> str | None:
-    """The publisher's sha256 for `url` (from ``<url>.sha256``), or None."""
+def checksum_url(entry: dict[str, Any]) -> str:
+    """Where the publisher's checksum for the entry's archive lives: the
+    entry's ``sha256Url`` (a checksums file listing several archives) or
+    ``<url>.sha256``."""
+    return entry.get("sha256Url") or entry["url"] + ".sha256"
+
+
+def parse_checksums(text: str, filename: str) -> str | None:
+    """The sha256 that a checksum file gives for `filename`.
+
+    A line naming `filename` wins; a file holding a single bare hash (no
+    name) gives that hash. A file that names other archives only, or is
+    not a checksum file at all, gives None.
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    parsed = [_SUM_LINE_RE.fullmatch(line) for line in lines]
+    if not lines or not all(parsed):
+        return None
+    named = [m.group(1) for m in parsed if m and m.group(2) is not None
+             and PurePosixPath(m.group(2)).name == filename]
+    if len(set(named)) == 1:
+        return named[0].lower()
+    if not named and len(parsed) == 1 and parsed[0] \
+            and parsed[0].group(2) is None:
+        return parsed[0].group(1).lower()
+    return None
+
+
+def published_sha256(entry: dict[str, Any], fetch: Fetch,
+                     workdir: Path) -> str | None:
+    """The publisher's sha256 for the entry's archive, or None when its
+    checksum file cannot be fetched. A checksum file that is fetched but
+    gives no hash for the archive is refused."""
+    source = checksum_url(entry)
     dest = workdir / "published.sha256"
     try:
-        fetch(url + ".sha256", dest)
+        fetch(source, dest)
         text = dest.read_text("utf-8", errors="replace")
     except (OSError, urllib.error.URLError, SetupError):
         return None
-    match = _SHA256_RE.search(text)
-    return match.group(0).lower() if match else None
+    filename = PurePosixPath(urlsplit(entry["url"]).path).name
+    digest = parse_checksums(text, filename)
+    if digest is None:
+        raise SetupError(f"{source} gives no sha256 for {filename}: "
+                         "refusing to pin")
+    return digest
+
+
+def fetch_once(fetch: Fetch, keep_dir: Path) -> Fetch:
+    """`fetch` that downloads each URL at most once in this run (a Windows
+    build ships ffmpeg and ffprobe in one archive): later requests copy the
+    first download."""
+    kept: dict[str, Path] = {}
+
+    def once(url: str, dest: Path) -> None:
+        if url in kept:
+            shutil.copyfile(kept[url], dest)
+            return
+        fetch(url, dest)
+        keep = keep_dir / str(len(kept))
+        shutil.copyfile(dest, keep)
+        kept[url] = keep
+
+    return once
 
 
 def extract_binary(archive: Path, name: str, dest: Path) -> None:
     """Write the archive's single member named `name` to `dest` (0755).
 
-    Only the member's bytes are read; its path inside the archive never
-    becomes a filesystem path.
+    `name` is the binary's file name on the platform (``ffmpeg.exe`` on
+    Windows); the member may sit in any folder (a Windows build keeps it
+    in ``<build>/bin/``). Only the member's bytes are read; its path inside
+    the archive never becomes a filesystem path.
     """
     try:
         with zipfile.ZipFile(archive) as zf:
@@ -115,19 +175,24 @@ def extract_binary(archive: Path, name: str, dest: Path) -> None:
 
 
 def install_tool(name: str, entry: dict[str, Any], plat_dir: Path, *,
-                 pin: bool, fetch: Fetch, log: Log) -> dict[str, str]:
+                 pin: bool, fetch: Fetch, log: Log,
+                 binary: str | None = None,
+                 unpinned: str | None = None) -> dict[str, str]:
     """Download, verify and extract one tool; returns its install record.
 
     With a pinned sha256 a mismatching download is refused (and deleted).
     With a null sha256 and ``pin`` the download's sha256 is written into
-    ``entry`` (the caller saves the pin file).
+    ``entry`` (the caller saves the pin file). `binary` is the file name
+    on the platform (default `name`); `unpinned` the refusal for a null
+    sha256 without ``pin``.
     """
+    binary = binary or name
     pinned = entry.get("sha256")
     if not pinned and not pin:
-        raise SetupError(
+        raise SetupError(unpinned or (
             f"{name}: archive sha256 is not pinned in "
             "converter/media-tools.json: run "
-            f"{media_tools.SETUP_CMD} --pin to record it")
+            f"{media_tools.SETUP_CMD} --pin to record it"))
     log(f"downloading {entry['url']}")
     with tempfile.TemporaryDirectory(dir=plat_dir) as td:
         archive = Path(td) / f"{name}.zip"
@@ -140,27 +205,31 @@ def install_tool(name: str, entry: dict[str, Any], plat_dir: Path, *,
                     f"match the pinned {pinned}: refusing to install "
                     "(download deleted)")
         else:
-            published = published_sha256(entry["url"], fetch, Path(td))
+            published = published_sha256(entry, fetch, Path(td))
             if published is None:
-                log(f"warning: no publisher checksum at {entry['url']}.sha256;"
-                    " pinning the downloaded bytes as they are")
+                log(f"warning: no publisher checksum at "
+                    f"{checksum_url(entry)}; pinning the downloaded bytes "
+                    "as they are")
             elif published != actual:
                 raise SetupError(
                     f"{name}: downloaded archive sha256 {actual} disagrees "
                     f"with the publisher's {published}: refusing to pin")
+            else:
+                log(f"{name} archive sha256 {actual} matches the "
+                    "publisher's")
             entry["sha256"] = actual
-            log(f"pinned {name} sha256 {actual} into "
-                "converter/media-tools.json")
-        extract_binary(archive, name, plat_dir / name)
+        extract_binary(archive, binary, plat_dir / binary)
     return {"url": entry["url"], "archiveSha256": actual,
-            "binarySha256": sha256_file(plat_dir / name)}
+            "binarySha256": sha256_file(plat_dir / binary)}
 
 
 def already_installed(name: str, entry: dict[str, Any], plat_dir: Path,
-                      installed: dict[str, Any]) -> dict[str, str] | None:
+                      installed: dict[str, Any],
+                      binary_name: str | None = None
+                      ) -> dict[str, str] | None:
     """The existing record when this exact pinned archive is in place."""
     record = installed.get("tools", {}).get(name)
-    binary = plat_dir / name
+    binary = plat_dir / (binary_name or name)
     if (record and entry.get("sha256")
             and record.get("url") == entry["url"]
             and record.get("archiveSha256") == entry["sha256"]
@@ -172,7 +241,8 @@ def already_installed(name: str, entry: dict[str, Any], plat_dir: Path,
 
 def reported_version(binary: Path, name: str) -> str | None:
     proc = subprocess.run([str(binary), "-version"], capture_output=True,
-                          text=True, check=False)
+                          text=True, encoding="utf-8", errors="replace",
+                          check=False)
     first = (proc.stdout or "").splitlines()[:1]
     match = re.match(rf"{name} version (\S+)", first[0]) if first else None
     return match.group(1) if match else None
@@ -250,34 +320,51 @@ def setup(*, pin: bool, force: bool, fetch: Fetch, pin_path: Path,
     if installed.get("version") != ff["version"]:
         installed = {}
     records: dict[str, dict[str, str]] = {}
-    pinned_now = False
-    for name in media_tools.TOOL_NAMES:
-        entry = entries[name]
-        record = None if force else already_installed(name, entry, plat_dir,
-                                                       installed)
-        if record is not None:
-            log(f"{name} {ff['version']} already installed")
-        else:
-            was_null = not entry.get("sha256")
-            record = install_tool(name, entry, plat_dir, pin=pin,
-                                  fetch=fetch, log=log)
-            pinned_now = pinned_now or was_null
-        records[name] = record
-    if pinned_now:
-        save_pins(pins, pin_path)
+    pinned_now: list[str] = []
+    binaries = {name: media_tools.binary_name(name, plat)
+                for name in media_tools.TOOL_NAMES}
+    unpinned_names = [name for name in media_tools.TOOL_NAMES
+                      if not entries[name].get("sha256")]
+    unpinned = (media_tools.unpinned_message(pins, plat, unpinned_names)
+                if unpinned_names else None)
+    with tempfile.TemporaryDirectory(dir=plat_dir) as keep_dir:
+        once = fetch_once(fetch, Path(keep_dir))
+        for name in media_tools.TOOL_NAMES:
+            entry = entries[name]
+            record = None if force else already_installed(
+                name, entry, plat_dir, installed, binaries[name])
+            if record is not None:
+                log(f"{name} {ff['version']} already installed")
+            else:
+                was_null = not entry.get("sha256")
+                record = install_tool(name, entry, plat_dir, pin=pin,
+                                      fetch=once, log=log,
+                                      binary=binaries[name],
+                                      unpinned=unpinned)
+                if was_null:
+                    pinned_now.append(name)
+            records[name] = record
     if check_versions:
         for name in media_tools.TOOL_NAMES:
-            got = reported_version(plat_dir / name, name)
+            path = plat_dir / binaries[name]
+            got = reported_version(path, name)
             if not version_matches(got, ff["version"]):
-                raise SetupError(f"{plat_dir / name} reports version {got}, "
+                raise SetupError(f"{path} reports version {got}, "
                                  f"pinned {ff['version']}")
     installed_path.write_text(json.dumps(
         {"platform": plat, "version": ff["version"], "tools": records},
         indent=2) + "\n", "utf-8")
-    binaries = {name: rec["binarySha256"] for name, rec in records.items()}
+    hashes = {name: rec["binarySha256"] for name, rec in records.items()}
+    # Archive checksums recorded above reach the pin file only once every
+    # shared golden has matched (run_selftest saves when it records).
     run_selftest(pins, pin=pin, pin_path=pin_path, plat_dir=plat_dir,
-                 versions=versions, binaries=binaries, runner=runner, log=log,
+                 versions=versions, binaries=hashes, runner=runner, log=log,
                  repin=tuple(repin))
+    if pinned_now:
+        save_pins(pins, pin_path)
+        for name in pinned_now:
+            log(f"pinned {name} sha256 {entries[name]['sha256']} into "
+                f"{pin_path}")
     log(f"media tools ready in {plat_dir}")
 
 
@@ -297,6 +384,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     argp.add_argument("--force", action="store_true",
                       help="re-download even when the pinned archives are "
                            "already installed")
+    # Test-only: read and record pins in FILE instead of
+    # converter/media-tools.json (trying a candidate build on a scratch copy).
+    argp.add_argument("--pins", type=Path, default=PIN_PATH,
+                      help=argparse.SUPPRESS)
     add_version_option(argp)
     return argp.parse_args(argv)
 
@@ -309,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         setup(pin=args.pin, force=args.force, fetch=urllib_fetch,
-              pin_path=PIN_PATH, root=media_tools.TOOLS_ROOT,
+              pin_path=args.pins, root=media_tools.TOOLS_ROOT,
               plat=media_tools.platform_key(),
               versions=media_tools.python_versions(),
               runner=selftest.run_cases, check_versions=True,

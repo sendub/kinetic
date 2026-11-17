@@ -245,6 +245,7 @@ _JXL_MODES = {"L", "LA", "RGB", "RGBA"}
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str] | None:
     try:
         return subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
                               check=False)
     except OSError:
         return None

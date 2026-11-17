@@ -22,28 +22,29 @@ VERSIONS = {"Pillow": "1.0", "imagecodecs": "2.0", "numpy": "3.0",
             "libjxl": "0.1"}
 
 
-def make_pins(golden: dict[str, str] | None) -> dict[str, Any]:
+def make_pins(golden: dict[str, str] | None,
+              plat: str = PLAT) -> dict[str, Any]:
     entries = {name: {"url": f"https://example.test/{name}.zip",
                       "sha256": f"{name}-archive-sha"}
                for name in media_tools.TOOL_NAMES}
-    return {"ffmpeg": {"version": "9.0.2", "platforms": {PLAT: entries}},
+    return {"ffmpeg": {"version": "9.0.2", "platforms": {plat: entries}},
             "python": dict(VERSIONS), "selftest": {"golden": golden}}
 
 
-def install(root: Path, pins: dict[str, Any]) -> Path:
+def install(root: Path, pins: dict[str, Any], plat: str = PLAT) -> Path:
     """Fake binaries plus the installed.json the setup script would write."""
-    plat_dir = root / PLAT
+    plat_dir = root / plat
     plat_dir.mkdir(parents=True)
     tools = {}
     for name in media_tools.TOOL_NAMES:
-        binary = plat_dir / name
+        binary = plat_dir / media_tools.binary_name(name, plat)
         binary.write_text(f"fake {name}\n")
         binary.chmod(0o755)
-        entry = pins["ffmpeg"]["platforms"][PLAT][name]
+        entry = pins["ffmpeg"]["platforms"][plat][name]
         tools[name] = {"url": entry["url"], "archiveSha256": entry["sha256"],
                        "binarySha256": media_tools.sha256_file(binary)}
     (plat_dir / "installed.json").write_text(json.dumps(
-        {"platform": PLAT, "version": "9.0.2", "tools": tools}))
+        {"platform": plat, "version": "9.0.2", "tools": tools}))
     return plat_dir
 
 
@@ -76,11 +77,34 @@ def ready(root: Path, pins: dict[str, Any], runner: Runner,
 
 def test_platform_keys() -> None:
     assert media_tools.platform_key("Darwin", "arm64") == "macos-arm64"
-    assert media_tools.platform_key("Darwin", "x86_64") == "macos-x86_64"
     assert media_tools.platform_key("Linux", "x86_64") == "linux-x86_64"
     assert media_tools.platform_key("Linux", "aarch64") == "linux-arm64"
-    with pytest.raises(MediaToolsError, match="no pinned media tools"):
-        media_tools.platform_key("Windows", "AMD64")
+    assert media_tools.platform_key("Windows", "AMD64") == "windows-x86_64"
+    # Intel Macs and Windows on Arm have no pinned build.
+    for system, machine in (("Darwin", "x86_64"), ("Windows", "ARM64"),
+                            ("FreeBSD", "amd64")):
+        with pytest.raises(MediaToolsError, match="no pinned media tools"):
+            media_tools.platform_key(system, machine)
+
+
+def test_binary_names() -> None:
+    assert media_tools.binary_name("ffmpeg", "windows-x86_64") == \
+        "ffmpeg.exe"
+    assert media_tools.binary_name("ffprobe", "linux-x86_64") == "ffprobe"
+    assert media_tools.binary_name("ffprobe", "macos-arm64") == "ffprobe"
+
+
+def test_windows_install_is_checked_by_exe_name(no_override: Path) -> None:
+    plat = "windows-x86_64"
+    pins = make_pins({"a.b": "c"}, plat)
+    plat_dir = install(no_override, pins, plat)
+    assert sorted(p.name for p in plat_dir.glob("*.exe")) == [
+        "ffmpeg.exe", "ffprobe.exe"]
+    hashes = media_tools.check_installed(pins, plat_dir, plat)
+    assert sorted(hashes) == ["ffmpeg", "ffprobe"]
+    (plat_dir / "ffprobe.exe").write_text("swapped\n")
+    with pytest.raises(MediaToolsError, match=r"ffprobe\.exe changed"):
+        media_tools.check_installed(pins, plat_dir, plat)
 
 
 def test_tool_lookup_ignores_path(no_override: Path, tmp_path: Path,
@@ -227,6 +251,21 @@ def test_unpinned_archive_refuses_with_instruction(no_override: Path) -> None:
     with pytest.raises(MediaToolsError, match="ffprobe for macos-arm64 not "
                                               "pinned yet.*--pin"):
         ready(no_override, pins, Runner({}))
+
+
+def test_unpinned_platform_message_says_why_and_what_to_do() -> None:
+    pins = make_pins(None)
+    pins["ffmpeg"]["platforms"]["linux-arm64"] = {
+        name: {"url": "https://example.test/x.zip", "sha256": None}
+        for name in media_tools.TOOL_NAMES}
+    message = media_tools.unpinned_message(pins, "linux-arm64",
+                                           ["ffmpeg", "ffprobe"])
+    assert "no one has verified the linux-arm64 build on a linux-arm64 " \
+           "machine yet" in message
+    assert f"run {media_tools.SETUP_CMD} --pin on this machine" in message
+    assert "match the publisher's" in message
+    assert "every shared self-test golden matches" in message
+    assert message.endswith("convert on a pinned platform: macos-arm64")
 
 
 def test_missing_install_refuses(no_override: Path) -> None:

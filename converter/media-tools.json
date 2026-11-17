@@ -1,5 +1,5 @@
 {
-  "_comment": "Pinned media tools (docs/plan.md Phase 25). ffmpeg/ffprobe: Martin Riedl's static release builds (https://ffmpeg.martin-riedl.de/, build script https://git.martin-riedl.de/ffmpeg/build-script); URLs are the timestamped per-build links read from the site's release listing on 2026-11-02. A null sha256 is recorded by `.venv/bin/python tools/setup_media_tools.py --pin`, which cross-checks the publisher's <url>.sha256. python: must equal requirements.txt. selftest.golden: case -> sha256 of the self-test outputs; a null case (new, or never pinned) is recorded by --pin, which still checks every pinned case; after a tool or recipe change meant to change a case's bytes, re-record just that case with --repin CASE.",
+  "_comment": "Pinned media tools (docs/plan.md Phase 25). ffmpeg/ffprobe: Martin Riedl's static release builds for macOS and Linux (https://ffmpeg.martin-riedl.de/, build script https://git.martin-riedl.de/ffmpeg/build-script); URLs are the timestamped per-build links read from the site's release listing on 2026-11-02. Windows (no Martin Riedl build): Gyan Doshi's static essentials build (https://www.gyan.dev/ffmpeg/builds/), the versioned package URL; one zip holds both ffmpeg.exe and ffprobe.exe (in <build>/bin/), so both entries name it. Intel Macs are not supported. A null sha256 is recorded by `.venv/bin/python tools/setup_media_tools.py --pin` on that platform, which cross-checks the publisher's <url>.sha256 (or the checksums file an entry names in sha256Url). python: must equal requirements.txt. selftest.golden: case -> sha256 of the self-test outputs, shared by every platform; a null case (new, or never pinned) is recorded by --pin, which still checks every pinned case; after a tool or recipe change meant to change a case's bytes, re-record just that case with --repin CASE.",
   "ffmpeg": {
     "version": "9.0.2",
     "source": "https://ffmpeg.martin-riedl.de/",
@@ -12,16 +12,6 @@
         "ffprobe": {
           "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffprobe.zip",
           "sha256": "fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6"
-        }
-      },
-      "macos-x86_64": {
-        "ffmpeg": {
-          "url": "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffmpeg.zip",
-          "sha256": null
-        },
-        "ffprobe": {
-          "url": "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffprobe.zip",
-          "sha256": null
         }
       },
       "linux-x86_64": {
@@ -41,6 +31,16 @@
         },
         "ffprobe": {
           "url": "https://ffmpeg.martin-riedl.de/download/linux/arm64/1789931697_9.0.2/ffprobe.zip",
+          "sha256": null
+        }
+      },
+      "windows-x86_64": {
+        "ffmpeg": {
+          "url": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip",
+          "sha256": null
+        },
+        "ffprobe": {
+          "url": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip",
           "sha256": null
         }
       }

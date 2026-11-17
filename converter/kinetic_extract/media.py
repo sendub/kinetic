@@ -99,7 +99,8 @@ def probe_duration_seconds(path: Path) -> float | None:
         proc = subprocess.run(
             [*media_tools.ffprobe_cmd(), "-show_entries", "format=duration",
              "-of", "json", str(path)],
-            capture_output=True, text=True, check=False)
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", check=False)
     except OSError:
         return None
     if proc.returncode != 0:

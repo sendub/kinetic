@@ -77,9 +77,12 @@ encodes and decodes only with pinned tools, listed in
 
 - Pillow, imagecodecs (bundling libjxl) and numpy at the versions in
   `requirements.txt` (the pin file's `python` section must agree);
-- ffmpeg and ffprobe from a static release build (Martin Riedl's builds,
-  one timestamped URL per platform: `macos-arm64`, `macos-x86_64`,
-  `linux-x86_64`, `linux-arm64`), each archive with its sha256.
+- ffmpeg and ffprobe from a static release build, each archive with its
+  sha256: Martin Riedl's builds (one timestamped URL per platform) for
+  `macos-arm64`, `linux-x86_64` and `linux-arm64`, and Gyan Doshi's
+  essentials build for `windows-x86_64` (one zip holding `ffmpeg.exe`
+  and `ffprobe.exe`, so both entries name it). Intel Macs are not
+  supported.
 
 `tools/setup_media_tools.py` downloads this platform's two archives,
 refuses on a sha256 mismatch, extracts the binaries into
@@ -91,9 +94,14 @@ re-downloads). PATH's ffmpeg, `cjxl` and `djxl` are never used.
 
 A null `sha256`, a null `selftest.golden`, or a single null (or
 missing) golden case means "not pinned yet": `--pin` records them (the
-archive checksum cross-checked against the publisher's `<url>.sha256`)
-while every pinned case must still match, and the updated pin file is
-committed. A newly added self-test case lands as a null golden, and
+archive checksum cross-checked against the publisher's `<url>.sha256`,
+or the line naming the archive in the checksums file an entry gives as
+`sha256Url`) while every pinned case must still match, and the updated
+pin file is committed. Nothing is written unless the whole self-test
+passes, so a build whose output differs from the shared goldens is
+never pinned. On a platform with a null archive checksum, setup without
+`--pin` refuses and says why: no one has verified that platform's build
+on such a machine yet. A newly added self-test case lands as a null golden, and
 `kinetic-extract` refuses, naming the case, until `--pin` records it.
 Pinned values are only ever verified, never overwritten by `--pin`. When
 a deliberate recipe change alters one case's bytes, re-record exactly
