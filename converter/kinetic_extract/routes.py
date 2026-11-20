@@ -574,7 +574,9 @@ def register(subcommands: Any) -> None:
     argp = subcommands.add_parser(
         "routes", help="the branch structure: decisions, routes, where each "
                        "ends or rejoins",
-        description=__doc__.split("\n\n")[0].replace("\n", " "))
+        description="Print a game folder's branch structure as text an "
+                    "agent can read in place of looking at the branch map "
+                    "(CREATE.md, \"kinetic routes\").")
     argp.add_argument("folder", help="the game folder (its manifest.json)")
     form = argp.add_mutually_exclusive_group()
     form.add_argument("--dot", action="store_true",

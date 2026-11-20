@@ -465,7 +465,10 @@ def register(subcommands: Any) -> None:
     argp = subcommands.add_parser(
         "export", help="the story as Markdown, the main line and each route, "
                        "to lay beside the script",
-        description=__doc__.split("\n\n")[0].replace("\n", " "))
+        description="Export a game folder's story as Markdown, the main "
+                    "line and each route, so an agent can lay a route "
+                    "beside its Ren'Py source (CREATE.md, \"kinetic "
+                    "export\").")
     argp.add_argument("folder", help="the game folder (its manifest.json)")
     argp.add_argument("--lang", metavar="TAG",
                       help="read the texts from this language file, the "

@@ -70,6 +70,10 @@ BUNDLE_NAMES = ("index.html", "app.js")
 MANIFEST_NAME = "manifest.json"
 SHIM_NAME = "manifest.js"
 SHIM_PREFIX = "window.KINETIC_MANIFEST = "
+# `--help`'s description.
+DESCRIPTION = ("Assemble the self-contained folder readers get: the "
+               "player beside a content folder's files "
+               "(docs/packaging.md).")
 
 
 def fail(status: int, message: str) -> None:
@@ -270,7 +274,7 @@ def assemble(content: Path, out: Path, dist: Path) -> str:
 def main(argv: list[str]) -> None:
     parser = argparse.ArgumentParser(
         prog=Path(argv[0]).name,
-        description=__doc__.splitlines()[0], add_help=True)
+        description=DESCRIPTION, add_help=True)
     parser.add_argument("content_dir", help="content folder to assemble")
     parser.add_argument("out_folder", help="self-contained folder to create")
     parser.add_argument("--force", action="store_true",

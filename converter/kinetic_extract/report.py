@@ -912,7 +912,10 @@ def register(subcommands: Any) -> None:
         "report", help="what a game folder holds: reading time, speakers, "
                        "unused files, long lines, text tag problems, "
                        "translation coverage",
-        description=__doc__.split("\n\n")[0].replace("\n", " "))
+        description="Report what a game folder holds, as text an agent "
+                    "can read in place of looking at the screen "
+                    "(CREATE.md, \"Checking a conversion: kinetic "
+                    "report\").")
     argp.add_argument("folder", help="the game folder (its manifest.json)")
     argp.add_argument("--json", action="store_true",
                       help="print the same report as one JSON object")

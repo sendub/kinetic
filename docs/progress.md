@@ -5818,8 +5818,23 @@ truthful: an unchecked box means nothing was accepted.
       1). How a reader changes it per platform; no manifest setting;
       check scripts pin their words with `language`, proved on Chrome
       and WebKit.
-- [ ] Whole help texts (item 2). Every subcommand's `--help`
+- [x] Whole help texts (item 2). Every subcommand's `--help`
       description a whole sentence, true for a checkout and a wheel.
+      (2026-11-20: upgrade and assemble take a `DESCRIPTION` constant in
+      place of the docstring's first line; upgrade's docstring, help and
+      refusal say "this Kinetic's" in place of "this clone's"; report,
+      routes and export drop their "`kinetic X <folder>`:" fragments and
+      docs/plan.md pointers for a sentence; `kinetic media` and its ship,
+      rebuild and posters gain sentence descriptions. Subagent's calls:
+      help texts point to CREATE.md and docs/, never docs/plan.md, which
+      a wheel lacks; the lower-case summaries in `kinetic --help`'s list
+      stay. New tests in test_kinetic_cli.py: each of 14 descriptions
+      starts with a capital, ends with "." and balances its parentheses
+      (8 failed before the fix), and upgrade's names no clone.
+      Subagent: test_kinetic_cli 40 passed; the touched modules' tests
+      207 passed, 1 skipped. Orchestrator: test_kinetic_cli,
+      upgrade_folder, assemble_folder, report, routes, export 136
+      passed, 1 skipped; `kinetic upgrade --help` reads whole.)
 - [ ] Upgrade a copy, or preview (item 3). `kinetic upgrade --to NEW`
       (media hard-linked, the folder only read) and `--dry-run`.
 - [ ] The testing library in the wheel (item 4). One bundled module,

@@ -369,12 +369,16 @@ def _add_limits(parser: argparse.ArgumentParser) -> None:
 
 def main(argv: list[str] | None = None, prog: str = PROG) -> int:
     argp = argparse.ArgumentParser(
-        prog=prog, description="Kinetic media work without a story parse.")
+        prog=prog, description="Ship, rebuild or check the media of a "
+                                "game folder without parsing its story.")
     add_version_option(argp)
     sub = argp.add_subparsers(dest="command", required=True)
     shipp = sub.add_parser(
         "ship", help="convert a list of sources into content-addressed "
-                     "media plus media-ledger.json")
+                     "media plus media-ledger.json",
+        description="Convert a list of sources into content-addressed "
+                    "media plus media-ledger.json in a Kinetic folder "
+                    "(docs/extracting.md).")
     shipp.add_argument("game_root", type=Path,
                        help="the folder request source paths are relative "
                             "to")
@@ -401,7 +405,10 @@ def main(argv: list[str] | None = None, prog: str = PROG) -> int:
     _add_limits(shipp)
     rebuildp = sub.add_parser(
         "rebuild", help="make a folder's media again from its ledger and "
-                        "the original files, checking every hash")
+                        "the original files, checking every hash",
+        description="Make a folder's media again from its ledger and the "
+                    "original files, checking every hash; the exit status "
+                    "is 0 only when every hash matches.")
     rebuildp.add_argument("game_root", type=Path, nargs="+",
                           metavar="game_root",
                           help="the original game: ledger source paths "
@@ -423,7 +430,10 @@ def main(argv: list[str] | None = None, prog: str = PROG) -> int:
     postersp = sub.add_parser(
         "posters", help="check that every video item's poster is the "
                         "frame at its startSeconds; --fix ships the "
-                        "posters that are not")
+                        "posters that are not",
+        description="Check that every video item's poster is the frame at "
+                    "its startSeconds; --fix ships the posters that are "
+                    "not (docs/extracting.md, \"kinetic-media posters\").")
     postersp.add_argument("game_root", type=Path,
                           help="the root the folder's media was shipped "
                                "from: ledger source paths are relative to "

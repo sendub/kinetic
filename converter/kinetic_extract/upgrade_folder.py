@@ -1,5 +1,5 @@
-"""Upgrade a Kinetic game folder to this clone's player (docs/plan.md
-Phase 51, item 6).
+"""Upgrade a Kinetic game folder to the player this Kinetic carries
+(docs/plan.md Phase 51, item 6).
 
 Usage:
 
@@ -28,7 +28,7 @@ other file in it is the author's content. The upgrade:
 
 - refuses a folder with no `manifest.json`, and a `player/dist/` without
   `index.html` or `app.js`, or whose `app.js` is not stamped with this
-  clone's version (the repo's VERSION; `--version` prints it): run
+  Kinetic's version (the repo's VERSION; `--version` prints it): run
   `npm run build` in `player/` first. A refusal changes nothing;
 - replaces the folder's `index.html` and `app.js` with the ones in
   `player/dist/`. Each is written whole to a hidden temporary file beside
@@ -42,7 +42,7 @@ other file in it is the author's content. The upgrade:
   `player/dist/` by hand, is left alone: the player names no source map,
   so it is never read;
 - replaces `manifest.schema.json`, the schema copy kinetic-extract
-  writes for an author's editor, with this clone's schema when the
+  writes for an author's editor, with this Kinetic's schema when the
   folder has one, and with it `lang.schema.json`, the language files'
   schema copy, when the folder has a language file (or that copy alone
   when only it is there); a folder without either gets none;
@@ -90,6 +90,10 @@ VALIDATE = ("tools/validate_content.py" if paths.CHECKOUT is not None
 BUNDLE_NAMES = ("index.html", "app.js")
 MANIFEST_NAME = "manifest.json"
 TEMP_SUFFIX = ".upgrading"
+# `--help`'s description, true of a checkout and an installed wheel.
+DESCRIPTION = ("Upgrade a Kinetic game folder to the player this Kinetic "
+               "carries (built in player/dist/ in a checkout), then "
+               "validate it.")
 
 
 def refuse(status: int, message: str) -> int:
@@ -105,7 +109,7 @@ def dist_problem() -> str | None:
     built = folder_player_version(DIST)
     if built != kinetic_version():
         return (f"player/dist/app.js is Kinetic {built or 'unknown'}, not "
-                f"this clone's {kinetic_version()}; {REBUILD}")
+                f"this Kinetic's {kinetic_version()}; {REBUILD}")
     return None
 
 
@@ -148,7 +152,7 @@ def replace_player(folder: Path) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog=Path(argv[0]).name,
-        description=__doc__.splitlines()[0], add_help=True)
+        description=DESCRIPTION, add_help=True)
     parser.add_argument("folder", help="game folder to upgrade in place")
     add_version_option(parser)
     args = parser.parse_args(argv[1:])

@@ -56,6 +56,39 @@ def test_each_subcommand_answers_help(name, usage, capsys) -> None:
     assert out.startswith(usage), out[:200]
 
 
+def description_of(out: str) -> str:
+    """The description in a --help: the paragraph after the usage block,
+    its wrapped lines joined."""
+    paragraphs = out.split("\n\n")
+    assert len(paragraphs) > 1, out
+    return " ".join(line.strip() for line in paragraphs[1].splitlines())
+
+
+@pytest.mark.parametrize("argv", [
+    *([name] for name in SUBCOMMANDS),
+    ["media", "ship"], ["media", "rebuild"], ["media", "posters"],
+], ids=" ".join)
+def test_each_description_is_a_whole_sentence(argv, capsys) -> None:
+    code, out = help_of([*argv, "--help"], capsys)
+    assert code == 0
+    description = description_of(out)
+    assert description[:1].isupper(), description
+    assert description.endswith("."), description
+    depth = 0
+    for char in description:
+        depth += {"(": 1, ")": -1}.get(char, 0)
+        assert depth >= 0, description
+    assert depth == 0, description
+
+
+def test_upgrade_describes_a_wheels_player_too(capsys) -> None:
+    """The description names no clone: an installed wheel's player is
+    the one it carries."""
+    code, out = help_of(["upgrade", "--help"], capsys)
+    assert code == 0
+    assert "clone" not in description_of(out), out
+
+
 def test_version(capsys) -> None:
     assert help_of(["--version"], capsys) == (0, f"Kinetic {VERSION}\n")
 
