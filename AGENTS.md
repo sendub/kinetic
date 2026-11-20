@@ -289,10 +289,12 @@ itself (the test-speed rules above), ticks the item with an evidence
 note, then commits and pushes before starting the next item. The
 orchestrator does not implement items inline.
 
-Phase work runs without stopping (the user, 2026-11-20). Once a phase
-is planned, the orchestrator's question is "Start phase?", not "Start
-item 1?". On a yes it works the items in order, one after another,
-until only the phase-closer is left:
+Phase work runs without stopping (the user, 2026-11-20). Planning
+still settles the design questions with the user first, one at a time,
+before the phase is written. Once the phase is planned and committed,
+the orchestrator's question is "Start phase?", not "Start item 1?". On
+a yes it works the items in order, one after another, until only the
+phase-closer is left:
 
 - A question that comes up mid-phase gets the sensible answer at once,
   recorded in the item's evidence note, and the work continues. Leads
