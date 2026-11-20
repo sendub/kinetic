@@ -49,6 +49,7 @@ COMMANDS = (
     "kinetic_extract.report",
     "kinetic_extract.routes",
     "kinetic_extract.export",
+    "kinetic_extract.release_status",
 )
 
 # The default an add_tool parser holds its tool's main under.

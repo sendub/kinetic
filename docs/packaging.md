@@ -133,7 +133,8 @@ made them (its ledger's `mediaTools.platform`; exit 3 elsewhere).
 
 `kinetic --help` lists the subcommands: `setup`, `extract`, `media`
 (`ship`, `rebuild`, `posters`), `validate`, `assemble`, `apps`,
-`upgrade`, `check`, `report`, `routes` and `export`. Each wrapped tool
+`upgrade`, `check`, `report`, `routes`, `export` and
+`release-status`. Each wrapped tool
 takes the arguments, prints the output and exits with the codes of the
 command it stands for (CREATE.md, "Installing Kinetic").
 `kinetic-extract` and `kinetic-media` install beside it, and in a
@@ -158,8 +159,18 @@ puppeteer-core into one ES module, `check/kinetic.mjs`, and check-game
 bundled on top of it, `check/check-game.mjs`, which imports
 `./kinetic.mjs`, so puppeteer-core is in the wheel once, with the WebKit
 driver beside them (`check/kinetic-webkit-driver`, macOS arm64), the
-repo's LICENSE and `apps/host-words.json`, and the two app hosts
-(`apps/macos/kinetic` and `apps/windows/kinetic.exe`). `kinetic check`
+repo's LICENSE and `apps/host-words.json`, the two app hosts
+(`apps/macos/kinetic` and `apps/windows/kinetic.exe`), and the
+release's checklist: `release/progress.md` and `release/CHANGELOG.md`
+(docs/progress.md and CHANGELOG.md) with `release/build.json`, the
+commit the wheel was built from (`git rev-parse HEAD`) and whether the
+tree was clean (both null when git could not say). `kinetic
+release-status [--json]` reads those three: the version, the commit
+(`-dirty` when the tree was not clean), the checked and open boxes in
+that progress.md and the version's CHANGELOG entry, so a gate on a
+finished checklist needs no network; in a checkout it reads the repo's
+files and asks git, and a wheel built before 1.13.0, without them,
+exits 1. `kinetic check`
 runs check-game with the system Node, and a creator's script imports
 the library by the path `kinetic check --library` prints, with no npm
 and no `node_modules`; either needs Node.js at the version

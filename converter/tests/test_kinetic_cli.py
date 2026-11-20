@@ -29,6 +29,7 @@ SUBCOMMANDS = {
     "report": "usage: kinetic report",
     "routes": "usage: kinetic routes",
     "export": "usage: kinetic export",
+    "release-status": "usage: kinetic release-status",
 }
 
 

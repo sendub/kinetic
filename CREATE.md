@@ -30,6 +30,7 @@ job:
 | `kinetic apps` | adds the Mac app and the Windows program to a folder |
 | `kinetic check` | plays a folder with no window and reports what it showed |
 | `kinetic upgrade` | gives a folder this Kinetic's player |
+| `kinetic release-status` | prints this Kinetic's version, the commit it was built from, its checklist's counts and its CHANGELOG entry |
 
 `kinetic --help` lists them, `kinetic <subcommand> --help` gives each
 one's options, and `kinetic --version` prints the version, as `Kinetic
@@ -3640,6 +3641,17 @@ git pull
 cd player && npm ci --cache ../.tmp/npm-cache && npm run build && cd ..
 .venv/bin/kinetic upgrade my-novel
 ```
+
+Before upgrading, `kinetic release-status` tells you which release you
+installed and whether its work was finished, with no network: the
+version, the commit the wheel was built from (with `-dirty` when it
+was built from uncommitted changes), how many items of the release's
+checklist (docs/progress.md, which the wheel carries) are checked and
+how many are open, and the release's CHANGELOG entry. `--json` prints
+the same as one object (`version`, `commit`, `clean`, `checked`,
+`open`, `changelog`, among others), for a script that upgrades only
+when `open` is 0. In a checkout it reads the repo's own files and asks
+git for the commit.
 
 It prints the folder's Kinetic version before and after, and what it
 replaced, then runs the validator on the folder. Upgrading a folder made

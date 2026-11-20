@@ -33,6 +33,9 @@ kinetic_extract/data/:
     apps/host-words.json            apps/host-words.json
     apps/macos/kinetic              the Mac app host (arm64, macOS 12+)
     apps/windows/kinetic.exe        the Windows app host (x86-64)
+    release/progress.md, CHANGELOG.md   docs/progress.md, CHANGELOG.md
+    release/build.json              the commit built from (`git rev-parse
+                                    HEAD`) and whether the tree was clean
 
 and builds `kinetic-<version>-py3-none-any.whl` into DIR (default
 dist/ at the repo root) with `pip wheel --no-deps` and the build backend
@@ -50,6 +53,7 @@ failed, 2 bad arguments.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -60,7 +64,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT / "converter") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "converter"))
-from kinetic_extract import app_hosts  # noqa: E402
+from kinetic_extract import app_hosts, release_status  # noqa: E402
 from kinetic_extract.version import (  # noqa: E402
     add_version_option, folder_player_version, kinetic_version)
 
@@ -79,7 +83,11 @@ DATA_FILES = {
     "schemas/content-schema.json": REPO_ROOT / "docs" / "content-schema.json",
     "schemas/lang.schema.json": REPO_ROOT / "docs" / "lang.schema.json",
     "vendor/SOURCES.md": CONVERTER / "vendor" / "SOURCES.md",
+    # `kinetic release-status` reads these and BUILD_RECORD.
+    "release/progress.md": REPO_ROOT / "docs" / "progress.md",
+    "release/CHANGELOG.md": REPO_ROOT / "CHANGELOG.md",
 }
+BUILD_RECORD = "release/build.json"
 DATA_TREES = {
     "selftest": CONVERTER / "tests" / "data" / "selftest",
     "vendor/unrpyc": CONVERTER / "vendor" / "unrpyc",
@@ -131,6 +139,17 @@ def build_player(node: str, out: Path) -> None:
                          f"not this checkout's {kinetic_version()}")
 
 
+def write_build_record(target: Path) -> None:
+    """The commit the wheel is built from and whether the tree was clean,
+    as JSON; both null, with a warning, when git cannot say."""
+    commit, clean, error = release_status.git_state(REPO_ROOT)
+    if error is not None:
+        print(f"build_wheel: warning: no commit recorded: {error}",
+              file=sys.stderr)
+    target.write_text(json.dumps({"commit": commit, "clean": clean}) + "\n",
+                      encoding="utf-8")
+
+
 def stage_hosts(data: Path) -> None:
     """The two app hosts, built for this checkout (or reused from
     .tmp/app-hosts/), copied into the package data, executable."""
@@ -167,6 +186,7 @@ def stage(work: Path, node: str) -> Path:
         shutil.copyfile(source, data / name)
     for name, source in DATA_TREES.items():
         shutil.copytree(source, data / name, ignore=SKIP)
+    write_build_record(data / BUILD_RECORD)
     built = work / "player-build"
     build_player(node, built)
     (data / "player").mkdir()

@@ -1,6 +1,6 @@
 """tools/build_wheel.py and the `kinetic` command installed from its wheel
 (docs/plan.md Phase 57, items 9 and 10; Phase 58, item 4, the testing
-library). Run with:
+library; item 5, the release's checklist). Run with:
 
     .venv/bin/pytest tools/test_build_wheel.py -q
 
@@ -55,10 +55,12 @@ SUBCOMMANDS = {
     "report": "usage: kinetic report",
     "routes": "usage: kinetic routes",
     "export": "usage: kinetic export",
+    "release-status": "usage: kinetic release-status",
 }
 
 sys.path.insert(0, str(REPO_ROOT / "converter"))
-from kinetic_extract import media_tools, windows_resources  # noqa: E402
+from kinetic_extract import (  # noqa: E402
+    media_tools, paths, release_status, windows_resources)
 
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
@@ -162,7 +164,9 @@ def test_the_wheel_carries_the_package_data(installed: Installed) -> None:
                  "selftest/sample.png", "vendor/unrpyc/unrpyc.py",
                  "player/index.html", "player/app.js",
                  "check/kinetic.mjs", "check/check-game.mjs",
-                 "check/check-game.json", "apps/host-words.json"]:
+                 "check/check-game.json", "apps/host-words.json",
+                 "release/progress.md", "release/CHANGELOG.md",
+                 "release/build.json"]:
         assert f"kinetic_extract/data/{name}" in names, name
     # puppeteer-core once: in the library, which check-game imports.
     with zipfile.ZipFile(installed.wheel) as zf:
@@ -190,13 +194,42 @@ def test_version_and_every_subcommands_help(installed: Installed) -> None:
             0, f"Kinetic {VERSION}\n", ""), command
     proc = installed.run("--help")
     assert proc.returncode == 0, proc.stderr
+    # A long name has its help on the next line.
+    listed = [line.split()[0] for line in proc.stdout.splitlines()
+              if line.startswith("    ") and not line.startswith("     ")]
+    assert listed == list(SUBCOMMANDS)
     for name, usage in SUBCOMMANDS.items():
-        assert f"    {name} " in proc.stdout, name
         sub = installed.run(name, "--help")
         assert sub.returncode == 0, (name, sub.stderr)
         assert sub.stdout.startswith(usage), (name, sub.stdout[:200])
     # Nothing written where they ran, or into the home.
     assert list(installed.cwd.iterdir()) == []
+
+
+def test_release_status_matches_the_checkout(installed: Installed) -> None:
+    """The wheel's checklist, CHANGELOG entry and commit are the
+    checkout's it was built from. The test builds from the working tree,
+    so the build is clean or `-dirty` as the checkout is now."""
+    proc = installed.run("release-status", "--json")
+    assert (proc.returncode, proc.stderr) == (0, ""), proc.stderr
+    found = json.loads(proc.stdout)
+    assert found.pop("source") == "wheel"
+    here, _ = release_status.gather(paths.CHECKOUT, paths.DATA_DIR, VERSION)
+    assert here.pop("source") == "checkout"
+    assert found == here
+    head = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                          capture_output=True, text=True, check=True)
+    assert found["commit"] == head.stdout.strip()
+    assert found["version"] == VERSION
+    progress = (REPO_ROOT / "docs" / "progress.md").read_text(
+        encoding="utf-8")
+    assert (found["checked"], found["open"]) == \
+        release_status.count_boxes(progress)
+    proc = installed.run("release-status")
+    assert proc.returncode == 0, proc.stderr
+    suffix = "" if found["clean"] else "-dirty"
+    assert proc.stdout.splitlines()[:2] == [
+        f"Kinetic {VERSION}", f"commit: {found['commit']}{suffix}"]
 
 
 def test_installed_paths_are_the_package_data_and_the_home(

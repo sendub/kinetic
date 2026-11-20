@@ -5925,8 +5925,30 @@ truthful: an unchecked box means nothing was accepted.
       checkout's WebKit walk): npm test 1882/1882, check clean; creator
       43/43 Chrome, 43/43 WebKit; test_build_wheel, test_check,
       test_paths, test_kinetic_cli 83 passed.)
-- [ ] The release's checklist in the wheel (item 5). progress.md and
+- [x] The release's checklist in the wheel (item 5). progress.md and
       CHANGELOG.md shipped; `kinetic release-status [--json]`.
+      (2026-11-20: build_wheel copies docs/progress.md and CHANGELOG.md
+      to `kinetic_extract/data/release/` with `build.json` (`commit`,
+      `clean` from `git status --porcelain`, untracked files counting,
+      ignored ones not). New `release_status.py`: `kinetic
+      release-status [--json]` prints the version, the commit (`-dirty`
+      when not clean), checked and open `- [ ]`/`- [x]` boxes at line
+      starts, and the CHANGELOG entry for the version; JSON adds
+      `commitError` and `source`. A checkout asks git, which must see
+      the checkout as its top folder (else commit null with a reason);
+      an older wheel missing the files exits 1, bad arguments 2.
+      packaging.md and CREATE.md ("Installing Kinetic", "Upgrading to a
+      newer Kinetic": gate on `open` 0 offline). Subagent's calls: the
+      wheel test compares subcommand names as test_kinetic_cli does,
+      since `release-status` wraps argparse's help column; build_wheel
+      warns and writes nulls when git cannot answer. Tests: 20 in
+      test_release_status.py (boxes, continuation and mid-line `[x]`,
+      entries, clean, dirty, unreadable git, no git, nested repo, wheel
+      data, older wheel, bad arguments); the wheel test matches the
+      installed `--json` to the checkout's, HEAD and the dirty mark.
+      Subagent: release_status and kinetic_cli 57; build_wheel 10.
+      Orchestrator: the three files 67 passed; this checkout prints 391
+      checked and 3 open, as grep counts.)
 - [ ] Docs and package-proof (item 6). AGENTS.md, packaging.md,
       CREATE.md, CHANGELOG; the wheel stage exercises items 3 to 5.
 - [ ] Phase-closer (Phase 58): full suites; VERSION 1.13.0, the
