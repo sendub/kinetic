@@ -33,8 +33,15 @@
 // setup downloads nothing but still runs the self-test; without them it
 // downloads), extract of fixtures/renpy_demo, validate, report, assemble
 // with --mac --windows (--windows alone off macOS), check --steps all, and
-// on macOS the built app's --self-check. Each is a checked step below;
-// the venv, the home and the wheel are removed afterwards.
+// on macOS the built app's --self-check. Then what Phase 58 added
+// (items 3 to 5): release-status --json against this checkout, upgrade
+// --dry-run (with and without --to) writing nothing, upgrade --to making
+// a copy with hard-linked media that validates (and whose Mac app still
+// verifies), and a script under the work folder, with no puppeteer-core
+// in a node_modules above it, importing the path `check --library` prints and opening the
+// assembled game with openGame on Chrome (and WebKit on macOS), then again
+// seeded with the state record the first open saved. Each is a checked
+// step below; the venv, the home and the wheel are removed afterwards.
 //
 // Exit code: 0 when every step passed, 1 otherwise.
 
@@ -43,10 +50,13 @@ import {
   copyFileSync,
   existsSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -386,6 +396,83 @@ function run(program, args, options = {}) {
 const tail = (text, lines = 3) =>
   JSON.stringify(text.split("\n").slice(-lines).join(" | "));
 
+/**
+ * Every entry under `dir` (and `dir` itself) with its size, mtime and
+ * mode, symbolic links not followed: equal snapshots mean nothing in the
+ * folder was written, added or removed.
+ */
+function snapshot(dir) {
+  const lines = [];
+  const walk = (path, rel) => {
+    const st = lstatSync(path);
+    lines.push(`${rel} ${st.size} ${st.mtimeMs} ${st.mode}`);
+    if (!st.isDirectory()) return;
+    for (const name of readdirSync(path).sort()) {
+      walk(join(path, name), `${rel}/${name}`);
+    }
+  };
+  walk(dir, ".");
+  return lines.join("\n");
+}
+
+// A creator's script: it imports the library by the path `kinetic check
+// --library` printed, opens the game on each engine, steps one item and
+// reads the record the player saved, then opens it again seeded with that
+// record; prints what it found as JSON.
+const LIBRARY_SCRIPT = `import { pathToFileURL } from "node:url";
+const [library, folder, ...engines] = process.argv.slice(2);
+const { openGame } = await import(pathToFileURL(library).href);
+const found = {};
+for (const engine of engines) {
+  const first = await openGame(folder, { engine, log: null });
+  let start;
+  let next;
+  let record = null;
+  let errors;
+  try {
+    start = (await first.current()).id;
+    await first.press("Space");
+    next = (
+      await first.waitForItem((c) => c.id !== null && c.id !== start)
+    ).id;
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      record = await first.savedState();
+      if (record?.ctx?.lastShown === next) break;
+      await new Promise((done) => setTimeout(done, 100));
+    }
+    errors = first.errors();
+  } finally {
+    await first.close();
+  }
+  const seeded = await openGame(folder, { engine, savedState: record, log: null });
+  try {
+    found[engine] = {
+      engine: seeded.engine,
+      storageKey: seeded.storageKey,
+      start,
+      next,
+      saved: record?.ctx?.lastShown ?? null,
+      reopened: (await seeded.current()).id,
+      errors: [...errors, ...seeded.errors()],
+    };
+  } finally {
+    await seeded.close();
+  }
+}
+console.log(JSON.stringify(found));
+`;
+
+/** The folders above `dir`, nearest first, up to the root. */
+function ancestors(dir) {
+  const found = [];
+  for (let at = dir; dirname(at) !== at; ) {
+    at = dirname(at);
+    found.push(at);
+  }
+  return found;
+}
+
 function proveWheel() {
   rmSync(WHEEL_ROOT, { recursive: true, force: true });
   const wheelDir = join(WHEEL_ROOT, "wheel");
@@ -586,6 +673,151 @@ function proveWheel() {
         `exit ${done.code}; ${JSON.stringify(report)}`,
       );
     }
+
+    // 8. The release's checklist, as this checkout counts it.
+    const status = k("release-status", "--json");
+    const here = run(
+      join(repoRoot, ".venv", "bin", "kinetic"),
+      ["release-status", "--json"],
+      { cwd: repoRoot },
+    );
+    const head = run("git", ["rev-parse", "HEAD"], { cwd: repoRoot });
+    let got = null;
+    let want = null;
+    try {
+      got = JSON.parse(status.out);
+      want = JSON.parse(here.out);
+    } catch {
+      // got or want stays null: the step fails with the output below.
+    }
+    record(
+      "wheel: kinetic release-status --json names this version, commit and checklist",
+      status.code === 0 &&
+        got?.version === KINETIC_VERSION &&
+        got?.source === "wheel" &&
+        got?.commit === head.out &&
+        got?.checked === want?.checked &&
+        got?.open === want?.open &&
+        got?.changelog === want?.changelog
+        ? "PASS"
+        : "FAIL",
+      `exit ${status.code}; version=${got?.version} source=${got?.source} ` +
+        `commit=${got?.commit} (HEAD ${head.out}) checked=${got?.checked}/` +
+        `${want?.checked} open=${got?.open}/${want?.open}` +
+        (got === null ? `; ${tail(status.out)}` : ""),
+    );
+
+    // 9. A dry run, plain and with --to, writes nothing.
+    const copy = join(cwd, "play-next");
+    const before = snapshot(play);
+    const dry = k("upgrade", play, "--dry-run");
+    const dryTo = k("upgrade", play, "--to", copy, "--dry-run");
+    const leftovers = readdirSync(cwd).filter((n) =>
+      n.startsWith(".play-next."),
+    );
+    const untouched = snapshot(play) === before;
+    record(
+      "wheel: kinetic upgrade --dry-run (and with --to) writes nothing",
+      dry.code === 0 &&
+        dry.out.includes("Dry run: nothing is written.") &&
+        dry.out.includes(`${play}: would replace index.html, app.js`) &&
+        dryTo.code === 0 &&
+        dryTo.out.includes(`${copy}: would be a copy of ${play}`) &&
+        untouched &&
+        !existsSync(copy) &&
+        leftovers.length === 0
+        ? "PASS"
+        : "FAIL",
+      `exits ${dry.code}, ${dryTo.code}; folder unchanged=${untouched}; ` +
+        `copy made=${existsSync(copy)}; hidden=${JSON.stringify(leftovers)}; ` +
+        tail(dryTo.out, 4),
+    );
+
+    // 10. --to makes the copy: media hard-linked, the player copied, the
+    // folder only read, the copy valid (and its Mac app still verifies).
+    const upgraded = k("upgrade", play, "--to", copy);
+    const media = (manifest.items ?? [])
+      .map((item) => item.file)
+      .filter((file) => typeof file === "string");
+    const sameFile = (rel) =>
+      existsSync(join(copy, rel)) &&
+      statSync(join(play, rel)).ino === statSync(join(copy, rel)).ino;
+    const linkedAll = media.length > 0 && media.every(sameFile);
+    const playerCopied =
+      existsSync(join(copy, "app.js")) && !sameFile("app.js");
+    const copyValid = existsSync(copy) ? k("validate", copy) : { code: -1 };
+    const verified = mac
+      ? run("codesign", ["--verify", "--strict", join(copy, `${title}.app`)])
+      : { code: 0, out: "not on this OS" };
+    const stillUntouched = snapshot(play) === before;
+    record(
+      "wheel: kinetic upgrade --to makes a copy with hard-linked media that validates",
+      upgraded.code === 0 &&
+        upgraded.out.includes(`${copy}: a copy of ${play}`) &&
+        linkedAll &&
+        playerCopied &&
+        copyValid.code === 0 &&
+        verified.code === 0 &&
+        stillUntouched
+        ? "PASS"
+        : "FAIL",
+      `exit ${upgraded.code}; ${media.length} item files share inodes=` +
+        `${linkedAll}; app.js copied=${playerCopied}; validate exit ` +
+        `${copyValid.code}; codesign ${mac ? `exit ${verified.code}` : verified.out}; ` +
+        `folder unchanged=${stillUntouched}; ${tail(upgraded.out, 3)}`,
+    );
+
+    // 11. A script outside player/ imports the installed library.
+    const library = k("check", "--library");
+    const libraryPath = library.out.trim();
+    const work = join(cwd, "library-test");
+    mkdirSync(work, { recursive: true });
+    // No node_modules above the script can lend it a puppeteer-core (the
+    // repo root's holds only test caches).
+    const borrowed = [work, ...ancestors(work)].filter((dir) =>
+      existsSync(join(dir, "node_modules", "puppeteer-core")),
+    );
+    const script = join(work, "seeded.mjs");
+    writeFileSync(script, LIBRARY_SCRIPT);
+    const engines = mac ? ["chrome", "webkit"] : ["chrome"];
+    const opened =
+      library.code === 0 && borrowed.length === 0
+        ? run(process.execPath, [script, libraryPath, play, ...engines], {
+            cwd: work,
+            env,
+            timeout: 300000,
+          })
+        : { code: -1, out: "not run" };
+    let found = null;
+    try {
+      found = JSON.parse(opened.out.split("\n").at(-1));
+    } catch {
+      // found stays null: the step fails with the output below.
+    }
+    const storageKey = `story:${manifest.storyId}`;
+    const good = (e) =>
+      found?.[e]?.engine === e &&
+      found[e].storageKey === storageKey &&
+      found[e].next !== null &&
+      found[e].saved === found[e].next &&
+      found[e].reopened === found[e].next &&
+      found[e].errors.length === 0;
+    record(
+      `wheel: a script imports kinetic check --library and opens the game, seeded, on ${engines.join(" and ")}`,
+      library.code === 0 &&
+        libraryPath.endsWith(
+          join("kinetic_extract", "data", "check", "kinetic.mjs"),
+        ) &&
+        libraryPath.startsWith(venv) &&
+        borrowed.length === 0 &&
+        opened.code === 0 &&
+        engines.every(good)
+        ? "PASS"
+        : "FAIL",
+      `library ${libraryPath}; puppeteer-core above=${JSON.stringify(borrowed)}; ` +
+        `exit ${opened.code}; ` +
+        (found === null ? tail(opened.out, 5) : JSON.stringify(found)),
+    );
   } finally {
     rmSync(WHEEL_ROOT, { recursive: true, force: true });
   }

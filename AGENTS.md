@@ -40,9 +40,10 @@ are implementing and docs/stack.md for settled decisions.
   `kinetic`; a venv that still has the old `kinetic-extract` needs
   `.venv/bin/pip uninstall kinetic-extract` before reinstalling):
   subcommands `setup`, `extract`, `media`, `validate`, `assemble`,
-  `apps`, `upgrade`, `check`, `report`, `routes`, `export`, each taking
-  the arguments of the tool it wraps (`kinetic_extract/kinetic_cli.py`,
-  `tool_commands.py`). The old names still work: `kinetic-extract`,
+  `apps`, `upgrade`, `check`, `report`, `routes`, `export`,
+  `release-status`, each taking the arguments of the tool it wraps
+  (`kinetic_extract/kinetic_cli.py`, `tool_commands.py`). The old
+  names still work: `kinetic-extract`,
   `kinetic-media`, and `tools/validate_content.py`,
   `assemble_folder.py`, `upgrade_folder.py`, `setup_media_tools.py` and
   `build_apps.py`, wrappers over the modules in
@@ -51,9 +52,11 @@ are implementing and docs/stack.md for settled decisions.
   always, an installed wheel uses package data and `KINETIC_HOME` or the
   per-user folders (docs/packaging.md, "Installing the tools"). The
   wheel: `.venv/bin/python tools/build_wheel.py [--out DIR]` (fresh
-  player build into a staging folder, check-game bundled with the WebKit
-  driver by `player/scripts/bundle-check.mjs --driver`, the two app
-  hosts; needs Swift and Go; writes
+  player build into a staging folder, the testing library and
+  check-game bundled with the WebKit driver by
+  `player/scripts/bundle-check.mjs --driver`, the two app hosts, the
+  release's progress.md and CHANGELOG.md with its commit; needs Swift
+  and Go; writes
   `dist/kinetic-<version>-py3-none-any.whl`); its test,
   `.venv/bin/pytest tools/test_build_wheel.py -q`, installs it into a
   venv under `.tmp/` and runs the commands outside the repo, `kinetic
@@ -98,8 +101,16 @@ are implementing and docs/stack.md for settled decisions.
   or 3 with `--strict`; 2 bad arguments; `--json` prints problems,
   warnings by kind, per-language coverage and `exitStatus` as one
   object; CREATE.md, "Validating"). Upgrade a game folder's player:
-  `.venv/bin/kinetic upgrade <folder>` after `npm run build` (refuses a
-  stale `player/dist/`; CREATE.md, "Upgrading to a newer Kinetic").
+  `.venv/bin/kinetic upgrade <folder> [--to NEW] [--dry-run]` after
+  `npm run build` (refuses a stale `player/dist/`; `--to NEW` upgrades
+  a new copy on the same volume, media hard-linked, the rest copied, the
+  folder only read; `--dry-run` prints what it would replace and
+  validates the folder as it is, writing nothing; CREATE.md, "Upgrading
+  to a newer Kinetic"). `.venv/bin/kinetic release-status [--json]`
+  prints the version, the commit built from (`-dirty` when not clean),
+  progress.md's checked and open boxes and the version's CHANGELOG
+  entry, from the wheel's copies or a checkout's files and git (exit 0
+  whenever it ran, 1 an older wheel without them, 2 bad arguments).
 - The demo on GitHub Pages (https://sendub.github.io/kinetic/):
   `.venv/bin/python tools/publish_demo.py [--dry-run] [--out DIR]`
   builds the player and fixtures/demo afresh, assembles them into a site
@@ -160,9 +171,21 @@ are implementing and docs/stack.md for settled decisions.
   player/scripts/testing/check-game.mjs`, which takes the same
   arguments), or a script using `openGame` from
   `player/scripts/testing/kinetic.mjs` (`trace: true` and the handle's
-  `trace()` read the same trace; `language: TAG` as `--lang`; CREATE.md,
-  "Testing your game"); never hand-roll puppeteer against
-  `player/node_modules`.
+  `trace()` read the same trace; `language: TAG` as `--lang`;
+  `savedState: RECORD` writes a state record under the story's key
+  before the first load, and the handle's `storageKey` and
+  `savedState()` read the key and the record back; CREATE.md, "Testing
+  your game"); never hand-roll puppeteer against
+  `player/node_modules`. `kinetic check --library` prints the path a
+  script imports (in a checkout that file; in a wheel its bundle,
+  `kinetic_extract/data/check/kinetic.mjs`, puppeteer-core inside), with
+  no Node.
+- `KINETIC_TEST_SYSTEM_LANGUAGES=TAG,...` (test-only,
+  `player/scripts/testing/core.mjs`) makes launched browsers start as
+  on a Mac with those system languages; never set it for a real check.
+  `KINETIC_SCRATCH_DIR` moves the testing library's scratch folder
+  (fresh Chrome profiles, crash dumps; default a checkout's `.tmp/`,
+  else the per-user cache's `check/`; `testing/scratch.mjs`).
 - Report on a game folder for an agent, with no browser:
   `.venv/bin/kinetic report <folder> [--json]` (reading time per route
   by the Timing hold rule, speakers with line counts and look-alike

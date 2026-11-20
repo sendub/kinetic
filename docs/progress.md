@@ -5949,8 +5949,32 @@ truthful: an unchecked box means nothing was accepted.
       Subagent: release_status and kinetic_cli 57; build_wheel 10.
       Orchestrator: the three files 67 passed; this checkout prints 391
       checked and 3 open, as grep counts.)
-- [ ] Docs and package-proof (item 6). AGENTS.md, packaging.md,
+- [x] Docs and package-proof (item 6). AGENTS.md, packaging.md,
       CREATE.md, CHANGELOG; the wheel stage exercises items 3 to 5.
+      (2026-11-20: AGENTS.md Commands gain `release-status`, upgrade's
+      `--to` and `--dry-run`, `savedState`, `storageKey`,
+      `savedState()`, `check --library`, the test-only
+      `KINETIC_TEST_SYSTEM_LANGUAGES` and `KINETIC_SCRATCH_DIR`; the
+      wheel line names the library and the release files.
+      packaging.md: the wheel measured at about 5.0 MB, 92 files, with
+      its parts, and the new proof steps. CHANGELOG 1.13.0-dev: five
+      bullets, no Upgrading bullet. CREATE.md: "Upgrading" said
+      release-status printed the upgrade's lines; now "`kinetic
+      upgrade` prints". package-proof's wheel stage gains four steps:
+      release-status `--json` equal to the checkout's and HEAD;
+      `upgrade --dry-run` (plain and with `--to`) leaves the extract
+      demo unchanged; `upgrade --to` links all 12 media, the copy
+      validates and its Mac app passes `codesign --verify --strict`; a
+      script under `.tmp/` with no puppeteer-core above it imports the
+      `--library` path and opens the demo seeded on Chrome and WebKit.
+      Subagent's calls: `KINETIC_SCRATCH_DIR` listed as a tool override,
+      not test-only; the seed is the record the first open saved, as
+      the extract demo's ids are not fixed. Subagent: package-proof
+      32/32 (a first run failed its own guard on the repo root's cache
+      `node_modules`, narrowed to puppeteer-core); release_version and
+      release_status 27; build_wheel 10; npm test 1882, check clean.
+      Orchestrator: package-proof 32/32 at load 5-13, both engines
+      reopening at line-002 with no errors.)
 - [ ] Phase-closer (Phase 58): full suites; VERSION 1.13.0, the
       CHANGELOG dated, tag v1.13.0, `main` fast-forwarded, the wheel
       attached to the GitHub release, the Pages demo republished.

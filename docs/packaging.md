@@ -218,11 +218,10 @@ and writes `dist/kinetic-<version>-py3-none-any.whl` with `pip wheel`.
 It needs Node and `player/node_modules`, macOS with a Swift toolchain
 (the Mac host and the driver) and Go 1.27 or later (the Windows host):
 the release machine's tools, never an installer's. The wheel is about
-4.85 MB (4.63 MiB, 87 files), of which the Windows host is 7.8 MB, the
-bundled check-game 2.4 MB, the player 1.4 MB, the WebKit driver 0.7 MB
-and the Mac host 0.6 MB before compression (2026-11-17). Since 1.13.0
-that 2.4 MB is the library, `check/kinetic.mjs`, and check-game is
-24 KB beside it. Each release's
+5.0 MB (4.79 MiB, 92 files), of which the Windows host is 7.8 MB, the
+testing library (`check/kinetic.mjs`) 2.4 MB, the player 1.4 MB, the
+WebKit driver 0.7 MB, the Mac host 0.6 MB, `release/progress.md` 0.4
+MB and check-game 24 KB before compression (2026-11-20). Each release's
 closing commit builds the wheel this way and attaches it to the GitHub
 release `vX.Y.Z`, which is where the install line above downloads it
 from.
@@ -391,6 +390,18 @@ so nothing is downloaded but the self-test still runs; without them
 setup downloads), `extract` of `fixtures/renpy_demo`, `validate`,
 `report`, `assemble --mac --windows` (`--windows` alone off macOS),
 `check --steps all`, and on macOS the built app's `--self-check`, whose
-settings must name the game and this version. The venv, the home and
-the wheel are removed afterwards. It needs what `tools/build_wheel.py`
+settings must name the game and this version. Then `release-status
+--json`, whose version, commit, counts and CHANGELOG entry must match
+the checkout's; `upgrade --dry-run`, plain and with `--to`, which must
+leave the assembled folder unchanged (every entry's size, time and
+mode) and make no copy; `upgrade --to`, whose copy must share the
+items' media files' inodes with the folder, hold its own `app.js`,
+validate, and on macOS keep a Mac app `codesign --verify --strict`
+accepts, the folder still unchanged; and a script under the work
+folder, with no puppeteer-core in a `node_modules` above it, that
+imports the path `check --library` prints, opens the game with
+`openGame` on Chrome (and WebKit on macOS), steps one item, and opens
+it again with `savedState` set to the record the player saved, which
+must open at that item with no errors. The venv, the home and the
+wheel are removed afterwards. It needs what `tools/build_wheel.py`
 needs (above).

@@ -3653,9 +3653,10 @@ the same as one object (`version`, `commit`, `clean`, `checked`,
 when `open` is 0. In a checkout it reads the repo's own files and asks
 git for the commit.
 
-It prints the folder's Kinetic version before and after, and what it
-replaced, then runs the validator on the folder. Upgrading a folder made
-before Kinetic 1.8.0, whose player did not record its version:
+`kinetic upgrade` prints the folder's Kinetic version before and
+after, and what it replaced, then runs the validator on the folder.
+Upgrading a folder made before Kinetic 1.8.0, whose player did not
+record its version:
 
 ```text
 Kinetic unknown -> 1.8.0

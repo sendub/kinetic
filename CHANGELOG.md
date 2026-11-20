@@ -19,6 +19,36 @@ something more of an author.
 
 ## 1.13.0-dev
 
+- How a reader gets the player's own words in another language:
+  docs/player.md ("Languages") and CREATE.md ("Translating a game") say
+  where, for the Mac app (System Settings, General, Language & Region,
+  for the whole Mac or the game's app alone), the Windows app (the
+  display language) and a browser (its language). By design no manifest
+  setting pins them to the game's language. A check script that reads
+  the player's words passes `language` to `openGame` (`--lang` to
+  `kinetic check`), so it passes on a machine in any language.
+- Every `kinetic` subcommand's `--help` describes it in a whole
+  sentence, true for an installed Kinetic and a checkout alike.
+- `kinetic upgrade --dry-run` says what an upgrade would replace and
+  validates the folder as it is, writing nothing. `kinetic upgrade
+  <folder> --to NEW` upgrades a copy made at NEW and only reads the
+  folder: its media are hard-linked, so the copy takes almost no space,
+  and everything else is copied, the apps with their signatures intact.
+  Check the copy, then upgrade the delivered folder with the same
+  release, which writes the same player files (CREATE.md, "Upgrading to
+  a newer Kinetic").
+- The testing library comes in the wheel: `kinetic check --library`
+  prints the path a test script imports, with no npm, clone or
+  `node_modules` (CREATE.md, "A test script"). `openGame`'s `savedState`
+  opens the game as for a reader who saved that state record, and the
+  handle's `storageKey` and `savedState()` read the key and the record
+  back.
+- `kinetic release-status [--json]` prints the installed Kinetic's
+  version, the commit it was built from, how many items of its
+  release's checklist are checked and open, and its CHANGELOG entry,
+  with no network. The wheel carries that checklist (docs/progress.md)
+  and CHANGELOG.md.
+
 ## 1.12.0 (2026-11-17)
 
 - Kinetic installs without a checkout: each GitHub release carries a
