@@ -95,7 +95,7 @@ later). `kinetic setup` then fetches the pinned media tools once:
 
 ```sh
 python3 -m venv ~/kinetic-venv
-~/kinetic-venv/bin/pip install https://github.com/sendub/kinetic/releases/download/v1.12.0/kinetic-1.12.0-py3-none-any.whl
+~/kinetic-venv/bin/pip install https://github.com/sendub/kinetic/releases/download/v1.13.0/kinetic-1.13.0-py3-none-any.whl
 ~/kinetic-venv/bin/kinetic setup
 ```
 

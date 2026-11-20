@@ -17,7 +17,7 @@ Taking a new release means replacing a game folder's player (CREATE.md,
 "Upgrading to a newer Kinetic"). Bullets marked **Upgrading:** ask
 something more of an author.
 
-## 1.13.0-dev
+## 1.13.0 (2026-11-20)
 
 - How a reader gets the player's own words in another language:
   docs/player.md ("Languages") and CREATE.md ("Translating a game") say

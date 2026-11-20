@@ -34,7 +34,7 @@ job:
 
 `kinetic --help` lists them, `kinetic <subcommand> --help` gives each
 one's options, and `kinetic --version` prints the version, as `Kinetic
-1.12.0`.
+1.13.0`.
 
 ### From a release
 

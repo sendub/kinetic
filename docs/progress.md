@@ -5980,6 +5980,26 @@ truthful: an unchecked box means nothing was accepted.
       release_status 27; build_wheel 10; npm test 1882, check clean.
       Orchestrator: package-proof 32/32 at load 5-13, both engines
       reopening at line-002 with no errors.)
-- [ ] Phase-closer (Phase 58): full suites; VERSION 1.13.0, the
+- [x] Phase-closer (Phase 58): full suites; VERSION 1.13.0, the
       CHANGELOG dated, tag v1.13.0, `main` fast-forwarded, the wheel
       attached to the GitHub release, the Pages demo republished.
+      (2026-11-20 on 281354c, load 13-44 from another project's Swift
+      builds and a converting agent's Chrome checks: full pytest
+      converter and tools 2077 passed, 1 failed, test_lf_output on
+      build_wheel's new `build.json` writer (item 5b, fixed; 19 passed
+      after); apps/voice 114; Go test and Windows vet clean; npm test
+      1870/1882 with 12 vitest timeouts (5000 ms), then 1882/1882 at
+      load 8-9; check clean; full `npm run verify` 4312/4326 on Chrome,
+      the 14 fails all timeouts (uilanguages waits, audio and
+      videosound sync), then uilanguages, videosound and audio 5491/5494
+      at load 22, and videosound and audio `--jobs=1` 98/98 at load 6;
+      `npm run verify -- --webkit` 6705 pass, 5 partial (the headless
+      fullscreen checks), 0 fail; package-proof 32/32; test_build_wheel
+      and test_lf_output 14 after item 5b. Docs current: README's
+      install line names v1.13.0, CREATE.md's `--version` example
+      1.13.0; no screenshot shows anything this phase changed. VERSION,
+      package.json, its lockfile and pyproject 1.13.0; the CHANGELOG
+      entry dated; tag v1.13.0; `main` fast-forwarded; the wheel built
+      and attached to the GitHub release v1.13.0 with the CHANGELOG
+      entry as notes; the Pages demo republished from the release
+      commit.)
