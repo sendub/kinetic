@@ -4516,6 +4516,11 @@ The orchestrator's choices, within those decisions:
    arguments. Tests: release-status on a synthetic progress.md (checked,
    open, nested lines); the wheel test runs it from the installed wheel
    and matches the counts in the checkout.
+5b. The build record ends lines with LF (the closer's full pytest).
+    `tools/build_wheel.py` writes `build.json` with `write_text` and no
+    `newline="\n"`, which `converter/tests/test_lf_output.py` forbids
+    for every text writer, so a Windows build would write CRLF. Tests:
+    test_lf_output passes; the wheel test unchanged.
 6. Docs and package-proof. AGENTS.md's Commands section (`upgrade
    --to` and `--dry-run`, `check --library`, `release-status`),
    docs/packaging.md (what the wheel carries), CREATE.md as items 1 to

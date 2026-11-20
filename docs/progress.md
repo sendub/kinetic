@@ -5949,6 +5949,11 @@ truthful: an unchecked box means nothing was accepted.
       Subagent: release_status and kinetic_cli 57; build_wheel 10.
       Orchestrator: the three files 67 passed; this checkout prints 391
       checked and 3 open, as grep counts.)
+- [x] The build record ends lines with LF (item 5b, from the closer's
+      full pytest). `build.json` written with `newline="\n"`.
+      (2026-11-20: `write_build_record` passes `newline="\n"`; the LF
+      test flags no other writer. Subagent and orchestrator:
+      test_lf_output and test_release_status 19 passed.)
 - [x] Docs and package-proof (item 6). AGENTS.md, packaging.md,
       CREATE.md, CHANGELOG; the wheel stage exercises items 3 to 5.
       (2026-11-20: AGENTS.md Commands gain `release-status`, upgrade's

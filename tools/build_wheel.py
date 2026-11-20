@@ -147,7 +147,7 @@ def write_build_record(target: Path) -> None:
         print(f"build_wheel: warning: no commit recorded: {error}",
               file=sys.stderr)
     target.write_text(json.dumps({"commit": commit, "clean": clean}) + "\n",
-                      encoding="utf-8")
+                      encoding="utf-8", newline="\n")
 
 
 def stage_hosts(data: Path) -> None:
