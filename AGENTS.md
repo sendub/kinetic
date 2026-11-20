@@ -289,6 +289,23 @@ itself (the test-speed rules above), ticks the item with an evidence
 note, then commits and pushes before starting the next item. The
 orchestrator does not implement items inline.
 
+Phase work runs without stopping (the user, 2026-11-20). Once a phase
+is planned, the orchestrator's question is "Start phase?", not "Start
+item 1?". On a yes it works the items in order, one after another,
+until only the phase-closer is left:
+
+- A question that comes up mid-phase gets the sensible answer at once,
+  recorded in the item's evidence note, and the work continues. Leads
+  become items of the phase, as always.
+- Before the closer, it stops once: it lists every decision it took
+  that way, each with the answer it chose, and asks the user to check
+  a demo of the phase's changes, naming what to try and how. Anything
+  the user changes becomes an item before the closer.
+- After the closer, its report ends with a message for a converting
+  agent working on a Kinetic game, ready to pass on: what changed in
+  the release, what to do to take advantage of it, and any upgrade
+  step. It names no game.
+
 Unscheduled features, requested or maybe, are entries in docs/future.md.
 When the user schedules one, settle its "To settle" list with them, plan
 it as a docs/plan.md phase, and remove its entry.
