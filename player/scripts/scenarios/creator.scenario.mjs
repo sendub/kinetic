@@ -26,6 +26,13 @@
 // mid-walk each give one errors() line, and a page's console.warn is in
 // errors(), on both engines.
 //
+// openGame's `language` pins the player's own words (Phase 58, item 1):
+// with the browser started as on a Mac whose own languages are German
+// (core.mjs TEST_SYSTEM_LANGUAGES, test only), the demo, which has one
+// language, opens with German controls, and with `language: "en"` with
+// English ones, on either engine, so a check that reads the player's
+// words does not depend on the machine's language.
+//
 // The handle's kineticVersion (Phase 51, item 2) is the repo's VERSION on
 // the demo, and null on the older-player copy, whose app.js also lacks the
 // version stamp.
@@ -40,7 +47,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { EN } from "../../src/i18n/en.ts";
+import { LOCALES } from "../../src/i18n/locales.generated.ts";
 import { shownText } from "../../src/machine/texttags.ts";
+import { TEST_SYSTEM_LANGUAGES } from "../testing/core.mjs";
 import { openGame } from "../testing/kinetic.mjs";
 import {
   branch,
@@ -80,6 +90,7 @@ export const parts = [
   startAt,
   symlinkNote,
   failedLoads,
+  controlsLanguage,
 ];
 
 /** A fresh copy of the demo folder at `name` under the scenario root. */
@@ -983,5 +994,68 @@ async function failedLoads({ check }) {
     );
   } finally {
     await game.close();
+  }
+}
+
+// ---- language: the player's words on a German machine ----------------
+
+/** The page's UI language, the reader's languages and the Esc screen's text. */
+const CONTROLS = () => ({
+  lang: document.documentElement.lang,
+  languages: [...navigator.languages],
+  help: document.getElementById("help")?.textContent ?? "",
+});
+
+/** Whether the Esc screen text `help` shows `catalogue`'s heading and Space line. */
+const showsWords = (help, catalogue) =>
+  help.includes(catalogue["help.title"]) &&
+  help.includes(catalogue["keys.advance"]);
+
+async function controlsLanguage({ check }) {
+  const de = LOCALES.de;
+  const before = process.env[TEST_SYSTEM_LANGUAGES];
+  process.env[TEST_SYSTEM_LANGUAGES] = "de";
+  try {
+    const read = async (options) => {
+      const game = await openGame(demoDir, {
+        engine,
+        log: null,
+        closeHelp: false,
+        ...options,
+      });
+      try {
+        const shown = await game.page.evaluate(CONTROLS);
+        return { ...shown, errors: game.errors() };
+      } finally {
+        await game.close();
+      }
+    };
+    const machine = await read({});
+    check(
+      "a browser started as on a German Mac shows the demo's controls in German (the test's German machine works)",
+      machine.lang === "de" &&
+        machine.languages[0]?.startsWith("de") &&
+        showsWords(machine.help, de) &&
+        !showsWords(machine.help, EN),
+      { lang: machine.lang, languages: machine.languages },
+    );
+    const pinned = await read({ language: "en" });
+    check(
+      'openGame\'s language: "en" on the one-language demo gives English controls on that German machine',
+      pinned.lang === "en" &&
+        pinned.languages[0]?.startsWith("en") &&
+        showsWords(pinned.help, EN) &&
+        !showsWords(pinned.help, de),
+      { lang: pinned.lang, languages: pinned.languages },
+    );
+    const errors = [...machine.errors, ...pinned.errors];
+    check(
+      "errors() stayed empty in both opens",
+      errors.length === 0,
+      errors.join(" | "),
+    );
+  } finally {
+    if (before === undefined) delete process.env[TEST_SYSTEM_LANGUAGES];
+    else process.env[TEST_SYSTEM_LANGUAGES] = before;
   }
 }

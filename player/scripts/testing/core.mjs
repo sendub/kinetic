@@ -84,6 +84,26 @@ function withTestAudio(context) {
 }
 
 /**
+ * Test only: the environment variable that makes a launched browser start
+ * as on a Mac whose own preferred languages (System Settings, General,
+ * Language & Region) are the comma-separated tags it holds, whatever this
+ * machine's are, so a test can prove the reader's language does not leak
+ * into a check (docs/plan.md Phase 58, item 1). Both engines get them as
+ * an AppleLanguages argument (the Cocoa argument domain), which
+ * launchBrowser's `languages` overrides as an app's own language
+ * overrides the system's. macOS only; never set it for a real check.
+ */
+export const TEST_SYSTEM_LANGUAGES = "KINETIC_TEST_SYSTEM_LANGUAGES";
+
+/** The tags TEST_SYSTEM_LANGUAGES holds, [] when it is unset or empty. */
+export function testSystemLanguages(env = process.env) {
+  return (env[TEST_SYSTEM_LANGUAGES] ?? "")
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter((tag) => tag !== "");
+}
+
+/**
  * Starts one browser with no window and no sound on `engine` ("chrome" or
  * "webkit": launchChrome; the WebKit driver mutes its page; both give
  * every page the test sound flag, testaudio.mjs).
@@ -96,7 +116,7 @@ function withTestAudio(context) {
  * wanted first) are the reader's languages the page sees as
  * `navigator.languages` (docs/plan.md Phase 56): Chrome's `--lang` and
  * `--accept-lang`, the WebKit driver's AppleLanguages; absent, the
- * system's. Each browser is tracked until
+ * system's (or TEST_SYSTEM_LANGUAGES', in a test). Each browser is tracked until
  * closeBrowser or killBrowser, so killLiveBrowsers can reap it.
  */
 export async function launchBrowser(
@@ -109,12 +129,14 @@ export async function launchBrowser(
     languages,
   },
 ) {
+  const system = testSystemLanguages();
   const launch = async () => {
     if (engine === "webkit") {
       const { launchWebKit } = await import("../webkit/puppet.mjs");
       return launchWebKit({
         ...(profile === null ? {} : { profile }),
         requireGestureForAudio,
+        ...(system.length === 0 ? {} : { systemLanguages: system }),
         ...(languages === undefined ? {} : { languages }),
       });
     }
@@ -132,6 +154,9 @@ export async function launchBrowser(
         // player reads as a window that already fills the screen, and it
         // would never ask for fullscreen (render/fullscreen.ts).
         `--screen-info={${CHROME_SCREEN.width}x${CHROME_SCREEN.height}}`,
+        ...(system.length === 0
+          ? []
+          : ["-AppleLanguages", `(${system.join(", ")})`]),
         ...(languages === undefined || languages.length === 0
           ? []
           : [`--lang=${languages[0]}`, `--accept-lang=${languages.join(",")}`]),

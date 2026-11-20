@@ -37,9 +37,10 @@ from what Kinetic does instead:
   route in turn, shortest first, so a reader sees the whole story
   without choosing.
 - **Many languages, and spoken lines.** One folder holds a game in
-  several languages, and the player's own words come in 39. In the apps,
-  a game whose characters have voices can speak every line, generated on
-  the reader's computer.
+  several languages, and the player's own words come in 39, following
+  the reader's system language ([Languages](docs/player.md#languages)).
+  In the apps, a game whose characters have voices can speak every line,
+  generated on the reader's computer.
 - **A conversion you can check without watching.** `kinetic extract`
   reads a Ren'Py game as Ren'Py runs it (`.rpy`, compiled `.rpyc`,
   `.rpa` archives) and keeps its speaker colours, dissolves, fades, text

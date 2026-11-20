@@ -209,7 +209,7 @@ describe("launchWebKit", () => {
     await browser.close();
   });
 
-  it("hands the driver a profile folder to keep its storage in, and the gesture-for-audio switch", async () => {
+  it("hands the driver a profile folder to keep its storage in, the gesture-for-audio switch and the languages", async () => {
     // The ready line echoes the arguments the stand-in was started with.
     const command = [
       process.execPath,
@@ -235,6 +235,20 @@ describe("launchWebKit", () => {
     });
     expect(gesture.ready.argv).toEqual(["--require-gesture-for-audio"]);
     await gesture.close();
+    // The reader's languages as AppleLanguages; a test's stand-in system
+    // languages come first, so the reader's, the later argument, win.
+    const languages = await launchWebKit({
+      command,
+      systemLanguages: ["de"],
+      languages: ["en", "fr"],
+    });
+    expect(languages.ready.argv).toEqual([
+      "-AppleLanguages",
+      "(de)",
+      "-AppleLanguages",
+      "(en, fr)",
+    ]);
+    await languages.close();
   });
 
   it("starts the driver with extra environment (the voice host's test overrides) and asks for the voice host", async () => {

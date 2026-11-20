@@ -491,7 +491,10 @@ class Page {
  * `languages` (BCP 47 tags, most wanted first) are the reader's languages
  * the page sees as `navigator.languages`: the driver starts with them as
  * its AppleLanguages (the argument domain), which WebKit hands its web
- * content. `env` adds variables to the driver's environment (the voice host's test
+ * content. `systemLanguages` (test only, the same form) stand in for the
+ * Mac's own preferred languages (System Settings, Language & Region): an
+ * earlier AppleLanguages argument, which `languages` overrides as an app's
+ * own language overrides the system's. `env` adds variables to the driver's environment (the voice host's test
  * overrides, KINETIC_VOICE_DIR and the rest: apps/README.md).
  * Its page gets the test sound flag before anything loads (testaudio.mjs).
  * Throws, with the driver killed, when the driver cannot start, would show
@@ -502,6 +505,9 @@ export async function launchWebKit(options = {}) {
   const [file, ...args] = options.command ?? [ensureDriver()];
   if (options.profile) args.push(`--profile=${options.profile}`);
   if (options.requireGestureForAudio) args.push("--require-gesture-for-audio");
+  if (options.systemLanguages?.length > 0) {
+    args.push("-AppleLanguages", `(${options.systemLanguages.join(", ")})`);
+  }
   if (options.languages?.length > 0) {
     args.push("-AppleLanguages", `(${options.languages.join(", ")})`);
   }

@@ -5814,10 +5814,32 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 58: A wheel an agent can check with (2026-11-20, converting agent)
 
-- [ ] The controls' language, documented (docs/plan.md Phase 58, item
+- [x] The controls' language, documented (docs/plan.md Phase 58, item
       1). How a reader changes it per platform; no manifest setting;
       check scripts pin their words with `language`, proved on Chrome
       and WebKit.
+      (2026-11-20: docs/player.md "Languages" lists how to change the
+      player's words on the Mac app (Language & Region, whole Mac or the
+      app alone), the Windows app (display language, sign-out) and a
+      browser; CREATE.md "Translating a game" says no manifest setting
+      pins them, by design, and that a check reading the player's words
+      passes `language` (`--lang`); "Testing your game" says
+      `language: "en"` gives English controls on a German Mac; README's
+      languages line links to docs/player.md. The library needed no fix.
+      Subagent's calls: the test is a `controlsLanguage` part of the
+      creator scenario (kinetic.test.mjs is browserless); the German
+      machine is a test-only `KINETIC_TEST_SYSTEM_LANGUAGES` in core.mjs,
+      passed to Chrome and the WebKit driver as an earlier
+      `-AppleLanguages` argument (macOS only; a fake home folder had no
+      effect). The part opens the demo twice: without `language` the
+      page and Esc screen are German, with `language: "en"` English, no
+      errors; it failed on both engines with openGame's language
+      passing removed. puppet.test.mjs checks the argument order.
+      Subagent: npm test 1869 (mapmodel's timing test failed once at
+      load 18, passed on rerun); check clean; creator 36/36 Chrome and
+      WebKit. Orchestrator, load 12-18 from item 3's agent: npm test
+      1868/1869 with the same mapmodel timing test failing, 86/86 on
+      rerun; check clean; creator 36/36 Chrome, 36/36 WebKit.)
 - [x] Whole help texts (item 2). Every subcommand's `--help`
       description a whole sentence, true for a checkout and a wheel.
       (2026-11-20: upgrade and assemble take a `DESCRIPTION` constant in

@@ -2148,7 +2148,19 @@ contributors, with the translator tools.
   Language control changes the story only, never the controls: a reader
   who picks the game's original English under a Chinese system keeps
   Chinese controls. So a reader whose game has one language still gets
-  the controls in their own.
+  the controls in their own. No manifest setting pins the controls to
+  the game's language, by design: a reader changes them where they
+  change every program's language. On a Mac that is System Settings,
+  General, Language & Region, for the whole Mac or for the game's app
+  alone (above); on Windows, the Windows display language, since the
+  exe has no setting of its own; in a browser, the browser's preferred
+  languages (docs/player.md, "Languages").
+- **Checks that read the player's words** follow the language of the
+  machine they run on unless they pin it. A script that reads the
+  controls passes `language` to `openGame` (or `--lang` to `kinetic
+  check`), which opens the game as for a reader whose system language
+  that is, so the controls are in that language (or English, when
+  Kinetic lacks it) on any machine (Testing your game).
 - **Right to left.** Under an Arabic, Persian, Hebrew or Urdu system
   language the screens mirror: the text, choices, Esc screen, help, end
   card and pills read from the right, and sliders run from the right.
@@ -3351,12 +3363,15 @@ as a folder, exits 2 before any browser starts.
 - `language`: a game language tag, the manifest's `language` or one of
   its `languages` (Translating a game). The game opens showing it, as
   for a reader whose system language it is, and the player's own words
-  follow it where Kinetic has them in that language. A tag the game does
-  not offer throws before the browser starts; a game that opens in
-  another language throws once it has opened (its language file did not
-  load, the `profile` holds the reader's other pick, or the player is
-  older than translations). The game's `language` is the tag, or `null`
-  without the option.
+  follow it where Kinetic has them in that language. That holds on a
+  game with one language too, and whatever languages the machine running
+  the test has, so a check that reads the controls gives the same words
+  everywhere: `language: "en"` gives English controls on a German Mac. A
+  tag the game does not offer throws before the browser starts; a game
+  that opens in another language throws once it has opened (its language
+  file did not load, the `profile` holds the reader's other pick, or the
+  player is older than translations). The game's `language` is the tag,
+  or `null` without the option.
 - `mediaChecks`: `false` loads no media file off the page to check it,
   as check-game's `--no-media-check` does: `errors()` then lists only
   the failed loads the page's own elements report, and `checkMedia()`

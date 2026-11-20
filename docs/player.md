@@ -388,13 +388,29 @@ any moment, keeping your place, picks and bookmarks. A line not yet
 translated shows in the original.
 
 The player's own words (the Esc screen and its notes, pills,
-confirmation boxes, choice hints, the end card and the branch map) come
-in 39 languages and follow your system language when it is one of them;
-the Language control changes the story only. Under Arabic, Persian,
-Hebrew and Urdu the screens read right to left. The 38 besides English
-are unreviewed drafts; corrections are welcome (docs/verify-player.md,
-"The player's words"). Authors and translators: CREATE.md, "Translating
-a game".
+confirmation boxes, choice hints, the end card, the branch map and the
+Mac app's menus) come in 39 languages and follow your system language
+when it is one of them, else English. The Language control changes the
+story only, and a game cannot set them. Under Arabic, Persian, Hebrew
+and Urdu the screens read right to left. The 38 besides English are
+unreviewed drafts; corrections are welcome (docs/verify-player.md, "The
+player's words"). Authors and translators: CREATE.md, "Translating a
+game".
+
+To have the player's words in another language, change the language
+your computer, app or browser asks for, then reopen the game:
+
+- **Mac app:** System Settings, General, Language & Region. Put the
+  language first under Preferred Languages for the whole Mac, or under
+  Applications click + and pick the game's app and a language for it
+  alone.
+- **Windows app:** the Windows display language (Settings, Time &
+  language, Language & region), which needs a sign-out to take effect.
+  The exe has no language setting of its own.
+- **Browser:** the browser's preferred languages, most wanted first
+  (Chrome and Edge: Settings, Languages; Firefox: Settings, General,
+  Language). Safari follows the Mac's languages, or its own entry under
+  Applications as for the Mac app.
 
 ## Keys the player leaves alone
 
