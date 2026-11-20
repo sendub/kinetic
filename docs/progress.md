@@ -5811,3 +5811,24 @@ truthful: an unchecked box means nothing was accepted.
       v1.12.0; `main` fast-forwarded; the wheel built and attached to
       the GitHub release v1.12.0 with the CHANGELOG entry as notes; the
       Pages demo republished from the release commit.)
+
+## Phase 58: A wheel an agent can check with (2026-11-20, converting agent)
+
+- [ ] The controls' language, documented (docs/plan.md Phase 58, item
+      1). How a reader changes it per platform; no manifest setting;
+      check scripts pin their words with `language`, proved on Chrome
+      and WebKit.
+- [ ] Whole help texts (item 2). Every subcommand's `--help`
+      description a whole sentence, true for a checkout and a wheel.
+- [ ] Upgrade a copy, or preview (item 3). `kinetic upgrade --to NEW`
+      (media hard-linked, the folder only read) and `--dry-run`.
+- [ ] The testing library in the wheel (item 4). One bundled module,
+      `kinetic check --library` printing its path, `openGame`'s
+      `savedState`, the handle's `storageKey` and `savedState()`.
+- [ ] The release's checklist in the wheel (item 5). progress.md and
+      CHANGELOG.md shipped; `kinetic release-status [--json]`.
+- [ ] Docs and package-proof (item 6). AGENTS.md, packaging.md,
+      CREATE.md, CHANGELOG; the wheel stage exercises items 3 to 5.
+- [ ] Phase-closer (Phase 58): full suites; VERSION 1.13.0, the
+      CHANGELOG dated, tag v1.13.0, `main` fast-forwarded, the wheel
+      attached to the GitHub release, the Pages demo republished.

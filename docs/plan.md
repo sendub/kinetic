@@ -4396,6 +4396,141 @@ Sequencing: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 ->
 12, serial. Items 5 to 7 need only item 1, and item 8 needs nothing
 before it, so either may move earlier if the player items stall.
 
+## Phase 58: A wheel an agent can check with (2026-11-20, converting agent)
+
+A converting agent tried 1.12.0 installed from the release wheel alone
+(request of 2026-11-19, kept in their own workspace). Setup, upgrade,
+check on WebKit, apps, media rebuild, report, routes, export and the
+strict validator all worked without a checkout. Four gaps still send
+them to a clone or to GitHub, and they asked for a way to pin the
+player's controls to the game's language.
+
+The user's decisions (2026-11-20):
+
+- **No controls-language setting.** The player's own words keep
+  following the reader's system (or app, or browser) language, as
+  Phase 56 item 7c decided; a game cannot pin them, by manifest field
+  or by its `language`. The docs say how a reader changes them: in the
+  operating system's settings.
+- **The testing library ships in the wheel.** `kinetic.mjs` and what
+  it imports, puppeteer-core and the prebuilt WebKit driver included,
+  as one importable file whose path `kinetic check --library` prints.
+  `openGame` gains a seeded start, so a test script needs no
+  puppeteer-core of its own. No bare puppeteer-core is shipped: the
+  handle's `page` gives the same reach.
+- **`kinetic upgrade` gains `--to NEW` and `--dry-run`.** `--to`
+  upgrades a copy (media hard-linked, the rest copied) and only reads
+  the folder; `--dry-run` writes nothing.
+
+The orchestrator's choices, within those decisions:
+
+- **The release's checklist travels with it.** The wheel carries
+  `docs/progress.md` and `CHANGELOG.md`, and `kinetic release-status
+  [--json]` prints the version, the commit the wheel was built from and
+  the checked and open item counts, so the agent's upgrade gate needs
+  no network or `gh`.
+- **A test script's words are pinned by the test, not the game.** A
+  check that reads the player's words passes `openGame`'s `language`
+  (check-game's `--lang`), which already opens the game as for a reader
+  whose system language that is, so it passes on any machine. Item 1
+  proves that on both engines and documents it.
+- **Version.** New commands and options, no manifest change: the phase
+  closes as the minor 1.13.0; `schemaVersion` stays 1.
+
+1. The controls' language, documented (request a). docs/player.md
+   ("Languages") and CREATE.md ("Translating a game") say, for each
+   platform, how a reader gets the controls in another language: macOS
+   System Settings, General, Language & Region, for the whole Mac or
+   for the game's app alone; Windows' display language (the exe has no
+   setting of its own); the browser's language for a folder played in
+   a browser. CREATE.md says no manifest setting pins the controls, by
+   design, and that a check script reading the player's words passes
+   `language` to `openGame` (or `--lang` to `kinetic check`) so it does
+   not depend on the machine's language. README.md's languages line
+   points to docs/player.md if it needs to. Tests: a testing-library
+   test that `language: "en"` on a folder with one language gives
+   English controls while the browser's own languages are German, on
+   Chrome and WebKit; if it does not, the library is fixed, not the
+   docs.
+2. Whole help texts (request e). `kinetic upgrade --help` and `kinetic
+   assemble --help` take the docstring's first line as their
+   description, so they stop mid-sentence, and upgrade's says "this
+   clone's player", which is wrong for an installed wheel. Every
+   subcommand's description is a whole sentence true for a checkout and
+   a wheel alike. Tests: a test over every `kinetic` subcommand (and
+   `media`'s) that its description ends a sentence and its parentheses
+   balance; the wheel test's `--help` runs unchanged.
+3. Upgrade a copy, or preview (request d). `kinetic upgrade <folder>
+   --to NEW` refuses an existing `NEW`, a `NEW` inside the folder or the
+   folder inside `NEW`, and a `NEW` on another volume than the folder
+   (hard links cannot cross; it says so and writes nothing). It builds
+   the copy in a hidden temporary folder beside `NEW` and renames it to
+   `NEW` only when complete: every media file the manifest and its
+   language files name (pictures, videos, posters, sound and voice
+   tracks with their scripts) hard-linked, every other file copied
+   (language files and the manifest included), the apps
+   with their symbolic links and modes so their signatures still
+   verify. It then upgrades and validates `NEW` as a plain upgrade
+   does, with the same output and exit status; the folder is only read.
+   `--dry-run`, with or without `--to`, prints the version change and
+   the files it would replace (and, with `--to`, how many files it
+   would link and copy), runs the validator on the folder as it is, and
+   writes nothing. CREATE.md's "Upgrading to a newer Kinetic" gives the
+   staged workflow: `--dry-run` on the delivered folder, `--to` a
+   copy, check the copy, then a plain `kinetic upgrade` from the same
+   release on the delivered folder, which writes byte-identical player
+   files. Tests: `--to` on a synthetic folder (links share inodes with
+   the source, other files are copies, the source unchanged byte for
+   byte and by mtime, `NEW` validates); each refusal writes nothing; an
+   interrupted copy leaves no `NEW`; a copied Mac app passes `codesign
+   --verify` (macOS only); `--dry-run` writes nothing and its output.
+4. The testing library in the wheel (request b). The wheel carries the
+   testing library as one importable ES module, built by
+   `player/scripts/bundle-check.mjs` with the swaps check-game's bundle
+   makes (the prebuilt driver, the version built in, `require` from the
+   bundle's URL), with scratch profiles in the per-user folders
+   (docs/packaging.md, `KINETIC_HOME`) instead of a checkout's
+   `.tmp/`, and puppeteer-core in the wheel once (check-game built on
+   the library or sharing its chunk). `kinetic check --library` prints
+   the module's absolute path, and in a checkout the path of
+   `player/scripts/testing/kinetic.mjs`. `openGame` gains `savedState`:
+   a state record (the shape `src/storage/idb.ts` keeps) written under
+   the story's storage key before the player reads storage, on either
+   engine, so the game opens as for a reader who saved it. The handle
+   gains `storageKey` and `savedState()`, which reads the whole record
+   (null when none). CREATE.md's "Testing your game" shows a script
+   that imports the path `--library` prints. Tests: library tests for
+   `savedState` (opens at the seeded place, routes and bookmarks
+   carried over) on Chrome and WebKit; the wheel test imports the
+   printed path from a script outside the repo, with no
+   `player/node_modules`, and runs `openGame` on the demo in Chrome
+   (and WebKit on macOS), seeded once.
+5. The release's checklist in the wheel (request c). `tools/
+   build_wheel.py` copies `docs/progress.md` and `CHANGELOG.md` into
+   the wheel and records the commit it was built from and whether the
+   tree was clean. `kinetic release-status [--json]` prints the
+   version, that commit (with `-dirty` when it was not clean), the
+   counts of checked and open items in that progress.md, and the
+   CHANGELOG's entry for the version; in a checkout it reads the repo's
+   files and `git rev-parse HEAD`. Exit 0 whenever it ran, 2 for bad
+   arguments. Tests: release-status on a synthetic progress.md (checked,
+   open, nested lines); the wheel test runs it from the installed wheel
+   and matches the counts in the checkout.
+6. Docs and package-proof. AGENTS.md's Commands section (`upgrade
+   --to` and `--dry-run`, `check --library`, `release-status`),
+   docs/packaging.md (what the wheel carries), CREATE.md as items 1 to
+   5 left it, and CHANGELOG bullets. package-proof's wheel stage gains
+   `release-status --json`, `upgrade --dry-run` and `--to` on the
+   extract demo, and a script importing the library from the installed
+   wheel. Tests: package-proof.
+7. Phase-closer: full suites; VERSION 1.13.0, the CHANGELOG dated, tag
+   v1.13.0, `main` fast-forwarded, the wheel attached to the GitHub
+   release, the Pages demo republished.
+
+Sequencing: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7, serial. Items 2, 3 and 5
+touch only the Python tools and item 4 only the testing library and
+the wheel build, so they need not wait on one another if one stalls.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
