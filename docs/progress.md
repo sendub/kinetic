@@ -5857,8 +5857,36 @@ truthful: an unchecked box means nothing was accepted.
       207 passed, 1 skipped. Orchestrator: test_kinetic_cli,
       upgrade_folder, assemble_folder, report, routes, export 136
       passed, 1 skipped; `kinetic upgrade --help` reads whole.)
-- [ ] Upgrade a copy, or preview (item 3). `kinetic upgrade --to NEW`
+- [x] Upgrade a copy, or preview (item 3). `kinetic upgrade --to NEW`
       (media hard-linked, the folder only read) and `--dry-run`.
+      (2026-11-20: `--to NEW` hard-links the media the manifest and its
+      listed language files name (`report.media_files`, referenced files
+      less the language files) and copies everything else with
+      `copy2`, symbolic links recreated; it builds in a hidden
+      `.NEW.<random>.upgrading` beside NEW, upgrades there and renames
+      to NEW last, removing the hidden folder on any exception or
+      Ctrl-C. `--dry-run` prints "Dry run: nothing is written.", the
+      would-copy counts, the version line and the files it would
+      replace, then validates the folder as it is. Docstring and
+      CREATE.md "Upgrading to a newer Kinetic" give the staged workflow
+      and the shared-storage warning. Subagent's calls: every problem
+      with NEW (the folder itself, inside it, containing it, existing,
+      a missing parent, another volume) exits 2 before the exit-1
+      refusals; an unreadable manifest with `--to` refuses rather than
+      copy everything unlinked; index.html, app.js, schema copies and
+      the manifest files are never linked; a fifo or socket fails the
+      copy; SIGKILL can leave the hidden folder, documented as safe to
+      delete. Tests: 31 new in test_upgrade_folder.py (inodes, copies,
+      source unchanged by bytes, mode and mtime, 9 refusals with and
+      without dry run leaving the tree unchanged, injected failures and
+      KeyboardInterrupt, an ad hoc signed app passing `codesign --verify
+      --strict` after the copy, dry-run output), 30 failing before the
+      code. Subagent: test_upgrade_folder and test_kinetic_cli 93
+      passed; test_report 34; a real app and exe built by `kinetic apps`
+      copied by `--to` (app verifies, exe identical). Orchestrator: the
+      same three files 127 passed; on a demo copy `--dry-run` wrote
+      nothing, `--to` linked 28 media (same inode, 2 links), its app.js
+      equals player/dist's, and a second `--to` exits 2.)
 - [ ] The testing library in the wheel (item 4). One bundled module,
       `kinetic check --library` printing its path, `openGame`'s
       `savedState`, the handle's `storageKey` and `savedState()`.

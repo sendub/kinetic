@@ -663,6 +663,17 @@ def referenced_files(folder: Path, manifest: dict[str, Any],
     return refs
 
 
+def media_files(folder: Path, manifest: dict[str, Any]) -> set[str]:
+    """The media files (pictures, videos, posters, sound and voice tracks
+    with their scripts) the manifest and its listed language files
+    reference: referenced_files without the language files themselves."""
+    listed = {path for tag in _listed_languages(manifest)
+              for path in (language_file.json_path(tag),
+                           language_file.script_path(tag))}
+    return referenced_files(folder, manifest,
+                            _language_files(folder, manifest)) - listed
+
+
 def _own_top_file(name: str) -> bool:
     lowered = name.lower()
     return name in OWN_FILES or lowered.endswith(".exe") \

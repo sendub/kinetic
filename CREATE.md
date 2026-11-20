@@ -3574,7 +3574,7 @@ checkout's current version, as after a `git pull` without `npm run
 build`:
 
 ```text
-upgrade_folder: player/dist/app.js is Kinetic 1.7.0, not this clone's 1.8.0; run npm run build in player/
+upgrade_folder: player/dist/app.js is Kinetic 1.7.0, not this Kinetic's 1.8.0; run npm run build in player/
 ```
 
 The validator then checks the folder against the newer rules, printing
@@ -3592,7 +3592,70 @@ upgrade_folder: my-novel is upgraded, but the validator reports problems (above)
 The exit status is 0 when the folder is upgraded and the validator
 passes (its warnings do not change that), 1 for a refusal, a file it
 cannot write or validator problems, and 2 when the folder is not a
-directory or the arguments are wrong.
+directory, the arguments are wrong or `--to` names a place it cannot
+use (below).
+
+To see what an upgrade would do first, add `--dry-run`. It refuses as
+the upgrade would, prints what it would replace and runs the validator
+on the folder as it is, with its old player, writing nothing anywhere;
+its exit status is the validator's:
+
+```text
+Dry run: nothing is written.
+Kinetic 1.12.0 -> 1.13.0
+my-novel: would replace index.html, app.js
+```
+
+A big delivered folder you want to check before changing it can be
+upgraded as a copy first. `--to NEW` makes the new folder NEW, a copy
+of the folder with the new player, and only reads the folder. Each
+media file the manifest and its language files name (pictures,
+animation frames, videos, posters, sound and voice tracks with their
+scripts) is hard-linked rather than copied, so the copy takes almost
+no space and is made in seconds even with tens of thousands of files.
+Everything else is copied: `manifest.json`, `manifest.js`, the
+language files, extras, files nothing names and the apps, with their
+permissions and symbolic links, so a Mac app's signature still
+verifies. A symbolic link in the folder comes over as the same link.
+The staged workflow:
+
+```sh
+kinetic upgrade my-novel --dry-run
+kinetic upgrade my-novel --to my-novel-next
+kinetic check my-novel-next --steps all    # and your other checks
+kinetic upgrade my-novel
+```
+
+The last step upgrades the delivered folder in place with the same
+release, which writes the same player files byte for byte as the copy
+got, so what you checked is what you ship. Then delete the copy;
+deleting it leaves the original's media in place. `--to` prints one
+line before the usual ones, then validates the copy, with the same
+exit status as a plain upgrade:
+
+```text
+my-novel-next: a copy of my-novel, 4210 media files hard-linked and 12 other files copied
+Kinetic 1.12.0 -> 1.13.0
+my-novel-next: replaced index.html, app.js
+```
+
+With `--dry-run` that line reads `my-novel-next: would be a copy of
+...`, and the last says `would replace`.
+
+`--to` refuses, writing nothing, with exit status 2: a NEW that
+already exists, a NEW inside the folder or holding it, a NEW whose
+parent folder does not exist, and a NEW on another volume (disk) than
+the folder, since hard links cannot cross volumes. It builds the copy
+in a hidden folder beside NEW (`.my-novel-next.<random>.upgrading`)
+and renames it to NEW only when the copy is complete and upgraded, so
+a failure, such as a full disk, or Ctrl-C leaves no NEW. Only a process
+killed outright can leave that hidden folder behind; delete it.
+
+The copy's media share storage with the original's: a media file
+edited in place in the copy, say by an image editor saving over it,
+changes in the original too. To change one in the copy alone, delete
+it there first and write the new file in its place. The upgrade itself
+never writes a media file.
 
 If you copy the player by hand instead, in a checkout, copy only
 `index.html` and `app.js` from `player/dist/`: its `manifest.js` is an

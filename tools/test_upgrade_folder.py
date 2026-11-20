@@ -385,3 +385,364 @@ def test_a_translated_folder_keeps_its_languages_byte_for_byte(
     out = capsys.readouterr()
     assert out.out.splitlines()[1] == \
         f"{folder}: replaced index.html, app.js"
+
+
+# --- --to NEW and --dry-run (docs/plan.md Phase 58, item 3) ---------------
+
+MEDIA = {"media/first.png", "media/clip.mp4", "media/clip.poster.jpg",
+         "media/rain.m4a", "media/rain.m4a.js", "lang/de/lines/first.m4a",
+         "lang/de/lines/first.m4a.js"}
+COPIED = {"manifest.json", "manifest.js", "lang/de.json", "lang/de.js",
+          "README.txt", "media/unused.png", ".hidden-note", COPY_NAME,
+          LANG_COPY_NAME, "index.html", "app.js", "My Novel.exe"}
+
+
+def rich_game(tmp_path: Path) -> Path:
+    """A folder with every kind of file --to treats: pictures, a video and
+    its poster, a sound track and its script, a language file with a
+    recorded line, schema copies, extras, a symbolic link, a file nothing
+    names and the apps (a stand-in exe; the Mac app comes in its own
+    test)."""
+    from kinetic_extract import audio_format, language_file
+    folder = game(tmp_path, {
+        "schemaVersion": 1, "storyId": "upgrade-test", "width": 64,
+        "height": 36, "languages": ["de"],
+        "items": [
+            {"id": "first", "type": "image", "file": "media/first.png",
+             "text": "Hello.", "audio": {"music": "rain"}},
+            {"id": "clip", "type": "video", "file": "media/clip.mp4",
+             "poster": "media/clip.poster.jpg", "durationSeconds": 1.0}],
+        "audio": {"tracks": {"rain": {"file": "media/rain.m4a",
+                                      "durationSeconds": 1.0}}}})
+    media = folder / "media"
+    (media / "clip.mp4").write_bytes(b"mp4 stand-in")
+    (media / "clip.poster.jpg").write_bytes(b"jpg stand-in")
+    (media / "rain.m4a").write_bytes(b"sound stand-in")
+    audio_format.write_script(folder, "media/rain.m4a")
+    (media / "unused.png").write_bytes(b"nothing names this")
+    lines = language_file.voice_lines_dir("de")
+    (folder / lines).mkdir(parents=True)
+    line = f"{lines}/first.m4a"
+    (folder / line).write_bytes(b"German line stand-in")
+    audio_format.write_script(folder, line)
+    language_file.write_language_file(folder, {
+        "language": "de", "name": "Deutsch",
+        "items": {"first": {"text": "Hallo.",
+                            "from": language_file.base_hash("Hello.")}},
+        "voice": {"tracks": {"de-first": {"file": line,
+                                          "durationSeconds": 1.0}},
+                  "items": {"first": "de-first"}}})
+    (folder / COPY_NAME).write_text('{"old": "schema"}\n')
+    (folder / LANG_COPY_NAME).write_text('{"old": "lang schema"}\n')
+    (folder / "README.txt").write_text("extras")
+    (folder / ".hidden-note").write_text("a dotfile")
+    (folder / "My Novel.exe").write_bytes(b"MZ stand-in")
+    (folder / "My Novel.exe").chmod(0o755)
+    os.symlink("media/first.png", folder / "cover.png")
+    return folder
+
+
+def tree(root: Path) -> dict[str, tuple]:
+    """Everything under root (root's own mtime included, as ""): kind,
+    bytes or link target, mode and mtime, so a test sees any write."""
+    out: dict[str, tuple] = {}
+    for path in [root, *sorted(root.rglob("*"))]:
+        info = path.lstat()
+        rel = "" if path == root else path.relative_to(root).as_posix()
+        if path.is_symlink():
+            body: object = ("link", os.readlink(path))
+        elif path.is_dir():
+            body = ("dir",)
+        else:
+            body = ("file", path.read_bytes())
+        out[rel] = (body, info.st_mode, info.st_mtime_ns)
+    return out
+
+
+def leftovers(parent: Path) -> list[str]:
+    """Hidden temporary folders --to may have left in parent."""
+    return sorted(p.name for p in parent.iterdir()
+                  if p.name.endswith(".upgrading"))
+
+
+def test_to_upgrades_a_linked_copy_and_only_reads_the_folder(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    folder = rich_game(tmp_path)
+    before = tree(folder)
+    new = tmp_path / "staged" / "my-novel-new"
+    new.parent.mkdir()
+    assert run(str(folder), "--to", str(new)) == 0
+    # The folder: byte for byte, mode and mtime, directories included.
+    assert tree(folder) == before
+    assert (folder / "app.js").read_bytes() == OLD_APP
+    for rel in MEDIA:
+        source, copy = (folder / rel).stat(), (new / rel).stat()
+        assert (copy.st_ino, copy.st_dev) == (source.st_ino, source.st_dev), \
+            rel
+    for rel in COPIED:
+        assert (new / rel).stat().st_ino != (folder / rel).stat().st_ino, rel
+    for rel in COPIED - PLAYER - {COPY_NAME, LANG_COPY_NAME}:
+        assert (new / rel).read_bytes() == (folder / rel).read_bytes(), rel
+    assert (new / "My Novel.exe").stat().st_mode & 0o777 == 0o755
+    assert (new / "cover.png").is_symlink()
+    assert os.readlink(new / "cover.png") == "media/first.png"
+    # Every file came over, nothing more.
+    assert sorted(p.relative_to(new).as_posix() for p in new.rglob("*")) == \
+        sorted(k for k in before if k)
+    # The copy has the new player and schemas, as a plain upgrade gives.
+    assert (new / "index.html").read_bytes() == NEW_INDEX
+    assert (new / "app.js").read_bytes() == stamped(VERSION)
+    assert (new / COPY_NAME).read_bytes() == SCHEMA_FILE.read_bytes()
+    assert (new / LANG_COPY_NAME).read_bytes() == LANG_SCHEMA_FILE.read_bytes()
+    assert leftovers(new.parent) == []
+    out = capsys.readouterr()
+    assert out.out.splitlines() == [
+        f"{new}: a copy of {folder}, 7 media files hard-linked and "
+        "13 other files copied",
+        f"Kinetic unknown -> {VERSION}",
+        f"{new}: replaced index.html, app.js and {COPY_NAME} and "
+        f"{LANG_COPY_NAME}"]
+    assert out.err == ""
+
+
+def test_to_reports_the_copy_s_validator_problems_as_a_plain_upgrade(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    folder = game(tmp_path, {
+        "schemaVersion": 1, "width": 64, "height": 36,
+        "items": [{"id": "first", "type": "image",
+                   "file": "media/missing.png"}]})
+    new = tmp_path / "new"
+    assert run(str(folder), "--to", str(new)) == 1
+    assert (new / "app.js").read_bytes() == stamped(VERSION)
+    out = capsys.readouterr()
+    assert "media/missing.png" in out.out
+    assert f"{new} is upgraded, but the validator reports problems" in out.err
+
+
+def test_to_a_relative_path_beside_the_folder(
+        tmp_path: Path, dist: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    folder = game(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert run("my-novel", "--to", "my-novel-new") == 0
+    assert (tmp_path / "my-novel-new" / "app.js").read_bytes() == \
+        stamped(VERSION)
+    assert (folder / "app.js").read_bytes() == OLD_APP
+
+
+def _other_volume(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    real = upgrade_folder.volume
+    elsewhere = tmp_path / "elsewhere"
+
+    def fake(path: Path) -> int:
+        return real(path) + (1 if Path(path) == elsewhere else 0)
+
+    elsewhere.mkdir()
+    monkeypatch.setattr(upgrade_folder, "volume", fake)
+
+
+@pytest.mark.parametrize("case, status, says", [
+    ("exists", 2, "already exists"),
+    ("same", 2, "is the folder itself"),
+    ("inside", 2, "is inside"),
+    ("contains", 2, "is inside"),
+    ("no-parent", 2, "does not exist"),
+    ("other-volume", 2, "hard links cannot cross volumes"),
+    ("no-manifest", 1, "manifest.json"),
+    ("stale-dist", 1, "npm run build"),
+    ("bad-manifest", 1, "cannot read"),
+])
+@pytest.mark.parametrize("dry", [False, True])
+def test_each_to_refusal_writes_nothing(
+        tmp_path: Path, dist: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str], case: str, status: int,
+        says: str, dry: bool) -> None:
+    folder = game(tmp_path)
+    new = tmp_path / "new"
+    if case == "exists":
+        new.mkdir()
+    elif case == "same":
+        new = folder
+    elif case == "inside":
+        new = folder / "media" / "new"
+    elif case == "contains":
+        new = tmp_path
+    elif case == "no-parent":
+        new = tmp_path / "missing" / "new"
+    elif case == "other-volume":
+        _other_volume(monkeypatch, tmp_path)
+        new = tmp_path / "elsewhere" / "new"
+    elif case == "no-manifest":
+        (folder / "manifest.json").unlink()
+    elif case == "stale-dist":
+        (dist / "app.js").write_bytes(stamped("0.0.1"))
+    elif case == "bad-manifest":
+        (folder / "manifest.json").write_text("{not json")
+    before = tree(tmp_path)
+    args = [str(folder), "--to", str(new)] + (["--dry-run"] if dry else [])
+    assert run(*args) == status
+    assert tree(tmp_path) == before
+    err = capsys.readouterr().err
+    assert says in err, err
+    if case == "other-volume":
+        assert "nothing written" in err
+
+
+@pytest.mark.parametrize("fail", ["copy", "link", "player", "interrupt"])
+def test_an_interrupted_copy_leaves_no_new_and_no_temporary_folder(
+        tmp_path: Path, dist: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str], fail: str) -> None:
+    folder = rich_game(tmp_path)
+    before = tree(folder)
+    new = tmp_path / "new"
+    calls = []
+    real_copy2, real_link = upgrade_folder.shutil.copy2, os.link
+
+    def copy2(*args: object, **kwargs: object) -> object:
+        calls.append(args)
+        if len(calls) == 3:
+            if fail == "interrupt":
+                raise KeyboardInterrupt
+            raise OSError(28, "No space left on device")
+        return real_copy2(*args, **kwargs)
+
+    def link(*args: object, **kwargs: object) -> None:
+        calls.append(args)
+        if len(calls) == 3:
+            raise OSError(18, "Cross-device link")
+        real_link(*args, **kwargs)
+
+    def full_disk(*_args: object, **_kwargs: object) -> None:
+        raise OSError(28, "No space left on device")
+
+    if fail in ("copy", "interrupt"):
+        monkeypatch.setattr(upgrade_folder.shutil, "copy2", copy2)
+    elif fail == "link":
+        monkeypatch.setattr(upgrade_folder.os, "link", link)
+    else:
+        monkeypatch.setattr(upgrade_folder.shutil, "copyfileobj", full_disk)
+    if fail == "interrupt":
+        with pytest.raises(KeyboardInterrupt):
+            run(str(folder), "--to", str(new))
+    else:
+        assert run(str(folder), "--to", str(new)) == 1
+        err = capsys.readouterr().err
+        assert str(new) in err and ("No space" in err or "Cross" in err)
+    assert not new.exists()
+    assert leftovers(tmp_path) == []
+    assert tree(folder) == before
+
+
+def _signed_app(folder: Path) -> Path:
+    """A tiny Mac app signed ad hoc: a compiled main program, a resource
+    and a symbolic link inside the bundle."""
+    app = folder / "My Novel.app"
+    contents = app / "Contents"
+    (contents / "MacOS").mkdir(parents=True)
+    (contents / "Resources").mkdir()
+    source = folder.parent / "main.c"
+    source.write_text("int main(void) { return 0; }\n")
+    subprocess.run(["cc", "-o", str(contents / "MacOS" / "kinetic"),
+                    str(source)], check=True, capture_output=True)
+    source.unlink()
+    (contents / "Info.plist").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0"><dict>'
+        "<key>CFBundleExecutable</key><string>kinetic</string>"
+        "<key>CFBundleIdentifier</key><string>test.upgrade.app</string>"
+        "<key>CFBundlePackageType</key><string>APPL</string>"
+        "</dict></plist>\n")
+    (contents / "Resources" / "LICENSE").write_text("license text")
+    os.symlink("LICENSE", contents / "Resources" / "COPYING")
+    subprocess.run(["codesign", "-s", "-", "--force", str(app)], check=True,
+                   capture_output=True)
+    return app
+
+
+@pytest.mark.skipif(sys.platform != "darwin"
+                    or not all(Path(f"/usr/bin/{tool}").exists()
+                               for tool in ("codesign", "cc")),
+                    reason="needs macOS with codesign and cc")
+def test_a_copied_mac_app_still_verifies(
+        tmp_path: Path, dist: Path) -> None:
+    folder = game(tmp_path)
+    app = _signed_app(folder)
+    verify = ["codesign", "--verify", "--strict", "--verbose=2"]
+    subprocess.run([*verify, str(app)], check=True, capture_output=True)
+    new = tmp_path / "new"
+    assert run(str(folder), "--to", str(new)) == 0
+    copy = new / "My Novel.app"
+    done = subprocess.run([*verify, str(copy)], capture_output=True,
+                          text=True)
+    assert done.returncode == 0, done.stderr
+    assert (copy / "Contents" / "Resources" / "COPYING").is_symlink()
+    binary = copy / "Contents" / "MacOS" / "kinetic"
+    assert binary.stat().st_ino != \
+        (app / "Contents" / "MacOS" / "kinetic").stat().st_ino
+    assert binary.stat().st_mode & 0o111
+
+
+def test_dry_run_writes_nothing_and_says_what_it_would_replace(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    folder = rich_game(tmp_path)
+    before = tree(tmp_path)
+    assert run(str(folder), "--dry-run") == 0
+    assert tree(tmp_path) == before
+    out = capsys.readouterr()
+    assert out.out.splitlines() == [
+        "Dry run: nothing is written.",
+        f"Kinetic unknown -> {VERSION}",
+        f"{folder}: would replace index.html, app.js and {COPY_NAME} and "
+        f"{LANG_COPY_NAME}"]
+    assert out.err == ""
+
+
+def test_dry_run_with_to_counts_the_copy_and_writes_nothing(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    folder = rich_game(tmp_path)
+    (folder / "app.js").write_bytes(stamped("1.7.9"))
+    new = tmp_path / "new"
+    before = tree(tmp_path)
+    assert run(str(folder), "--to", str(new), "--dry-run") == 0
+    assert tree(tmp_path) == before
+    assert capsys.readouterr().out.splitlines() == [
+        "Dry run: nothing is written.",
+        f"{new}: would be a copy of {folder}, 7 media files hard-linked "
+        "and 13 other files copied",
+        f"Kinetic 1.7.9 -> {VERSION}",
+        f"{new}: would replace index.html, app.js and {COPY_NAME} and "
+        f"{LANG_COPY_NAME}"]
+
+
+def test_dry_run_validates_the_folder_as_it_is(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    folder = game(tmp_path, {
+        "schemaVersion": 1, "width": 64, "height": 36,
+        "items": [{"id": "first", "type": "image",
+                   "file": "media/missing.png"}]})
+    before = tree(tmp_path)
+    assert run(str(folder), "--dry-run") == 1
+    assert tree(tmp_path) == before
+    out = capsys.readouterr()
+    assert "media/missing.png" in out.out
+    assert "dry run" in out.err and "as it is" in out.err
+
+
+def test_dry_run_counts_one_file_in_the_singular(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    folder = game(tmp_path)
+    (folder / "manifest.js").unlink()
+    (folder / "index.html").unlink()
+    (folder / "app.js").unlink()
+    new = tmp_path / "new"
+    run(str(folder), "--to", str(new), "--dry-run")
+    assert capsys.readouterr().out.splitlines()[1] == (
+        f"{new}: would be a copy of {folder}, 1 media file hard-linked "
+        "and 1 other file copied")
