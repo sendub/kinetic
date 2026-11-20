@@ -4,12 +4,20 @@ Phase 57, item 9).
 
 In a checkout it runs player/scripts/testing/check-game.mjs, which needs
 `npm ci` in player/ first. From an installed wheel it runs the copy
-tools/build_wheel.py bundled with esbuild into one file, puppeteer-core
-inside, so it needs no npm; browser profiles and crash dumps go to the
-per-user cache (`KINETIC_SCRATCH_DIR`, paths.cache_dir("check")). Either
+tools/build_wheel.py bundled with esbuild, on the bundled testing
+library beside it, puppeteer-core inside, so it needs no npm; browser
+profiles and crash dumps go to the per-user cache (`KINETIC_SCRATCH_DIR`,
+paths.cache_dir("check"), where the library also puts them unasked).
+Either
 way Node must be on PATH at the version puppeteer-core needs, and the
-arguments, output and exit codes are check-game's. `--help` and
-`--version` answer here, without Node.
+arguments, output and exit codes are check-game's. `--help`,
+`--version` and `--library` answer here, without Node.
+
+`--library` prints the absolute path of the testing library a creator's
+script imports (CREATE.md, "A test script"): a checkout's
+player/scripts/testing/kinetic.mjs, or the wheel's bundle of it
+(`check/kinetic.mjs` in the package data, puppeteer-core inside), which
+needs no npm (docs/plan.md Phase 58, item 4).
 
 Chrome is found as check-game finds it (`KINETIC_CHROME`, else the usual
 place). WebKit on macOS needs the driver: a checkout builds it from
@@ -41,6 +49,7 @@ USAGE = f"""\
 usage: {PROG} <game-folder> [--engine webkit|chrome|auto] [--steps N|all]
            [--start-at ID] [--until ID] [--no-media-check] [--trace FILE]
            [--lang TAG]
+       {PROG} --library
        {PROG} --version"""
 
 HELP = f"""{USAGE}
@@ -59,6 +68,8 @@ options:
   --no-media-check  skip the media check after the walk
   --trace FILE    write the player's item trace to FILE (JSON lines)
   --lang TAG      walk with that game language shown
+  --library       print the path of the testing library a test script
+                  imports (CREATE.md, "A test script") and exit
   --version       print Kinetic's version and exit
 
 Needs Node.js {{node}} or later on PATH and Chrome (KINETIC_CHROME names
@@ -157,10 +168,35 @@ def preflight(script: Path = paths.CHECK_GAME,
                          "--cache ../.tmp/npm-cache in player/ first")
 
 
+def library(script: Path = paths.CHECK_LIBRARY,
+            checkout: Path | None = paths.CHECKOUT) -> int:
+    """`--library`: print the testing library's absolute path; exit 1
+    when it is missing. A checkout without player/node_modules gets a
+    note on stderr, since the library imports puppeteer-core from it."""
+    if not script.is_file():
+        print(f"{PROG}: the testing library is missing ({script})"
+              + ("" if checkout is not None else "; reinstall Kinetic"),
+              file=sys.stderr)
+        return 1
+    print(script.resolve())
+    if checkout is not None and not (
+            checkout / "player" / "node_modules" / "puppeteer-core").is_dir():
+        print(f"{PROG}: note: player/node_modules is missing; run npm ci "
+              "--cache ../.tmp/npm-cache in player/ before importing it",
+              file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if "--version" in argv:
         print(version_line())
         return 0
+    if "--library" in argv:
+        if argv != ["--library"]:
+            print(f"{USAGE}\n{PROG}: --library takes no other arguments",
+                  file=sys.stderr)
+            return 2
+        return library()
     try:
         need = required_node()
         if argv in (["--help"], ["-h"]):

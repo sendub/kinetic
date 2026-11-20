@@ -40,8 +40,8 @@ one's options, and `kinetic --version` prints the version, as `Kinetic
 What you need:
 
 - Python 3.12 or later.
-- For `kinetic check` only: Node.js 22.12 or later, and Google Chrome
-  for its `chrome` engine. On a Mac its default engine is the Mac's own
+- For `kinetic check` and your own test scripts only: Node.js 22.12 or
+  later, and Google Chrome for the `chrome` engine. On a Mac its default engine is the Mac's own
   WebKit, which needs nothing more.
 - For the Mac app (`kinetic apps --mac`): macOS, whose own `codesign`
   signs it.
@@ -102,8 +102,9 @@ newer Kinetic).
 
 The wheel leaves out the tools for voices and translations
 (`tools/cast_voices.py`, `tools/record_lines.py` and
-`tools/translations.py`) and the testing library for your own test
-scripts (`player/scripts/testing/kinetic.mjs`): those need a checkout.
+`tools/translations.py`): those need a checkout. It carries the testing
+library for your own test scripts; `kinetic check --library` prints the
+path to import (A test script).
 
 ### In a checkout
 
@@ -2579,10 +2580,17 @@ page, while the game's sound still plays and `current().audio` reports it.
 
 ### Setting up the tests
 
-From a release, `kinetic check` needs only Node.js 22.12 or later on
-your PATH, and Chrome for the `chrome` engine (From a release, above).
-A test script of your own needs a checkout: once per checkout, install
-the player's packages and build the player:
+From a release, `kinetic check` and a test script of your own need only
+Node.js 22.12 or later on your PATH, and Chrome for the `chrome` engine
+(From a release, above). The release carries the testing library a
+script imports, puppeteer-core inside, so there is nothing to install
+with npm; `kinetic check --library` prints its path (A test script,
+below). The library keeps the browser profiles it makes in Kinetic's
+cache (docs/packaging.md, "Installing the tools").
+
+In a checkout, `kinetic check --library` prints the path of
+`player/scripts/testing/kinetic.mjs`. Once per checkout, install the
+player's packages and build the player:
 
 ```sh
 cd player && npm ci --cache ../.tmp/npm-cache && npm run build && cd ..
@@ -3020,20 +3028,38 @@ Kinetic). `openGame`'s `language` option does the same in a test script.
 
 ### A test script
 
-Write your test anywhere, as a Node script that imports
-`player/scripts/testing/kinetic.mjs` from a checkout of Kinetic by its
-absolute path (Setting up the tests). This one tests the demo; assemble
-it from the checkout's root with `.venv/bin/kinetic assemble
-fixtures/demo demo-play`, and put your own game's ids and lines in
-place of the demo's:
+Write your test anywhere, as a Node script that imports the testing
+library by the absolute path `kinetic check --library` prints:
+
+```sh
+kinetic check --library
+```
+
+```text
+/Users/you/kinetic-venv/lib/python3.13/site-packages/kinetic_extract/data/check/kinetic.mjs
+```
+
+From a release that file is the whole library, puppeteer-core inside,
+so the script needs no npm and no `node_modules`; in a checkout it is
+`player/scripts/testing/kinetic.mjs` (Setting up the tests). The path
+changes when you reinstall Kinetic into another venv, so this script
+takes it as its first argument and imports it with `import()`. A
+script kept with a checkout can import that checkout's path directly
+instead: `import { openGame } from
+"/path/to/kinetic/player/scripts/testing/kinetic.mjs";`.
+
+This one tests the demo; assemble it in a checkout, from its root, with
+`.venv/bin/kinetic assemble fixtures/demo demo-play`, and put your own
+game's ids and lines in place of the demo's:
 
 ```js
-// test-demo.mjs: node test-demo.mjs <game-folder> [webkit|chrome]
+// test-demo.mjs: node test-demo.mjs <library> <game-folder> [webkit|chrome]
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { openGame } from "/path/to/kinetic/player/scripts/testing/kinetic.mjs";
+import { pathToFileURL } from "node:url";
 
-const [folder, engine = "auto"] = process.argv.slice(2);
+const [library, folder, engine = "auto"] = process.argv.slice(2);
+const { openGame } = await import(pathToFileURL(library).href);
 const profile = "test-profile"; // keeps progress between the two opens
 rmSync(profile, { recursive: true, force: true }); // start as a new reader
 
@@ -3062,12 +3088,63 @@ await again.close();
 console.log(`${game.engine}: ok`);
 ```
 
-`node test-demo.mjs demo-play webkit` and `node test-demo.mjs demo-play
-chrome` each print `ok`. A failed check stops the script with an error
-naming what was on screen. Await `checkMedia()` before reading
-`errors()` after any walk: a walk faster than a reader moves past
-pictures and videos before they finish loading, and a load cut short
-reports no error, so a broken file would otherwise pass.
+`node test-demo.mjs "$(kinetic check --library)" demo-play webkit` and
+the same with `chrome` each print `ok`. A failed check stops the script
+with an error naming what was on screen. Await `checkMedia()` before
+reading `errors()` after any walk: a walk faster than a reader moves
+past pictures and videos before they finish loading, and a load cut
+short reports no error, so a broken file would otherwise pass.
+
+#### Starting from a saved state
+
+To test what a reader sees on coming back, such as a route that starts
+or ends where they left it, or a choice remembering the routes they
+played, give `openGame` a `savedState`: the record the player keeps
+for the story in the browser. The game then opens as for a reader who
+saved it, on either engine, with no walk to get there. Take the record
+from a game the test has walked, with `savedState()`, or write it by
+hand:
+
+```js
+// Inside Route 1 of the demo, at its first item, Route 1 played.
+const record = {
+  ctx: {
+    lastShown: "route1-start",
+    visited: [],
+    stack: [{ decision: "outer", route: "route1" }],
+    playedRoutes: [{ decision: "outer", routes: ["route1"] }],
+    completedRoutes: [],
+  },
+  helpSeen: true,
+};
+const game = await openGame(folder, {
+  engine,
+  savedState: record,
+  playAll: false,
+});
+assert.equal((await game.current()).id, "route1-start");
+assert.equal(game.storageKey, "story:kinetic-demo");
+const next = await game.spaceUntil((now) => now.choice !== null);
+assert.equal(next.choice.prompt, "Nested decision inside Route 1:");
+await game.close();
+```
+
+`savedState()` resolves with the whole record as the player keeps it at
+that moment, or `null` before it has saved one. The player saves as
+the screen changes, so after a press, wait until the record shows the
+new place before reading the rest of it.
+
+The record's shape is the player's own, `PersistedState` in
+`player/src/storage/types.ts` (the head of
+`player/src/storage/idb.ts` says where it is kept), and it can change
+with a newer Kinetic: use it in tests only, and take records from
+`savedState()` of a folder with the same player when you can. In
+`ctx`, `lastShown` is the item on screen, `stack` the routes open
+around it (outermost first), `playedRoutes` and `completedRoutes` the
+routes played and finished at each decision, and `visited` the items
+seen, by id; `settings` holds the Esc screen's settings the reader
+changed, and `helpSeen: true` that they have closed the first Esc
+screen. A record the player cannot read opens as a new reader would.
 
 ### Checking the sound
 
@@ -3388,6 +3465,18 @@ as a folder, exits 2 before any browser starts.
   open from disk saved. `{ url: URL }` starts no server and opens the
   copy already served at URL, as check-game's `--url` does. `false` by
   default.
+- `savedState`: a state record, the object the player keeps for the
+  story in the browser (Starting from a saved state, above). It is
+  written under the story's storage key before the player reads
+  storage, on either engine, so the game opens as for a reader who
+  saved it: at its place, unless `startAt` is given, with its routes
+  and settings. Only the first load writes it: `reload()` resumes from
+  what the player has saved since. With a `profile`, it replaces the
+  record the profile holds, while the profile's bookmarks and seen
+  items stay, and a `ctx.visited` list in the record adds to the seen
+  items. Anything but a plain object or `null` throws before the
+  browser starts. Its shape belongs to the folder's player version:
+  for tests only. `null` by default.
 - `log`: a function given openGame's notes (the engine `auto` chose,
   and any links out of the folder, below), printed to stderr by default,
   or `null` for none.
@@ -3518,9 +3607,16 @@ The game:
 - `page` is the puppeteer page for anything else (`page.evaluate`,
   `page.mouse.click(x, y)`). In WebKit it offers the subset the player's
   own test suite uses.
+- `savedState()` resolves with the story's whole state record as the
+  player keeps it now, under `storageKey`, or `null` when it has saved
+  none. Its shape is the player's own, as for the `savedState` option.
 - `engine`, `folder` and `manifest` say what was opened, and
   `kineticVersion` the Kinetic version of the folder's player, read from
   its `app.js` (`null` for a player built before Kinetic 1.8.0).
+- `storageKey` is the key the player keeps the story's progress under:
+  `story:<storyId>` for a manifest with a `storyId`, else the folder's
+  address as the page has it (`file:///.../`, or the HTTP address with
+  `http`).
 
 ## Upgrading to a newer Kinetic
 

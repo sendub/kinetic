@@ -10,8 +10,9 @@ Usage:
 It builds the player afresh into a staging folder (`node
 scripts/build.mjs`, what `npm run build` runs, so player/dist/ is left
 alone) and checks the bundle is stamped with this checkout's VERSION;
-bundles check-game with puppeteer-core into one file and builds the WebKit
-driver beside it (player/scripts/bundle-check.mjs --driver); builds the
+bundles the testing library with puppeteer-core into one file and
+check-game on top of it, and builds the WebKit driver beside them
+(player/scripts/bundle-check.mjs --driver); builds the
 two app hosts (kinetic_extract/app_hosts.py, reusing the checkout's
 builds of the same sources from .tmp/app-hosts/); copies converter/
 (pyproject.toml and the kinetic_extract package) into the staging folder
@@ -26,7 +27,8 @@ kinetic_extract/data/:
     selftest/                       converter/tests/data/selftest/
     vendor/unrpyc/, vendor/SOURCES.md   converter/vendor/
     player/index.html, app.js       the fresh player build
-    check/check-game.mjs, check-game.json   the bundled check-game
+    check/kinetic.mjs               the bundled testing library
+    check/check-game.mjs, check-game.json   check-game, on that library
     check/kinetic-webkit-driver     the WebKit driver (macOS arm64)
     apps/host-words.json            apps/host-words.json
     apps/macos/kinetic              the Mac app host (arm64, macOS 12+)

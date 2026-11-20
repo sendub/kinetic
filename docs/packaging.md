@@ -143,20 +143,26 @@ the macOS app and the Windows exe from the hosts the wheel carries
 prebuilt, with no Swift or Go: the exe on any system, the Mac app on
 macOS, which signs it with `codesign` (see "The app hosts" below).
 The voice and translation tools (`tools/cast_voices.py`,
-`tools/record_lines.py`, `tools/translations.py`) and the testing
-library for authors' own scripts (`player/scripts/testing/kinetic.mjs`)
-are not in the wheel and need a checkout.
+`tools/record_lines.py`, `tools/translations.py`) are not in the wheel
+and need a checkout. The testing library for authors' own scripts is
+in it: `kinetic check --library` prints the path a script imports
+(CREATE.md, "A test script").
 
 The wheel carries what the tools read from the repo in a checkout,
 under `kinetic_extract/data/`: the repo's VERSION,
 `converter/media-tools.json`, the two schemas from docs/, the media
 self-test's samples, vendored unrpyc, the built player (`index.html`
 and `app.js`, which `kinetic assemble` and `kinetic upgrade` copy),
-check-game bundled with puppeteer-core into one file with the WebKit
-driver beside it (`check/kinetic-webkit-driver`, macOS arm64), the
+the testing library (`player/scripts/testing/kinetic.mjs`) bundled with
+puppeteer-core into one ES module, `check/kinetic.mjs`, and check-game
+bundled on top of it, `check/check-game.mjs`, which imports
+`./kinetic.mjs`, so puppeteer-core is in the wheel once, with the WebKit
+driver beside them (`check/kinetic-webkit-driver`, macOS arm64), the
 repo's LICENSE and `apps/host-words.json`, and the two app hosts
 (`apps/macos/kinetic` and `apps/windows/kinetic.exe`). `kinetic check`
-runs that file with the system Node, so it needs Node.js at the version
+runs check-game with the system Node, and a creator's script imports
+the library by the path `kinetic check --library` prints, with no npm
+and no `node_modules`; either needs Node.js at the version
 puppeteer-core needs (22.12 or later; the check names it when Node is
 missing or older) and Chrome, found as check-game finds it
 (`KINETIC_CHROME`, else the usual place). The engine `auto` uses
@@ -166,7 +172,8 @@ without the driver tests on Chrome and says why.
 Where an installed Kinetic writes, `KINETIC_HOME` when set, else the
 system's place for an application's data and caches. The media tools
 are what `kinetic setup` installs; the caches hold encodes, files read
-from archives, decompiled scripts and check-game's browser profiles:
+from archives, decompiled scripts, and the browser profiles and crash
+dumps of check-game and the testing library (`check/` in the caches):
 
 | | Media tools | Caches |
 | --- | --- | --- |
@@ -181,7 +188,8 @@ checkout nothing changes: the package sees it sits in
 `player/package.json`, reads the repo's files, installs the media tools
 into `.media-tools/`, keeps its caches under `.tmp/`, and ignores
 `KINETIC_HOME`; `kinetic check` runs
-`player/scripts/testing/check-game.mjs`, which needs `npm ci` in
+`player/scripts/testing/check-game.mjs`, and `--library` prints the path
+of `player/scripts/testing/kinetic.mjs`, both of which need `npm ci` in
 `player/`.
 
 The wheel is built in a checkout with
@@ -192,15 +200,18 @@ The wheel is built in a checkout with
 
 which builds the player afresh into a staging folder (player/dist/ is
 left alone) and refuses a bundle not stamped with the checkout's
-VERSION, bundles check-game and builds the WebKit driver
-(`player/scripts/bundle-check.mjs --driver`), builds the two app hosts,
+VERSION, bundles the testing library and check-game and builds the
+WebKit driver (`player/scripts/bundle-check.mjs --driver`), builds the
+two app hosts,
 and writes `dist/kinetic-<version>-py3-none-any.whl` with `pip wheel`.
 It needs Node and `player/node_modules`, macOS with a Swift toolchain
 (the Mac host and the driver) and Go 1.27 or later (the Windows host):
 the release machine's tools, never an installer's. The wheel is about
 4.85 MB (4.63 MiB, 87 files), of which the Windows host is 7.8 MB, the
 bundled check-game 2.4 MB, the player 1.4 MB, the WebKit driver 0.7 MB
-and the Mac host 0.6 MB before compression (2026-11-17). Each release's
+and the Mac host 0.6 MB before compression (2026-11-17). Since 1.13.0
+that 2.4 MB is the library, `check/kinetic.mjs`, and check-game is
+24 KB beside it. Each release's
 closing commit builds the wheel this way and attaches it to the GitHub
 release `vX.Y.Z`, which is where the install line above downloads it
 from.

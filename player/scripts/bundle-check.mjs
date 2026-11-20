@@ -1,14 +1,20 @@
-// Bundles check-game (scripts/testing/check-game.mjs) and everything it
-// imports, puppeteer-core included, into one ES module that plain `node`
-// runs with no node_modules: the check-game an installed Kinetic carries
-// for `kinetic check` (tools/build_wheel.py; docs/packaging.md,
-// "Installing the tools").
+// Bundles the testing library (scripts/testing/kinetic.mjs) and everything
+// it imports, puppeteer-core included, into one ES module that plain
+// `node` imports with no node_modules, and check-game (testing/
+// check-game.mjs) on top of it: the library a creator's script imports
+// from an installed Kinetic (`kinetic check --library` prints its path)
+// and the check-game it carries for `kinetic check` (tools/build_wheel.py;
+// docs/packaging.md, "Installing the tools"; docs/plan.md Phase 58,
+// item 4).
 //
 //   node scripts/bundle-check.mjs <out-dir> [--driver]
 //
-// writes <out-dir>/check-game.mjs and <out-dir>/check-game.json, which
-// names the oldest Node it runs on (puppeteer-core's `engines`):
-// {"node": "22.12.0"}. With --driver (on macOS with a Swift toolchain) it
+// writes <out-dir>/kinetic.mjs, the library; <out-dir>/check-game.mjs,
+// check-game and walk.mjs with the library left as an import of
+// ./kinetic.mjs, so puppeteer-core is in the library alone; and
+// <out-dir>/check-game.json, which names the oldest Node they run on
+// (puppeteer-core's `engines`): {"node": "22.12.0"}. With --driver (on
+// macOS with a Swift toolchain) it
 // also builds the WebKit driver (webkit/build.mjs) and copies it in as
 // <out-dir>/kinetic-webkit-driver, where webkit/prebuilt.mjs looks for it
 // (docs/plan.md Phase 57 item 10). In the bundle:
@@ -18,6 +24,8 @@
 //   driver binary beside the bundle and otherwise lets "auto" use Chrome;
 // - version.mjs's KINETIC_VERSION is the version built in, not the
 //   checkout's VERSION file read at run time;
+// - testing/scratch.mjs's INSTALLED is true, so the library keeps its
+//   scratch profiles in the per-user cache, not a checkout's .tmp/;
 // - `require` is made from the bundle's own URL, for puppeteer-core's
 //   CommonJS dependencies (ws, debug).
 import {
@@ -35,12 +43,24 @@ import { ensureDriver } from "./webkit/build.mjs";
 import { DRIVER_NAME } from "./webkit/prebuilt.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ENTRY = join(here, "testing", "check-game.mjs");
+const LIBRARY = join(here, "testing", "kinetic.mjs");
+const CHECK_GAME = join(here, "testing", "check-game.mjs");
 const DRIVER_BUILD = join(here, "webkit", "build.mjs");
 const PREBUILT = join(here, "webkit", "prebuilt.mjs");
-const VERSION_MODULE = join(here, "version.mjs");
-// The line in version.mjs the bundle replaces; the build fails if it moves.
-const VERSION_LINE = "export const KINETIC_VERSION = readVersionFile();";
+// The lines the bundle replaces, by module; the build fails if one moves.
+const REPLACED = new Map([
+  [
+    join(here, "version.mjs"),
+    [
+      "export const KINETIC_VERSION = readVersionFile();",
+      `export const KINETIC_VERSION = ${JSON.stringify(KINETIC_VERSION)};`,
+    ],
+  ],
+  [
+    join(here, "testing", "scratch.mjs"),
+    ["export const INSTALLED = false;", "export const INSTALLED = true;"],
+  ],
+]);
 
 /** The oldest Node puppeteer-core runs on, from its `engines` ("22.12.0"). */
 export function requiredNode() {
@@ -65,43 +85,66 @@ const installed = {
       const path = resolve(args.resolveDir, args.path);
       return path === DRIVER_BUILD ? { path: PREBUILT } : undefined;
     });
-    build.onLoad({ filter: /version\.mjs$/ }, (args) => {
-      if (args.path !== VERSION_MODULE) return undefined;
+    build.onLoad({ filter: /\.mjs$/ }, (args) => {
+      const replaced = REPLACED.get(args.path);
+      if (replaced === undefined) return undefined;
+      const [line, replacement] = replaced;
       const source = readFileSync(args.path, "utf8");
-      if (!source.includes(VERSION_LINE)) {
-        throw new Error(`version.mjs no longer has: ${VERSION_LINE}`);
+      if (!source.includes(line)) {
+        throw new Error(`${args.path} no longer has: ${line}`);
       }
-      return {
-        contents: source.replace(
-          VERSION_LINE,
-          `export const KINETIC_VERSION = ${JSON.stringify(KINETIC_VERSION)};`,
-        ),
-        loader: "js",
-      };
+      return { contents: source.replace(line, replacement), loader: "js" };
     });
   },
 };
 
-/** Writes the bundle and its requirements file into `outDir`. */
+/** check-game's bundle imports the library bundle beside it. */
+const onLibrary = {
+  name: "kinetic-check-on-library",
+  setup(build) {
+    build.onResolve({ filter: /kinetic\.mjs$/ }, (args) =>
+      resolve(args.resolveDir, args.path) === LIBRARY
+        ? { path: "./kinetic.mjs", external: true }
+        : undefined,
+    );
+  },
+};
+
+/**
+ * Writes the library, check-game and their requirements file into
+ * `outDir`; check-game's path.
+ */
 export async function bundleCheck(outDir) {
   mkdirSync(outDir, { recursive: true });
   const node = requiredNode();
-  await esbuild.build({
-    entryPoints: [ENTRY],
-    outfile: join(outDir, "check-game.mjs"),
+  const common = {
     bundle: true,
     platform: "node",
     format: "esm",
     target: `node${node}`,
     legalComments: "eof",
     logLevel: "warning",
+  };
+  await esbuild.build({
+    ...common,
+    entryPoints: [LIBRARY],
+    outfile: join(outDir, "kinetic.mjs"),
     plugins: [installed],
     banner: {
       js: [
-        `// Kinetic ${KINETIC_VERSION}: check-game with puppeteer-core, bundled by scripts/bundle-check.mjs.`,
+        `// Kinetic ${KINETIC_VERSION}: the testing library (testing/kinetic.mjs) with puppeteer-core, bundled by scripts/bundle-check.mjs.`,
         'import { createRequire as __kineticRequire } from "node:module";',
         "const require = __kineticRequire(import.meta.url);",
       ].join("\n"),
+    },
+  });
+  await esbuild.build({
+    ...common,
+    entryPoints: [CHECK_GAME],
+    outfile: join(outDir, "check-game.mjs"),
+    plugins: [onLibrary, installed],
+    banner: {
+      js: `// Kinetic ${KINETIC_VERSION}: check-game on the testing library beside it (kinetic.mjs), bundled by scripts/bundle-check.mjs.`,
     },
   });
   writeFileSync(

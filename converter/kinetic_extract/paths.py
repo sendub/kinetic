@@ -110,9 +110,13 @@ LANG_SCHEMA_FILE = resource("docs/lang.schema.json",
 PLAYER_BUNDLE_DIR = resource("player/dist", "player")
 SELFTEST_SAMPLES_DIR = resource("converter/tests/data/selftest", "selftest")
 UNRPYC_DIR = resource("converter/vendor/unrpyc", "vendor/unrpyc")
-# check-game, bundled with puppeteer-core into one file (docs/packaging.md).
+# check-game, and the testing library a creator's script imports (`kinetic
+# check --library`): in the wheel the library is bundled with puppeteer-core
+# into one file and check-game imports it from beside it (docs/packaging.md).
 CHECK_GAME = resource("player/scripts/testing/check-game.mjs",
                       "check/check-game.mjs")
+CHECK_LIBRARY = resource("player/scripts/testing/kinetic.mjs",
+                         "check/kinetic.mjs")
 # Kinetic's license (MIT), which every game app carries, and the apps' own
 # words in every catalogue language (kinetic_extract/apps.py).
 LICENSE_FILE = resource("LICENSE", "LICENSE")

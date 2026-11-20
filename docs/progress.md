@@ -5887,9 +5887,44 @@ truthful: an unchecked box means nothing was accepted.
       same three files 127 passed; on a demo copy `--dry-run` wrote
       nothing, `--to` linked 28 media (same inode, 2 links), its app.js
       equals player/dist's, and a second `--to` exits 2.)
-- [ ] The testing library in the wheel (item 4). One bundled module,
+- [x] The testing library in the wheel (item 4). One bundled module,
       `kinetic check --library` printing its path, `openGame`'s
       `savedState`, the handle's `storageKey` and `savedState()`.
+      (2026-11-20: bundle-check.mjs builds the library as
+      `data/check/kinetic.mjs` (about 2.4 MB, puppeteer-core inside) and
+      check-game on top of it (about 24 KB, importing `./kinetic.mjs`),
+      so puppeteer-core is in the wheel once. New `testing/scratch.mjs`:
+      `KINETIC_SCRATCH_DIR`, else a checkout's `.tmp`, else
+      `<per-user cache>/check` by paths.py's rule, so an imported library
+      needs no env var. `kinetic check --library` prints the bundle's
+      path (a checkout's `player/scripts/testing/kinetic.mjs`) with no
+      Node; exit 1 when the file is missing, 2 with other arguments.
+      `openGame` `savedState` writes the record under the story's key
+      from an `evaluateOnNewDocument` script queued ahead of the
+      player's IndexedDB open, first load only (a sessionStorage mark,
+      since the WebKit driver cannot remove page scripts); a kept
+      profile's bookmarks and seen records stay; a non-object or
+      non-JSON value throws before any browser. Handle: `storageKey`,
+      `savedState()`. CREATE.md: setting up from a release, the test
+      script importing the printed path, "Starting from a saved state",
+      the API list; packaging.md the new file. Subagent's calls:
+      check-game built on the library rather than hashed split chunks;
+      "bookmarks carried over" read as a seeded record leaving a kept
+      profile's bookmarks alone, since the record holds none. Tests: a
+      `savedState` part in the creator scenario (7 checks: read back,
+      hand-written record opens at route1-start, bookmark kept, the
+      nested choice reached, reload resumes the newer place, a folder
+      with no storyId keyed by its URL, no errors; removing the reload
+      guard or the seeding fails them); scratch and bundle tests;
+      test_check for `--library`; the wheel test imports the installed
+      path from outside the repo and opens the demo seeded on Chrome and
+      WebKit with its own `KINETIC_HOME`. Subagent: npm test 1882 (3
+      timing tests failed once at load 46, passed on rerun); check
+      clean; creator 43/43 Chrome and WebKit; test_check, kinetic_cli,
+      paths 74; test_build_wheel 9. Orchestrator, load 33-36 (another
+      checkout's WebKit walk): npm test 1882/1882, check clean; creator
+      43/43 Chrome, 43/43 WebKit; test_build_wheel, test_check,
+      test_paths, test_kinetic_cli 83 passed.)
 - [ ] The release's checklist in the wheel (item 5). progress.md and
       CHANGELOG.md shipped; `kinetic release-status [--json]`.
 - [ ] Docs and package-proof (item 6). AGENTS.md, packaging.md,

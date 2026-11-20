@@ -32,6 +32,7 @@ import {
   pressT,
 } from "./core.mjs";
 import {
+  checkSavedState,
   chooseEngine,
   countChecked,
   drainTrace,
@@ -45,6 +46,7 @@ import {
   readAudio,
   readSegment,
   referencedFiles,
+  storyKeyOf,
   summary,
   traceRefusal,
 } from "./kinetic.mjs";
@@ -712,6 +714,22 @@ describe("openGame before it starts a browser", () => {
     }
   });
 
+  it("refuses a savedState that is not a state record, before any browser starts", async () => {
+    const dir = gameFolder({});
+    try {
+      for (const savedState of ["{}", 3, [], true, new Date(0)]) {
+        await expect(
+          openGame(dir, { engine: "chrome", savedState }),
+          String(savedState),
+        ).rejects.toThrow(
+          "openGame: savedState must be a state record (a plain object, such as the game's savedState() resolves with) or null",
+        );
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a startAt that is not an id, or a folder with no manifest to check it against", async () => {
     const dir = gameFolder({});
     try {
@@ -1288,5 +1306,34 @@ describe("traceRefusal (trace() on an older player)", () => {
     expect(traceRefusal(null)).toBe(
       'trace: the folder\'s player (built before Kinetic versions were stamped) keeps no item trace; rebuilding the folder with a current player fixes this (CREATE.md, "Upgrading to a newer Kinetic")',
     );
+  });
+});
+
+describe("savedState's checks and storage key", () => {
+  it("takes null or a plain object that JSON can carry", () => {
+    expect(() => checkSavedState(null)).not.toThrow();
+    expect(() =>
+      checkSavedState({ ctx: { lastShown: "a" }, helpSeen: true }),
+    ).not.toThrow();
+    expect(() => checkSavedState(Object.create(null))).not.toThrow();
+  });
+
+  it("refuses anything else, a record JSON cannot carry included", () => {
+    const loop = {};
+    loop.self = loop;
+    for (const record of [undefined, "x", 1, [], new Map(), loop, { n: 1n }]) {
+      expect(() => checkSavedState(record), String(record)).toThrow(
+        /savedState must be a state record/,
+      );
+    }
+  });
+
+  it("keys a valid storyId as story:<storyId>, and leaves any other to the folder's URL", () => {
+    expect(storyKeyOf("my-novel_2")).toBe("story:my-novel_2");
+    for (const storyId of [undefined, null, "", "My Novel", "-x", 7]) {
+      expect(storyKeyOf(storyId), String(storyId)).toBe(null);
+    }
+    expect(storyKeyOf("a".repeat(64))).toBe(`story:${"a".repeat(64)}`);
+    expect(storyKeyOf("a".repeat(65))).toBe(null);
   });
 });

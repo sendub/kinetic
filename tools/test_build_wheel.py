@@ -1,5 +1,6 @@
 """tools/build_wheel.py and the `kinetic` command installed from its wheel
-(docs/plan.md Phase 57, items 9 and 10). Run with:
+(docs/plan.md Phase 57, items 9 and 10; Phase 58, item 4, the testing
+library). Run with:
 
     .venv/bin/pytest tools/test_build_wheel.py -q
 
@@ -160,9 +161,17 @@ def test_the_wheel_carries_the_package_data(installed: Installed) -> None:
                  "schemas/content-schema.json", "schemas/lang.schema.json",
                  "selftest/sample.png", "vendor/unrpyc/unrpyc.py",
                  "player/index.html", "player/app.js",
-                 "check/check-game.mjs", "check/check-game.json",
-                 "apps/host-words.json"]:
+                 "check/kinetic.mjs", "check/check-game.mjs",
+                 "check/check-game.json", "apps/host-words.json"]:
         assert f"kinetic_extract/data/{name}" in names, name
+    # puppeteer-core once: in the library, which check-game imports.
+    with zipfile.ZipFile(installed.wheel) as zf:
+        library = zf.read("kinetic_extract/data/check/kinetic.mjs").decode()
+        check_game = zf.read(
+            "kinetic_extract/data/check/check-game.mjs").decode()
+    assert "node_modules/puppeteer-core/" in library
+    assert "puppeteer" not in check_game
+    assert 'from "./kinetic.mjs"' in check_game
     # The prebuilt programs, executable once installed.
     for name in ["check/kinetic-webkit-driver", "apps/macos/kinetic",
                  "apps/windows/kinetic.exe"]:
@@ -252,6 +261,88 @@ def test_validate_report_assemble_upgrade_and_check(
     finally:
         shutil.rmtree(content, ignore_errors=True)
         shutil.rmtree(installed.cwd / "play", ignore_errors=True)
+
+
+# A creator's script outside the repo: it imports the library `kinetic
+# check --library` prints and opens the game seeded with a state record
+# inside Route 1, once per engine; prints what it found as JSON.
+LIBRARY_SCRIPT = """\
+const [library, folder, ...engines] = process.argv.slice(2);
+const { openGame } = await import(library);
+const record = {
+  ctx: {
+    lastShown: "route1-start",
+    visited: [],
+    stack: [{ decision: "outer", route: "route1" }],
+    playedRoutes: [{ decision: "outer", routes: ["route1"] }],
+    completedRoutes: [],
+  },
+  helpSeen: true,
+};
+const found = {};
+for (const engine of engines) {
+  const game = await openGame(folder, { engine, savedState: record, log: null });
+  try {
+    const now = await game.current();
+    const saved = await game.savedState();
+    found[engine] = {
+      engine: game.engine,
+      id: now.id,
+      storageKey: game.storageKey,
+      lastShown: saved?.ctx?.lastShown ?? null,
+      errors: game.errors(),
+    };
+  } finally {
+    await game.close();
+  }
+}
+console.log(JSON.stringify(found));
+"""
+
+
+def test_a_script_imports_the_installed_library(installed: Installed,
+                                                demo: Path) -> None:
+    proc = installed.run("check", "--library")
+    assert (proc.returncode, proc.stderr) == (0, ""), proc.stderr
+    library = Path(proc.stdout.strip())
+    assert proc.stdout == f"{library}\n" and library.is_absolute()
+    assert library.parts[-4:] == ("kinetic_extract", "data", "check",
+                                  "kinetic.mjs"), library
+    assert "site-packages" in library.parts and library.is_file()
+    chrome = os.environ.get("KINETIC_CHROME") or next(
+        (p for p in CHROME_PLACES if Path(p).exists()), None)
+    if chrome is None:
+        pytest.skip("no Chrome for the library")
+    work = installed.cwd / "library-test"
+    play = work / "play"
+    # Nothing above the script can lend it a puppeteer-core.
+    assert not any((parent / "node_modules").exists()
+                   for parent in [work, *work.parents])
+    home = installed.home / "library-home"
+    try:
+        work.mkdir()
+        proc = installed.run("assemble", str(demo), str(play))
+        assert proc.returncode == 0, proc.stderr
+        script = work / "seeded.mjs"
+        script.write_text(LIBRARY_SCRIPT)
+        engines = ["chrome", "webkit"] if sys.platform == "darwin" \
+            else ["chrome"]
+        env = installed.env()
+        env["KINETIC_HOME"] = str(home)
+        proc = subprocess.run(
+            ["node", str(script), str(library), str(play), *engines],
+            capture_output=True, text=True, cwd=work, env=env, timeout=300)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        found = json.loads(proc.stdout)
+        for engine in engines:
+            assert found[engine] == {
+                "engine": engine, "id": "route1-start",
+                "storageKey": "story:kinetic-demo",
+                "lastShown": "route1-start", "errors": []}, found
+        # The fresh Chrome profile was made in the home's cache.
+        assert (home / "cache" / "check" / "game-test-profiles").is_dir()
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="the WebKit driver is macOS's")

@@ -33,6 +33,15 @@
 // English ones, on either engine, so a check that reads the player's
 // words does not depend on the machine's language.
 //
+// openGame's `savedState` (Phase 58, item 4) opens the demo as for a
+// reader who saved a state record, on either engine: savedState() reads
+// back the record the player keeps under the handle's storageKey (the
+// manifest's story, or the folder's URL for a copy without a storyId); a
+// record written by hand opens at its place inside Route 1, with Route
+// 1's nested choice next; a reload keeps what the player saved since
+// rather than writing the record again; and a kept profile's bookmark
+// is still there after a seeded open.
+//
 // The handle's kineticVersion (Phase 51, item 2) is the repo's VERSION on
 // the demo, and null on the older-player copy, whose app.js also lacks the
 // version stamp.
@@ -47,6 +56,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { EN } from "../../src/i18n/en.ts";
 import { LOCALES } from "../../src/i18n/locales.generated.ts";
 import { shownText } from "../../src/machine/texttags.ts";
@@ -91,6 +101,7 @@ export const parts = [
   symlinkNote,
   failedLoads,
   controlsLanguage,
+  savedState,
 ];
 
 /** A fresh copy of the demo folder at `name` under the scenario root. */
@@ -1057,5 +1068,157 @@ async function controlsLanguage({ check }) {
   } finally {
     if (before === undefined) delete process.env[TEST_SYSTEM_LANGUAGES];
     else process.env[TEST_SYSTEM_LANGUAGES] = before;
+  }
+}
+
+// ---- savedState: opening as a reader who saved a state ----------------
+
+/** How many bookmarks the page's `kinetic` database holds under `key`. */
+const BOOKMARK_COUNT = async (key) => {
+  const db = await new Promise((done) => {
+    const open = indexedDB.open("kinetic");
+    open.onsuccess = () => done(open.result);
+    open.onerror = () => done(null);
+  });
+  if (db === null || !db.objectStoreNames.contains("bookmarks")) return 0;
+  try {
+    return await new Promise((done) => {
+      const req = db
+        .transaction("bookmarks")
+        .objectStore("bookmarks")
+        .index("content")
+        .count(key);
+      req.onsuccess = () => done(req.result);
+      req.onerror = () => done(-1);
+    });
+  } finally {
+    db.close();
+  }
+};
+
+/** Polls `read()` until `ready(value)` or 5 s pass; the last value. */
+async function settle(read, ready) {
+  const until = Date.now() + 5000;
+  for (;;) {
+    const value = await read();
+    if (ready(value) || Date.now() >= until) return value;
+    await new Promise((done) => setTimeout(done, 50));
+  }
+}
+
+/** A state record written by hand: inside Route 1, at its first item. */
+const IN_ROUTE_1 = {
+  ctx: {
+    lastShown: "route1-start",
+    visited: [],
+    stack: [{ decision: "outer", route: "route1" }],
+    playedRoutes: [{ decision: "outer", routes: ["route1"] }],
+    completedRoutes: [],
+  },
+  helpSeen: true,
+};
+
+async function savedState({ check }) {
+  const opened = [];
+  const open = async (folder, options) => {
+    const game = await openGame(folder, { engine, log: null, ...options });
+    opened.push(game);
+    return game;
+  };
+  const errors = [];
+  try {
+    // A reader's own save, read back.
+    const reader = await open(demoDir, { playAll: false });
+    await reader.spaceUntil((now) => now.choice !== null);
+    await reader.pickRoute(1);
+    const saved = await settle(
+      () => reader.savedState(),
+      (record) => record?.ctx?.lastShown === "route1-start",
+    );
+    check(
+      "the handle's storageKey is story:<storyId>, and savedState() reads back the record the player saved there, inside Route 1",
+      reader.storageKey === `story:${manifest.storyId}` &&
+        saved?.ctx?.lastShown === "route1-start" &&
+        JSON.stringify(saved.ctx.stack) ===
+          JSON.stringify(IN_ROUTE_1.ctx.stack),
+      { storageKey: reader.storageKey, saved },
+    );
+    errors.push(...reader.errors());
+
+    // A kept profile with a bookmark, then a record written by hand.
+    const profile = join(scenarioRoot, "profiles", "creator-saved-state");
+    rmSync(profile, { recursive: true, force: true });
+    const first = await open(demoDir, { profile });
+    await first.press("b");
+    const marked = await settle(
+      () => first.page.evaluate(BOOKMARK_COUNT, first.storageKey),
+      (count) => count === 1,
+    );
+    errors.push(...first.errors());
+    await first.close();
+    const seeded = await open(demoDir, {
+      profile,
+      savedState: IN_ROUTE_1,
+      playAll: false,
+    });
+    const at = await seeded.current();
+    const kept = await seeded.page.evaluate(BOOKMARK_COUNT, seeded.storageKey);
+    check(
+      "a state record given as savedState opens the game at its place, inside the route it names",
+      at.id === "route1-start" && at.choice === null,
+      at,
+    );
+    check(
+      "the kept profile's bookmark is still there after the seeded open",
+      marked === 1 && kept === 1,
+      { before: marked, after: kept },
+    );
+    const nested = await seeded.spaceUntil((now) => now.choice !== null);
+    check(
+      "Space from the seeded place reaches Route 1's nested choice, so the open route came with the record",
+      nested.choice?.prompt === branch("nested").prompt,
+      nested,
+    );
+    // On into the nested route: the player saves as it goes.
+    const before = await seeded.pickRoute(1);
+    const moved = await settle(
+      () => seeded.savedState(),
+      (record) => record?.ctx?.lastShown === before.id,
+    );
+    await seeded.reload();
+    const after = await seeded.current();
+    check(
+      "a reload resumes where the player saved since, not at the seeded place",
+      before.id === "nest-continue" &&
+        moved?.ctx?.lastShown === before.id &&
+        after.id === before.id,
+      { before: before.id, saved: moved?.ctx?.lastShown, after: after.id },
+    );
+    errors.push(...seeded.errors());
+
+    // No storyId: the folder's URL is the key, as the page has it.
+    const unnamed = demoCopy("saved-state-no-story");
+    const bare = structuredClone(manifest);
+    delete bare.storyId;
+    const json = JSON.stringify(bare, null, 2);
+    writeFileSync(join(unnamed, "manifest.json"), json);
+    writeFileSync(
+      join(unnamed, "manifest.js"),
+      `window.KINETIC_MANIFEST = ${json};\n`,
+    );
+    const plain = await open(unnamed, { savedState: IN_ROUTE_1 });
+    const plainAt = await plain.current();
+    const readBack = await plain.savedState();
+    check(
+      "without a storyId the storageKey is the folder's URL, and the record written there opens the game at its place",
+      plain.storageKey === `${pathToFileURL(unnamed).href}/` &&
+        plainAt.id === "route1-start" &&
+        readBack?.ctx?.lastShown === "route1-start",
+      { storageKey: plain.storageKey, at: plainAt.id, readBack },
+    );
+    errors.push(...plain.errors());
+    check("errors() stayed empty in every open", errors.length === 0, errors);
+  } finally {
+    for (const game of opened) await game.close();
   }
 }

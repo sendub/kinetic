@@ -1,6 +1,8 @@
 // Testing a built Kinetic game folder with no window on screen (CREATE.md,
 // "Testing your game"). A creator's own script imports this file by its
-// absolute path:
+// absolute path, which `kinetic check --library` prints (from an
+// installed Kinetic, the copy scripts/bundle-check.mjs bundled with
+// puppeteer-core, which needs no node_modules):
 //
 //   import { openGame } from "/path/to/kinetic/player/scripts/testing/kinetic.mjs";
 //   const game = await openGame("my-game", { playAll: false });
@@ -24,7 +26,7 @@ import {
 } from "node:fs";
 import { platform } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { folderKineticVersion } from "../version.mjs";
 import { DriverBuildError, ensureDriver } from "../webkit/build.mjs";
 import {
@@ -44,14 +46,8 @@ import {
   setPlayAll,
   sleep,
 } from "./core.mjs";
+import { scratchDir } from "./scratch.mjs";
 import { serveFolder } from "./serve.mjs";
-
-// Browser profiles and crash dumps: the checkout's .tmp, or the folder
-// KINETIC_SCRATCH_DIR names (`kinetic check` from an installed Kinetic
-// sets it to a per-user cache; converter/kinetic_extract/check.py).
-const scratch =
-  process.env.KINETIC_SCRATCH_DIR ??
-  join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", ".tmp");
 
 /** What each engine stands for, as openGame reports its choice. */
 export const ENGINE_NAMES = {
@@ -286,15 +282,103 @@ const READ_NOW = `({
   playAll: document.querySelector(".config-play-all")?.getAttribute("aria-pressed") ?? null,
 })`;
 
-// The item the player last saved as on screen (`ctx.lastShown` in its
-// state record, src/storage/idb.ts), under the story's storage key: the
-// manifest's storyId when valid, else the folder URL. Read only; null
-// when there is none.
-const READ_SAVED_PLACE = async (storyId) => {
-  const key =
-    typeof storyId === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(storyId)
-      ? `story:${storyId}`
-      : new URL(".", document.baseURI).href;
+// A manifest `storyId` the player keys progress by (src/storage/idb.ts).
+const STORY_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+/**
+ * The storage key the player keeps a story's progress under when its
+ * manifest's `storyId` names it, `story:<storyId>` (src/storage/idb.ts
+ * storageKeys); null for a missing or invalid one, whose progress the
+ * folder's URL keys instead (FOLDER_KEY, read in the page).
+ */
+export function storyKeyOf(storyId) {
+  return typeof storyId === "string" && STORY_ID_PATTERN.test(storyId)
+    ? `story:${storyId}`
+    : null;
+}
+
+// The storage key of a story whose manifest names none: the folder's
+// absolute URL, as the player's contentSignature makes it.
+const FOLDER_KEY = () => new URL(".", document.baseURI).href;
+
+/**
+ * Throws unless `record` is null or a state record openGame can write
+ * (`savedState`): a plain object that JSON can carry into the page.
+ */
+export function checkSavedState(record) {
+  const shaped =
+    record === null ||
+    (typeof record === "object" &&
+      !Array.isArray(record) &&
+      [Object.prototype, null].includes(Object.getPrototypeOf(record)));
+  let carried = shaped;
+  if (shaped && record !== null) {
+    try {
+      carried = typeof JSON.stringify(record) === "string";
+    } catch {
+      carried = false;
+    }
+  }
+  if (!carried) {
+    throw new Error(
+      "openGame: savedState must be a state record (a plain object, such as the game's savedState() resolves with) or null",
+    );
+  }
+}
+
+// Writes `record` as the story's state record (the `state` store of the
+// player's `kinetic` database, src/storage/idb.ts) under the storage key
+// (`storyKey`, else FOLDER_KEY's) before the player reads storage: given
+// to evaluateOnNewDocument, it runs before the page's scripts, and its
+// open and its write are queued ahead of the player's, which IndexedDB
+// serves in order. Once per page: a sessionStorage mark, which survives a
+// reload, keeps a reload from writing it again. A database not there yet
+// is made with the player's stores, as the player makes it. A failed
+// write is a console error, which errors() lists.
+const SEED_STATE = (storyKey, record) => {
+  const MARK = "kinetic-test-saved-state";
+  try {
+    if (sessionStorage.getItem(MARK) !== null) return;
+    sessionStorage.setItem(MARK, "1");
+  } catch {
+    // No sessionStorage: the record is written at every load.
+  }
+  const key = storyKey ?? new URL(".", document.baseURI).href;
+  const failed = (why) =>
+    console.error(`openGame: savedState was not written (${why})`);
+  const open = indexedDB.open("kinetic");
+  open.onupgradeneeded = () => {
+    const db = open.result;
+    if (!db.objectStoreNames.contains("state")) db.createObjectStore("state");
+    if (!db.objectStoreNames.contains("bookmarks")) {
+      db.createObjectStore("bookmarks", {
+        keyPath: "seq",
+        autoIncrement: true,
+      }).createIndex("content", "content");
+    }
+  };
+  open.onerror = () => failed(open.error?.message ?? "the open failed");
+  open.onsuccess = () => {
+    const db = open.result;
+    try {
+      const tx = db.transaction("state", "readwrite");
+      tx.objectStore("state").put(record, key);
+      tx.oncomplete = () => db.close();
+      tx.onabort = () => {
+        failed(tx.error?.message ?? "the write was aborted");
+        db.close();
+      };
+    } catch (error) {
+      failed(error.message);
+      db.close();
+    }
+  };
+};
+
+// The story's state record under the storage key `key` (src/storage/
+// idb.ts), or with `placeOnly` just the item it saved as on screen
+// (`ctx.lastShown`). Read only; null when there is none.
+const READ_STATE = async (key, placeOnly) => {
   const db = await new Promise((done) => {
     const open = indexedDB.open("kinetic");
     // No database yet: abort rather than create an empty one.
@@ -310,7 +394,8 @@ const READ_SAVED_PLACE = async (storyId) => {
       req.onsuccess = () => done(req.result);
       req.onerror = () => done(null);
     });
-    return record?.ctx?.lastShown ?? null;
+    if (placeOnly) return record?.ctx?.lastShown ?? null;
+    return record ?? null;
   } finally {
     db.close();
   }
@@ -1071,6 +1156,23 @@ export function countChecked(previous, open) {
  *   in "/"), such as a copy on a web host, and the game opens there,
  *   while the manifest and the reasons for failed loads still come from
  *   the folder on disk. Default false.
+ * - `savedState`: a state record, the object the player keeps per story
+ *   in its IndexedDB database `kinetic`, store `state` (src/storage/
+ *   idb.ts; its shape belongs to the folder's player version, so this is
+ *   for tests only). It is written under the story's storage key before
+ *   the player reads storage, on either engine (SEED_STATE), so the game
+ *   opens as for a reader who saved that state: its place (unless
+ *   `startAt` is given), routes, settings. Only the first load writes it;
+ *   reload() keeps what the player has saved since. It replaces the
+ *   record a kept `profile` holds; that profile's bookmarks and seen
+ *   items stay, and a `ctx.visited` list in the record joins the seen
+ *   items as at any load. A record the player cannot read opens as a
+ *   first-time reader, as for a reader. Anything but a plain object or
+ *   null throws before any browser starts. Default null: storage as the
+ *   profile has it. The handle's `storageKey` is the key
+ *   (`story:<storyId>` for a manifest with a valid storyId, else the
+ *   folder's URL as the page has it) and its savedState() reads the
+ *   record back.
  * - `log`: gets openGame's notes (default: stderr); null for none. Besides
  *   the engine "auto" picked, one note names symbolic links in the folder
  *   that point outside it (outsideLinks), on either engine: WebKit and
@@ -1102,6 +1204,7 @@ export async function openGame(folder, options = {}) {
     mediaChecks = true,
     trace = false,
     http = false,
+    savedState = null,
     log = (line) => console.error(line),
   } = options;
   const dir = resolve(folder);
@@ -1134,7 +1237,11 @@ export async function openGame(folder, options = {}) {
       'openGame: http must be true, false, { port } or { url } (an http or https address ending in "/")',
     );
   }
+  checkSavedState(savedState);
   if (startAt !== null) checkStartAt(dir, startAt);
+  // The story's storage key when its manifest names the story; else the
+  // folder's URL keys it, read from the page (FOLDER_KEY).
+  const storyKey = storyKeyOf(readManifestFile(dir)?.storyId);
   const offered = language === null ? null : checkLanguage(dir, language);
   const chosen = chooseEngine(engine, log);
   const links = outsideLinks(dir);
@@ -1143,6 +1250,7 @@ export async function openGame(folder, options = {}) {
     if (note !== null) log(note);
   }
   const kept = profile === null ? null : resolve(profile);
+  const scratch = scratchDir();
   // A fresh WebKit profile lives in memory; a fresh Chrome one is a new
   // folder, removed at close.
   let temp = null;
@@ -1187,6 +1295,9 @@ export async function openGame(folder, options = {}) {
       offPage: mediaChecks !== false,
     });
     if (trace) await page.evaluateOnNewDocument(TRACE_FLAG);
+    if (savedState !== null) {
+      await page.evaluateOnNewDocument(SEED_STATE, storyKey, savedState);
+    }
     const cdp = await page.createCDPSession();
     const url =
       served === null
@@ -1196,6 +1307,7 @@ export async function openGame(folder, options = {}) {
       startAt === null ? url : `${url}#start=${encodeURIComponent(startAt)}`,
     );
     await waitForPlayer(page);
+    const storageKey = storyKey ?? (await page.evaluate(FOLDER_KEY));
     if (startAt !== null) await checkStartedAt(page, startAt);
     if (offered !== null && offered.length > 1) {
       const shown = await page.evaluate(SHOWN_LANGUAGE);
@@ -1236,6 +1348,7 @@ export async function openGame(folder, options = {}) {
         kineticVersion: folderKineticVersion(dir),
         language,
         url,
+        storageKey,
         close,
       },
     );
@@ -1297,7 +1410,7 @@ function gameHandle(
     const until = Date.now() + 500;
     for (;;) {
       const id = await page
-        .evaluate(READ_SAVED_PLACE, manifest?.storyId ?? null)
+        .evaluate(READ_STATE, fields.storageKey, true)
         .catch(() => null);
       const index = ids.get(id) ?? -1;
       if (hits.includes(index)) return index;
@@ -1732,6 +1845,13 @@ function gameHandle(
         throw new Error(traceRefusal(fields.kineticVersion));
       return drained;
     },
+    /**
+     * The story's whole state record as the player keeps it now, under
+     * `storageKey` (src/storage/idb.ts; the shape belongs to the folder's
+     * player version), or null when it has saved none. The player writes
+     * it as the screen changes, so read it once the save has landed.
+     */
+    savedState: () => page.evaluate(READ_STATE, fields.storageKey, false),
     /** The console errors and warnings and the page errors so far. */
     errors: () => [...errors],
   };

@@ -1,7 +1,9 @@
 """`kinetic check` (kinetic_extract/check.py; docs/plan.md Phase 57, item
 9): the Node it needs, said plainly when missing or old, and how it runs
-check-game in a checkout and from an installed wheel. A real walk from
-the installed wheel is in tools/test_build_wheel.py."""
+check-game in a checkout and from an installed wheel, and the testing
+library's path `--library` prints (Phase 58, item 4). A real walk from
+the installed wheel, and a script importing its library, are in
+tools/test_build_wheel.py."""
 
 from __future__ import annotations
 
@@ -104,3 +106,44 @@ def test_missing_check_game_or_node_modules_is_said(tmp_path) -> None:
     script.write_text("")
     with pytest.raises(check.CheckError, match="npm ci"):
         check.preflight(script, checkout=tmp_path)
+
+
+def test_library_prints_the_checkouts_testing_library(monkeypatch,
+                                                      capsys) -> None:
+    # No Node needed: the path is printed from here.
+    monkeypatch.setattr(check.shutil, "which", lambda name: None)
+    assert check.main(["--library"]) == 0
+    out = capsys.readouterr().out
+    assert out == f"{REPO_ROOT / 'player' / 'scripts' / 'testing' / 'kinetic.mjs'}\n"
+    assert Path(out.strip()).is_absolute()
+
+
+def test_installed_library_is_the_bundle_in_the_package_data(capsys,
+                                                             tmp_path) -> None:
+    bundle = tmp_path / "data" / "check" / "kinetic.mjs"
+    bundle.parent.mkdir(parents=True)
+    bundle.write_text("export {};\n")
+    assert check.library(bundle, checkout=None) == 0
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == (f"{bundle}\n", "")
+
+
+def test_a_missing_library_is_said(capsys, tmp_path) -> None:
+    assert check.library(tmp_path / "kinetic.mjs", checkout=None) == 1
+    assert "reinstall Kinetic" in capsys.readouterr().err
+
+
+def test_a_checkout_without_node_modules_gets_a_note(capsys,
+                                                     tmp_path) -> None:
+    script = tmp_path / "kinetic.mjs"
+    script.write_text("")
+    assert check.library(script, checkout=tmp_path) == 0
+    captured = capsys.readouterr()
+    assert captured.out == f"{script}\n"
+    assert "npm ci" in captured.err
+
+
+def test_library_takes_no_other_arguments(capsys) -> None:
+    assert check.main(["--library", "game"]) == 2
+    assert "--library takes no other arguments" in capsys.readouterr().err
+
