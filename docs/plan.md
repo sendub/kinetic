@@ -4536,6 +4536,69 @@ Sequencing: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7, serial. Items 2, 3 and 5
 touch only the Python tools and item 4 only the testing library and
 the wheel build, so they need not wait on one another if one stalls.
 
+## Phase 59: Link all of media/ in a staged copy (2026-11-21, converting agent)
+
+A converting agent's delivered game keeps every media file it has ever
+shipped, since readers' saved places and bookmarks may point at them:
+113,415 files under `media/`, of which the current manifest names
+60,924. `kinetic upgrade --to` (Phase 58 item 3) hard-links only the
+named ones, so it would copy the other 52,491 (about 16.4 GB) in full,
+and the agent cannot use it. They asked for an opt-in way to hard-link
+everything under `media/`.
+
+The decisions (2026-11-21, the user with the requesting agent):
+
+- **An opt-in `--link-media`**, as requested. With `--to`, it
+  hard-links every file under the folder's `media/` (the converter's
+  one fixed folder, `media/<h[:2]>/<h>.<ext>`), named or not. Without
+  it, `--to` behaves as in 1.13.0. Shared storage stays confined to
+  `media/`, where the warning not to edit media in place already
+  applies.
+- **No `--link PATH`.** Hand-authored layouts that keep media outside
+  `media/` wait until a game asks.
+- **A link failure stops the copy.** 1.13.0 already aborts `--to`
+  when a hard link fails, leaving no NEW and no copy fallback; this
+  stays true with `--link-media`, and the docs say so.
+- **The copy line counts bytes.** `--to`, real or dry run, prints the
+  number and size of the files it links and copies, so a staging
+  check can match them.
+- **A hint names the flag.** Without `--link-media`, when files under
+  `media/` that nothing names would be copied, `--to` and `--dry-run`
+  print how many and their size, and that `--link-media` would link
+  them.
+- **Version.** A new option, no manifest change: the phase closes as
+  the minor 1.14.0; `schemaVersion` stays 1.
+
+1. `kinetic upgrade --to NEW --link-media`. Every regular file under
+   the folder's `media/` is hard-linked, as are the media the manifest
+   and language files name elsewhere (as now); symbolic links under
+   `media/` stay links; the files never linked (the player files,
+   schema copies, `manifest.json`, `manifest.js`) are never under
+   `media/` and stay copied wherever they are. `--link-media` without
+   `--to` exits 2; a folder with no `media/` links what it would
+   without the flag. The copy line, real and dry run, gives counts and
+   sizes, for example `my-novel-new: a copy of my-novel, 113,415 files
+   (40.2 GB) hard-linked and 9 files (31 MB) copied`. Without the flag,
+   when unnamed files under `media/` would be copied, a second line
+   says `52,491 files (16.4 GB) under media/ are named by nothing and
+   would be copied; --link-media links them`. The module docstring,
+   CREATE.md "Upgrading to a newer Kinetic" (the staged workflow with
+   `--link-media` for a game that keeps old media, and that a failed
+   link stops the copy), AGENTS.md's upgrade line and a CHANGELOG
+   bullet. package-proof's wheel stage runs `--to --link-media` on the
+   extract demo with an unnamed file added under `media/`. Tests: with
+   the flag an unnamed file under `media/` shares the source's inode
+   and without it is a separate copy, with the hint printed; counts
+   and sizes in the copy line, real and dry run; `--link-media`
+   without `--to` exits 2 and writes nothing; a link failure injected
+   under `--link-media` leaves no NEW, no temporary folder and no
+   copied file; the source unchanged by bytes, mode and mtime.
+2. Phase-closer: full suites; VERSION 1.14.0, the CHANGELOG dated, tag
+   v1.14.0, `main` fast-forwarded, the wheel attached to the GitHub
+   release, the Pages demo republished.
+
+Sequencing: 1 -> 2.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->

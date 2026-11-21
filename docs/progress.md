@@ -6003,3 +6003,13 @@ truthful: an unchecked box means nothing was accepted.
       and attached to the GitHub release v1.13.0 with the CHANGELOG
       entry as notes; the Pages demo republished from the release
       commit.)
+
+## Phase 59: Link all of media/ in a staged copy (2026-11-21, converting agent)
+
+- [ ] `kinetic upgrade --to NEW --link-media` (docs/plan.md Phase 59,
+      item 1). Every file under `media/` hard-linked; counts and sizes
+      in the copy line; the hint without the flag; docs and
+      package-proof.
+- [ ] Phase-closer (Phase 59): full suites; VERSION 1.14.0, the
+      CHANGELOG dated, tag v1.14.0, `main` fast-forwarded, the wheel
+      attached to the GitHub release, the Pages demo republished.
