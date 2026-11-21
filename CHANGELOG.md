@@ -17,7 +17,7 @@ Taking a new release means replacing a game folder's player (CREATE.md,
 "Upgrading to a newer Kinetic"). Bullets marked **Upgrading:** ask
 something more of an author.
 
-## 1.14.0-dev
+## 1.14.0 (2026-11-21)
 
 - `kinetic upgrade <folder> --to NEW --link-media` hard-links every
   file under the folder's `media/`, named or not, for a game that keeps

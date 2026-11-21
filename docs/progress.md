@@ -6038,6 +6038,24 @@ truthful: an unchecked box means nothing was accepted.
       media/, the dry run and real run printed the hint, the copy
       without the flag got a new inode and with it the source's, and
       `--link-media` without `--to` exited 2.)
-- [ ] Phase-closer (Phase 59): full suites; VERSION 1.14.0, the
+- [x] Phase-closer (Phase 59): full suites; VERSION 1.14.0, the
       CHANGELOG dated, tag v1.14.0, `main` fast-forwarded, the wheel
       attached to the GitHub release, the Pages demo republished.
+      (2026-11-21 on c3574b4, load 6-32 from the suites themselves,
+      Spotlight indexing and a converting agent's Chrome checks: full
+      pytest converter and tools 2099 passed; apps/voice 114; Go test
+      and Windows vet clean; npm test 1882/1882; check clean; full
+      `npm run verify` 6635/6635 on Chrome; `npm run verify --
+      --webkit` 6703 pass, 5 partial (the headless fullscreen checks),
+      2 fail, both videosound's stray-video seek with 155-200 ms
+      frame gaps at load 24; videosound `--webkit --jobs=1` then 30/31
+      at load 6-7 (the unlock check saw one seek after the key, the
+      agent's Chrome at 127%), then 31/31 at load 3.5-6;
+      package-proof 33/33. Docs current: README's install line names
+      v1.14.0, CREATE.md's `--version` example 1.14.0; no screenshot
+      shows anything this phase changed. VERSION, package.json, its
+      lockfile and pyproject 1.14.0, test_release_version 12 passed;
+      the CHANGELOG entry dated; tag v1.14.0; `main` fast-forwarded;
+      the wheel built and attached to the GitHub release v1.14.0 with
+      the CHANGELOG entry as notes; the Pages demo republished from
+      the release commit.)
