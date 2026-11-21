@@ -1,9 +1,10 @@
 """Upgrade a Kinetic game folder to the player this Kinetic carries
-(docs/plan.md Phase 51, item 6; `--to` and `--dry-run`, Phase 58 item 3).
+(docs/plan.md Phase 51, item 6; `--to` and `--dry-run`, Phase 58 item 3;
+`--link-media`, Phase 59 item 1).
 
 Usage:
 
-    kinetic upgrade <folder> [--to NEW] [--dry-run]
+    kinetic upgrade <folder> [--to NEW [--link-media]] [--dry-run]
     python tools/upgrade_folder.py <folder> ...   (the same, from a checkout)
 
 In a checkout, run it after building the player of the Kinetic you want:
@@ -21,7 +22,8 @@ Exit status: 0 when the folder (or NEW) is upgraded and the validator
 passes (its warnings are printed and do not change that), 1 when the
 upgrade is refused, a file cannot be written, or the upgraded folder has
 validator problems, 2 when the arguments are unusable: the folder is not
-a directory, or NEW cannot be used (below). A dry run exits as the
+a directory, `--link-media` is given without `--to`, or NEW cannot be
+used (below). A dry run exits as the
 validator finds the folder as it is, after the same refusals.
 
 A game folder's player is two files, `index.html` and `app.js`; every
@@ -80,22 +82,36 @@ upgrade untested:
   scripts) is hard-linked: NEW's copy shares the original's storage and
   costs no space. Every other file is copied with its permissions and
   times: `manifest.json`, `manifest.js`, the language files, the player,
-  schema copies, extras, files nothing names, and the apps, whose
-  bundles keep their symbolic links and modes so a Mac app's signature
-  still verifies. The player, the schema copies, `manifest.json` and
+  schema copies, extras, files nothing names (under `media/` too,
+  unless `--link-media`, below), and the apps, whose bundles keep their
+  symbolic links and modes so a Mac app's signature still verifies. The
+  player, the schema copies, `manifest.json` and
   `manifest.js` are never linked, whatever the manifest names. A
   symbolic link anywhere in the folder is made again as the same link
   (the same target text, so a relative link out of the folder points
   wherever that text leads from NEW). Folders keep their permissions,
   made readable and writable by their owner;
+- with `--link-media`, every regular file under the folder's `media/`
+  (the converter's one media folder) is hard-linked too, named or not,
+  for a game that keeps every media file it ever shipped so readers'
+  saved places still find them. Symbolic links under `media/` stay
+  links, and the files never linked are never under `media/`. A folder
+  with no `media/` folder is copied as without the flag;
 - it upgrades the temporary folder as a plain upgrade does and renames
-  it to NEW only then, so a failure (a full disk, a file it cannot read)
-  or an interrupt (Ctrl-C) removes it and leaves no NEW; only a process
-  killed outright can leave the hidden folder, which is safe to delete;
-- it prints `NEW: a copy of <folder>, <n> media files hard-linked and
-  <m> other files copied` (symbolic links count as copied), then the
-  lines a plain upgrade prints for NEW, and validates NEW, with the same
-  exit status.
+  it to NEW only then, so a failure (a full disk, a file it cannot read,
+  a hard link refused) or an interrupt (Ctrl-C) removes it and leaves no
+  NEW and no copied file; a file whose link fails is never copied
+  instead. Only a process killed outright can leave the hidden folder,
+  which is safe to delete;
+- it prints `NEW: a copy of <folder>, <n> files (<size>) hard-linked
+  and <m> files (<size>) copied`: counts with thousands separators,
+  sizes in decimal units (`999 bytes`, `1.0 kB`, `31.0 MB`, `40.2 GB`)
+  as lstat gives them, symbolic links counting as copied. Without
+  `--link-media`, when regular files under `media/` that nothing names
+  are copied, a second line says `<k> files (<size>) under media/ are
+  named by nothing and were copied; --link-media links them`. Then come
+  the lines a plain upgrade prints for NEW, and it validates NEW, with
+  the same exit status.
 
 Because NEW's media share storage with the folder's, editing a media
 file in place in NEW (rather than replacing it with a new file) changes
@@ -103,7 +119,8 @@ the original too. The upgrade itself never writes a media file.
 
 `--dry-run`, with or without `--to`, refuses as the upgrade would, then
 prints `Dry run: nothing is written.`, with `--to` the line `NEW: would
-be a copy of ...` with the counts the copy would have, the `Kinetic
+be a copy of ...` with the counts and sizes the copy would have (and the
+`--link-media` line, saying `would be copied`), the `Kinetic
 <old> -> <new>` line, and `<folder or NEW>: would replace ...` naming
 the files the upgrade would replace. It then runs the validator on the
 folder as it is (old player, current rules) and writes nothing anywhere.
@@ -229,8 +246,29 @@ def replaced(refreshed: list[str]) -> str:
                                              for name in refreshed)
 
 
-def files(count: int, kind: str) -> str:
-    return f"{count} {kind}file{'' if count == 1 else 's'}"
+def files(count: int) -> str:
+    return f"{count:,} file{'' if count == 1 else 's'}"
+
+
+SIZE_UNITS = ("kB", "MB", "GB", "TB")
+
+
+def size_text(size: int) -> str:
+    """size in decimal units, one decimal place and thousands separators:
+    `1 byte`, `999 bytes`, `1.0 kB`, `31.0 MB`, `40.2 GB`, `5,000.0 TB`."""
+    if size < 1000:
+        return f"{size} byte{'' if size == 1 else 's'}"
+    value = size / 1000
+    for unit in SIZE_UNITS:
+        # Round first, so 999,950 bytes reads 1.0 MB, not 1000.0 kB.
+        if round(value, 1) < 1000 or unit == SIZE_UNITS[-1]:
+            return f"{value:,.1f} {unit}"
+        value /= 1000
+    raise AssertionError("unreachable")
+
+
+def counted(count: int, size: int) -> str:
+    return f"{files(count)} ({size_text(size)})"
 
 
 # --- --to NEW ---------------------------------------------------------------
@@ -266,31 +304,68 @@ def target_problem(folder: Path, new: Path) -> str | None:
 
 class Copy:
     """What --to puts in NEW, in walk order: (relative path, how), how
-    being "dir", "link" (hard link), "copy" or "symlink"."""
+    being "dir", "link" (hard link), "copy" or "symlink". With
+    link_media every regular file under media/ is linked, named or not.
+    Counts and sizes (lstat's, so a symbolic link's is its target text)
+    of the files linked and copied, symbolic links counting as copied,
+    and of the regular files under media/ that nothing names and that
+    are copied."""
 
-    def __init__(self, folder: Path, media: set[str]) -> None:
+    def __init__(self, folder: Path, media: set[str],
+                 link_media: bool = False) -> None:
         self.entries: list[tuple[str, str]] = []
-        self._walk(folder, "", media)
-        self.linked = sum(how == "link" for _, how in self.entries)
-        self.copied = sum(how in ("copy", "symlink")
-                          for _, how in self.entries)
+        self.linked = self.linked_bytes = 0
+        self.copied = self.copied_bytes = 0
+        self.unnamed = self.unnamed_bytes = 0
+        self._walk(folder, "", media, link_media)
 
-    def _walk(self, root: Path, prefix: str, media: set[str]) -> None:
+    def _walk(self, root: Path, prefix: str, media: set[str],
+              link_media: bool) -> None:
         with os.scandir(root / prefix if prefix else root) as found:
             entries = sorted(found, key=lambda entry: entry.name)
         for entry in entries:
             rel = f"{prefix}{entry.name}"
+            under_media, named = rel.startswith(MEDIA_DIR), rel in media
             if entry.is_symlink():
-                self.entries.append((rel, "symlink"))
+                how = "symlink"
             elif entry.is_dir(follow_symlinks=False):
                 self.entries.append((rel, "dir"))
-                self._walk(root, f"{rel}/", media)
+                self._walk(root, f"{rel}/", media, link_media)
+                continue
             elif entry.is_file(follow_symlinks=False):
-                linked = rel in media and rel not in NEVER_LINKED
-                self.entries.append((rel, "link" if linked else "copy"))
+                linked = rel not in NEVER_LINKED and (
+                    named or (link_media and under_media))
+                how = "link" if linked else "copy"
             else:
                 raise OSError(f"{root / rel} is not a file, folder or "
                               "symbolic link; it cannot be copied")
+            self.entries.append((rel, how))
+            size = entry.stat(follow_symlinks=False).st_size
+            if how == "link":
+                self.linked += 1
+                self.linked_bytes += size
+            else:
+                self.copied += 1
+                self.copied_bytes += size
+                if how == "copy" and under_media and not named:
+                    self.unnamed += 1
+                    self.unnamed_bytes += size
+
+    def summary(self) -> str:
+        return (f"{counted(self.linked, self.linked_bytes)} hard-linked and "
+                f"{counted(self.copied, self.copied_bytes)} copied")
+
+    def hint(self, dry: bool) -> str | None:
+        """The line naming --link-media when files under media/ that
+        nothing names are copied; None when there are none."""
+        if not self.unnamed:
+            return None
+        one = self.unnamed == 1
+        copied = "would be copied" if dry else (
+            "was copied" if one else "were copied")
+        return (f"{counted(self.unnamed, self.unnamed_bytes)} under "
+                f"{MEDIA_DIR} {'is' if one else 'are'} named by nothing and "
+                f"{copied}; --link-media links {'it' if one else 'them'}")
 
     def make(self, folder: Path, into: Path) -> None:
         """Fill the empty folder into. Raises OSError."""
@@ -312,6 +387,9 @@ class Copy:
 # writes the folder's.
 NEVER_LINKED = frozenset((*BUNDLE_NAMES, *COPY_NAMES, MANIFEST_NAME,
                           SHIM_NAME))
+# The converter's one media folder (media/<h[:2]>/<h>.<ext>), all of
+# which --link-media links.
+MEDIA_DIR = "media/"
 
 
 def writable_dir_mode(source: Path) -> int:
@@ -361,6 +439,12 @@ def make_copy(folder: Path, new: Path, plan: Copy) -> list[str]:
     return refreshed
 
 
+def print_hint(plan: Copy, dry: bool) -> None:
+    hint = plan.hint(dry)
+    if hint is not None:
+        print(hint)
+
+
 def validate(folder: Path, problem: str) -> int:
     if validate_content.main([str(folder)]) != 0:
         return refuse(1, problem)
@@ -375,9 +459,13 @@ def main(argv: list[str]) -> int:
                                        "unless --to is given)")
     parser.add_argument("--to", metavar="NEW", type=Path,
                         help="upgrade a copy made at NEW instead (a new "
-                             "folder on the same volume: media files "
+                             "folder on the same volume: named media files "
                              "hard-linked, the rest copied); the folder "
                              "is only read")
+    parser.add_argument("--link-media", action="store_true",
+                        help="with --to, hard-link every file under the "
+                             "folder's media/, named or not, instead of "
+                             "copying the ones nothing names")
     parser.add_argument("--dry-run", action="store_true",
                         help="say what the upgrade would do and validate "
                              "the folder as it is, writing nothing")
@@ -386,6 +474,9 @@ def main(argv: list[str]) -> int:
 
     folder = Path(args.folder)
     new: Path | None = args.to
+    if args.link_media and new is None:
+        return refuse(2, "--link-media works only with --to NEW; nothing "
+                         "written")
     if not folder.is_dir():
         return refuse(2, f"{folder} is not a directory")
     if new is not None:
@@ -401,7 +492,7 @@ def main(argv: list[str]) -> int:
     plan = None
     if new is not None:
         try:
-            plan = Copy(folder, read_media(folder))
+            plan = Copy(folder, read_media(folder), args.link_media)
         except (OSError, ValueError) as exc:
             return refuse(1, str(exc))
 
@@ -409,14 +500,14 @@ def main(argv: list[str]) -> int:
     version = (f"Kinetic {old} -> {kinetic_version()}"
                + (" (already current)" if old == kinetic_version() else ""))
     copied = None if plan is None else (
-        f"a copy of {folder}, {files(plan.linked, 'media ')} hard-linked "
-        f"and {files(plan.copied, 'other ')} copied")
+        f"a copy of {folder}, {plan.summary()}")
     upgraded = folder if new is None else new
 
     if args.dry_run:
         print("Dry run: nothing is written.")
-        if copied is not None:
+        if plan is not None:
             print(f"{new}: would be {copied}")
+            print_hint(plan, dry=True)
         print(version)
         print(f"{upgraded}: would replace "
               f"{replaced(refreshed_copies(folder))}", flush=True)
@@ -433,8 +524,9 @@ def main(argv: list[str]) -> int:
             return refuse(1, f"cannot write into {folder}: {exc}")
         return refuse(1, f"cannot make {new}: {exc}; nothing written")
 
-    if copied is not None:
+    if plan is not None:
         print(f"{new}: {copied}")
+        print_hint(plan, dry=False)
     print(version)
     print(f"{upgraded}: replaced {replaced(refreshed)}", flush=True)
     return validate(upgraded, f"{upgraded} is upgraded, but the validator "

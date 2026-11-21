@@ -459,6 +459,24 @@ def tree(root: Path) -> dict[str, tuple]:
     return out
 
 
+def measure(folder: Path, rels: set[str]) -> tuple[int, int]:
+    """How many of rels there are and their size as lstat gives it."""
+    return len(rels), sum((folder / rel).lstat().st_size for rel in rels)
+
+
+def copy_line(new: Path, folder: Path, linked: set[str], copied: set[str],
+              dry: bool = False) -> str:
+    """The line --to prints for a copy linking `linked` and copying
+    `copied`, sizes as the module writes them (pinned by
+    test_sizes_read_in_decimal_units_with_thousands_separators)."""
+    def part(rels: set[str]) -> str:
+        count, size = measure(folder, rels)
+        return (f"{count:,} file{'' if count == 1 else 's'} "
+                f"({upgrade_folder.size_text(size)})")
+    return (f"{new}: {'would be ' if dry else ''}a copy of {folder}, "
+            f"{part(linked)} hard-linked and {part(copied)} copied")
+
+
 def leftovers(parent: Path) -> list[str]:
     """Hidden temporary folders --to may have left in parent."""
     return sorted(p.name for p in parent.iterdir()
@@ -498,8 +516,9 @@ def test_to_upgrades_a_linked_copy_and_only_reads_the_folder(
     assert leftovers(new.parent) == []
     out = capsys.readouterr()
     assert out.out.splitlines() == [
-        f"{new}: a copy of {folder}, 7 media files hard-linked and "
-        "13 other files copied",
+        copy_line(new, folder, MEDIA, COPIED | {"cover.png"}),
+        "1 file (18 bytes) under media/ is named by nothing and was "
+        "copied; --link-media links it",
         f"Kinetic unknown -> {VERSION}",
         f"{new}: replaced index.html, app.js and {COPY_NAME} and "
         f"{LANG_COPY_NAME}"]
@@ -712,8 +731,9 @@ def test_dry_run_with_to_counts_the_copy_and_writes_nothing(
     assert tree(tmp_path) == before
     assert capsys.readouterr().out.splitlines() == [
         "Dry run: nothing is written.",
-        f"{new}: would be a copy of {folder}, 7 media files hard-linked "
-        "and 13 other files copied",
+        copy_line(new, folder, MEDIA, COPIED | {"cover.png"}, dry=True),
+        "1 file (18 bytes) under media/ is named by nothing and would be "
+        "copied; --link-media links it",
         f"Kinetic 1.7.9 -> {VERSION}",
         f"{new}: would replace index.html, app.js and {COPY_NAME} and "
         f"{LANG_COPY_NAME}"]
@@ -743,6 +763,153 @@ def test_dry_run_counts_one_file_in_the_singular(
     (folder / "app.js").unlink()
     new = tmp_path / "new"
     run(str(folder), "--to", str(new), "--dry-run")
+    manifest = (folder / "manifest.json").stat().st_size
     assert capsys.readouterr().out.splitlines()[1] == (
-        f"{new}: would be a copy of {folder}, 1 media file hard-linked "
-        "and 1 other file copied")
+        f"{new}: would be a copy of {folder}, 1 file (12 bytes) hard-linked "
+        f"and 1 file ({manifest:,} bytes) copied")
+
+
+# --- --link-media (docs/plan.md Phase 59, item 1) --------------------------
+
+UNNAMED = "media/unused.png"
+
+
+@pytest.mark.parametrize("size, text", [
+    (0, "0 bytes"), (1, "1 byte"), (999, "999 bytes"), (1000, "1.0 kB"),
+    (1_250, "1.2 kB"), (999_949, "999.9 kB"), (999_950, "1.0 MB"),
+    (31_000_000, "31.0 MB"), (1_234_567_890, "1.2 GB"),
+    (40_200_000_000, "40.2 GB"), (3_500_000_000_000, "3.5 TB"),
+    (5_000_000_000_000_000, "5,000.0 TB"),
+])
+def test_sizes_read_in_decimal_units_with_thousands_separators(
+        size: int, text: str) -> None:
+    assert upgrade_folder.size_text(size) == text
+
+
+def test_counts_take_thousands_separators() -> None:
+    assert upgrade_folder.files(4210) == "4,210 files"
+    assert upgrade_folder.files(1) == "1 file"
+
+
+@pytest.mark.parametrize("dry", [False, True])
+def test_link_media_links_every_file_under_media(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str], dry: bool) -> None:
+    folder = rich_game(tmp_path)
+    (folder / "media" / "ab").mkdir()
+    (folder / "media" / "ab" / "old.jpg").write_bytes(b"an old picture")
+    (folder / "media" / ".DS_Store").write_bytes(b"finder")
+    os.symlink("first.png", folder / "media" / "alias.png")
+    unnamed = {UNNAMED, "media/ab/old.jpg", "media/.DS_Store"}
+    before = tree(folder)
+    new = tmp_path / "staged" / "my-novel-new"
+    new.parent.mkdir()
+    args = [str(folder), "--to", str(new), "--link-media"]
+    assert run(*args, *(["--dry-run"] if dry else [])) == 0
+    assert tree(folder) == before
+    copied = COPIED - {UNNAMED} | {"cover.png", "media/alias.png"}
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1 if dry else 0] == copy_line(new, folder, MEDIA | unnamed,
+                                               copied, dry=dry)
+    assert not any("named by nothing" in line for line in lines)
+    if dry:
+        assert not new.exists()
+        return
+    for rel in MEDIA | unnamed:
+        assert (new / rel).stat().st_ino == (folder / rel).stat().st_ino, rel
+    for rel in COPIED - {UNNAMED}:
+        assert (new / rel).stat().st_ino != (folder / rel).stat().st_ino, rel
+    assert (new / "media" / "alias.png").is_symlink()
+    assert os.readlink(new / "media" / "alias.png") == "first.png"
+    assert leftovers(new.parent) == []
+
+
+def test_without_link_media_an_unnamed_file_is_a_separate_copy(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    folder = rich_game(tmp_path)
+    (folder / "media" / "old.jpg").write_bytes(b"an old picture")
+    new = tmp_path / "new"
+    assert run(str(folder), "--to", str(new)) == 0
+    for rel in (UNNAMED, "media/old.jpg"):
+        assert (new / rel).stat().st_ino != (folder / rel).stat().st_ino
+        assert (new / rel).read_bytes() == (folder / rel).read_bytes()
+    assert capsys.readouterr().out.splitlines()[1] == (
+        "2 files (32 bytes) under media/ are named by nothing and were "
+        "copied; --link-media links them")
+
+
+def test_no_hint_when_nothing_unnamed_is_under_media(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    folder = game(tmp_path)
+    (folder / "notes.txt").write_text("named by nothing, not under media/")
+    new = tmp_path / "new"
+    assert run(str(folder), "--to", str(new), "--dry-run") == 0
+    assert not any("named by nothing" in line
+                   for line in capsys.readouterr().out.splitlines())
+
+
+def test_a_folder_without_media_links_as_without_the_flag(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    folder = game(tmp_path, {
+        "schemaVersion": 1, "storyId": "upgrade-test", "width": 64,
+        "height": 36, "items": [{"id": "first", "type": "image",
+                                 "file": "pictures/first.png"}]})
+    (folder / "media").rename(folder / "pictures")
+    (folder / "pictures" / "unused.png").write_bytes(b"nothing names this")
+    lines = {}
+    for flag in ([], ["--link-media"]):
+        new = tmp_path / f"new{len(flag)}"
+        assert run(str(folder), "--to", str(new), *flag) == 0
+        assert (new / "pictures" / "first.png").stat().st_ino == \
+            (folder / "pictures" / "first.png").stat().st_ino
+        assert (new / "pictures" / "unused.png").stat().st_ino != \
+            (folder / "pictures" / "unused.png").stat().st_ino
+        lines[bool(flag)] = [line.replace(str(new), "NEW") for line in
+                             capsys.readouterr().out.splitlines()]
+    assert lines[True] == lines[False]
+    assert not any("named by nothing" in line for line in lines[True])
+
+
+@pytest.mark.parametrize("dry", [False, True])
+def test_link_media_without_to_is_exit_2_and_writes_nothing(
+        tmp_path: Path, dist: Path,
+        capsys: pytest.CaptureFixture[str], dry: bool) -> None:
+    folder = rich_game(tmp_path)
+    before = tree(tmp_path)
+    assert run(str(folder), "--link-media",
+               *(["--dry-run"] if dry else [])) == 2
+    assert tree(tmp_path) == before
+    out = capsys.readouterr()
+    assert "--link-media" in out.err and "--to" in out.err
+    assert out.out == ""
+
+
+def test_a_failed_link_under_link_media_leaves_nothing(
+        tmp_path: Path, dist: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """A link that fails (here the unnamed file's, the last linked) stops
+    the copy: no NEW, no temporary folder, no copied file, and the folder
+    unchanged by bytes, mode and mtime."""
+    folder = rich_game(tmp_path)
+    before = tree(folder)
+    # tmp_path's own mtime moves as the temporary folder comes and goes.
+    around = {k: v for k, v in tree(tmp_path).items() if k}
+    new = tmp_path / "new"
+    real_link = os.link
+
+    def link(source: object, target: object, **kwargs: object) -> None:
+        if str(source).endswith(UNNAMED):
+            raise OSError(1, "Operation not permitted")
+        real_link(source, target, **kwargs)
+
+    monkeypatch.setattr(upgrade_folder.os, "link", link)
+    assert run(str(folder), "--to", str(new), "--link-media") == 1
+    err = capsys.readouterr().err
+    assert str(new) in err and "Operation not permitted" in err
+    assert not new.exists()
+    assert leftovers(tmp_path) == []
+    assert tree(folder) == before
+    assert {k: v for k, v in tree(tmp_path).items() if k} == around

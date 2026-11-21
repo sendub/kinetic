@@ -3701,8 +3701,8 @@ upgrade_folder: my-novel is upgraded, but the validator reports problems (above)
 The exit status is 0 when the folder is upgraded and the validator
 passes (its warnings do not change that), 1 for a refusal, a file it
 cannot write or validator problems, and 2 when the folder is not a
-directory, the arguments are wrong or `--to` names a place it cannot
-use (below).
+directory, the arguments are wrong (`--link-media` without `--to`
+among them) or `--to` names a place it cannot use (below).
 
 To see what an upgrade would do first, add `--dry-run`. It refuses as
 the upgrade would, prints what it would replace and runs the validator
@@ -3738,18 +3738,50 @@ kinetic upgrade my-novel
 The last step upgrades the delivered folder in place with the same
 release, which writes the same player files byte for byte as the copy
 got, so what you checked is what you ship. Then delete the copy;
-deleting it leaves the original's media in place. `--to` prints one
-line before the usual ones, then validates the copy, with the same
-exit status as a plain upgrade:
+deleting it leaves the original's media in place. `--to` prints a
+line before the usual ones with how many files it hard-linked and
+copied and their sizes, so a staging check can match them, then
+validates the copy, with the same exit status as a plain upgrade:
 
 ```text
-my-novel-next: a copy of my-novel, 4210 media files hard-linked and 12 other files copied
-Kinetic 1.12.0 -> 1.13.0
+my-novel-next: a copy of my-novel, 4,210 files (1.2 GB) hard-linked and 12 files (31.0 MB) copied
+Kinetic 1.13.0 -> 1.14.0
 my-novel-next: replaced index.html, app.js
 ```
 
-With `--dry-run` that line reads `my-novel-next: would be a copy of
-...`, and the last says `would replace`.
+Sizes are in decimal units (`999 bytes`, `1.0 kB`, `31.0 MB`, `1.2
+GB`), and a symbolic link counts as a copied file. With `--dry-run`
+that line reads `my-novel-next: would be a copy of ...`, and the last
+says `would replace`.
+
+A game that keeps every media file it has ever shipped, so that
+readers' saved places and bookmarks still find theirs, holds many
+files under `media/` that the current manifest no longer names. `--to`
+copies those in full, and says so in a second line:
+
+```text
+my-novel-next: a copy of my-novel, 4,210 files (1.2 GB) hard-linked and 2,612 files (803.5 MB) copied
+2,600 files (772.5 MB) under media/ are named by nothing and were copied; --link-media links them
+```
+
+(`would be copied` in a dry run; no such line when there are none.)
+Add `--link-media` to hard-link every file under the folder's `media/`,
+named or not, as well as the named media elsewhere. Symbolic links
+under `media/` stay links, and the files that are never linked (the
+player, the schema copies, `manifest.json`, `manifest.js`) stay copied.
+A folder with no `media/` folder is copied as without the flag. The
+staged workflow for such a game:
+
+```sh
+kinetic upgrade my-novel --to my-novel-next --link-media --dry-run
+kinetic upgrade my-novel --to my-novel-next --link-media
+kinetic check my-novel-next --steps all    # and your other checks
+kinetic upgrade my-novel
+```
+
+```text
+my-novel-next: a copy of my-novel, 6,810 files (2.0 GB) hard-linked and 12 files (31.0 MB) copied
+```
 
 `--to` refuses, writing nothing, with exit status 2: a NEW that
 already exists, a NEW inside the folder or holding it, a NEW whose
@@ -3757,8 +3789,11 @@ parent folder does not exist, and a NEW on another volume (disk) than
 the folder, since hard links cannot cross volumes. It builds the copy
 in a hidden folder beside NEW (`.my-novel-next.<random>.upgrading`)
 and renames it to NEW only when the copy is complete and upgraded, so
-a failure, such as a full disk, or Ctrl-C leaves no NEW. Only a process
-killed outright can leave that hidden folder behind; delete it.
+a failure, such as a full disk, or Ctrl-C leaves no NEW. A hard link
+that fails stops the copy the same way, with or without `--link-media`:
+the file is never copied instead, and no NEW and no copied file is
+left. Only a process killed outright can leave that hidden folder
+behind; delete it.
 
 The copy's media share storage with the original's: a media file
 edited in place in the copy, say by an image editor saving over it,

@@ -397,7 +397,12 @@ leave the assembled folder unchanged (every entry's size, time and
 mode) and make no copy; `upgrade --to`, whose copy must share the
 items' media files' inodes with the folder, hold its own `app.js`,
 validate, and on macOS keep a Mac app `codesign --verify --strict`
-accepts, the folder still unchanged; and a script under the work
+accepts, the folder still unchanged; `upgrade --to --link-media`, on a
+copy of the assembled folder with a file nothing names added under
+`media/`, whose copy must share that file's inode, whose copy line's
+counts must match the folder's files (every regular file under `media/`
+linked, the rest copied), as its dry run's must, and which must leave
+that folder unchanged; and a script under the work
 folder, with no puppeteer-core in a `node_modules` above it, that
 imports the path `check --library` prints, opens the game with
 `openGame` on Chrome (and WebKit on macOS), steps one item, and opens

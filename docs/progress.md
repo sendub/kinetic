@@ -6006,10 +6006,38 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 59: Link all of media/ in a staged copy (2026-11-21, converting agent)
 
-- [ ] `kinetic upgrade --to NEW --link-media` (docs/plan.md Phase 59,
+- [x] `kinetic upgrade --to NEW --link-media` (docs/plan.md Phase 59,
       item 1). Every file under `media/` hard-linked; counts and sizes
       in the copy line; the hint without the flag; docs and
       package-proof.
+      (2026-11-21: `--link-media` links every regular file under
+      `media/`, named or not, with the named media elsewhere as before;
+      symbolic links stay links; a `media` that is itself a symbolic
+      link counts as no `media/`. Without `--to` it exits 2 ("works only
+      with --to NEW; nothing written") before any other check. The copy
+      line now always reads "N files (S) hard-linked and M files (S)
+      copied" (decimal units, one decimal place, thousands separators);
+      without the flag a second line counts unnamed files under media/
+      that were (would be) copied and names `--link-media`. A failed
+      link still stops the copy; docstring, CREATE.md "Upgrading to a
+      newer Kinetic", AGENTS.md, a CHANGELOG bullet and packaging.md's
+      proof list say so. package-proof gains a wheel step running
+      `--to --link-media` on a copy of the assembled demo with an
+      unnamed file under media/ (shares the inode; counts match a
+      walk). Subagent's calls: symbolic links count as copied, sized by
+      lstat; the old "media files ... other files" wording is gone for
+      every `--to`. Tests: 23 new or changed in test_upgrade_folder.py
+      (failing first): inodes with and without the flag, the hint and
+      its singular, no hint when nothing is unnamed, no `media/`, exit 2
+      leaving the tree unchanged, an injected link failure leaving no
+      NEW or temporary folder, size format. Subagent:
+      test_upgrade_folder 74; with kinetic_cli and lf_output 119, 1
+      skipped (before rebuilding player/dist); npm test 1882, check
+      clean; package-proof 33/33. Orchestrator: the three files 120
+      passed; on an assembled demo with a 300 kB unnamed file under
+      media/, the dry run and real run printed the hint, the copy
+      without the flag got a new inode and with it the source's, and
+      `--link-media` without `--to` exited 2.)
 - [ ] Phase-closer (Phase 59): full suites; VERSION 1.14.0, the
       CHANGELOG dated, tag v1.14.0, `main` fast-forwarded, the wheel
       attached to the GitHub release, the Pages demo republished.

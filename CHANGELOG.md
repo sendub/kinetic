@@ -19,6 +19,15 @@ something more of an author.
 
 ## 1.14.0-dev
 
+- `kinetic upgrade <folder> --to NEW --link-media` hard-links every
+  file under the folder's `media/`, named or not, for a game that keeps
+  every media file it has shipped. `--to`, real or dry run, now prints
+  how many files it hard-links and copies and their sizes, and without
+  `--link-media` a second line counts the files under `media/` that
+  nothing names and that are copied. A hard link that fails still stops
+  the copy and leaves no NEW (CREATE.md, "Upgrading to a newer
+  Kinetic").
+
 ## 1.13.0 (2026-11-20)
 
 - How a reader gets the player's own words in another language:

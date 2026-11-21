@@ -101,10 +101,13 @@ are implementing and docs/stack.md for settled decisions.
   or 3 with `--strict`; 2 bad arguments; `--json` prints problems,
   warnings by kind, per-language coverage and `exitStatus` as one
   object; CREATE.md, "Validating"). Upgrade a game folder's player:
-  `.venv/bin/kinetic upgrade <folder> [--to NEW] [--dry-run]` after
-  `npm run build` (refuses a stale `player/dist/`; `--to NEW` upgrades
-  a new copy on the same volume, media hard-linked, the rest copied, the
-  folder only read; `--dry-run` prints what it would replace and
+  `.venv/bin/kinetic upgrade <folder> [--to NEW [--link-media]]
+  [--dry-run]` after `npm run build` (refuses a stale `player/dist/`;
+  `--to NEW` upgrades a new copy on the same volume, named media
+  hard-linked, the rest copied, the folder only read, and prints the
+  counts and sizes linked and copied; `--link-media` links every file
+  under `media/`, named or not, and without it a line counts the
+  unnamed ones copied; `--dry-run` prints what it would replace and
   validates the folder as it is, writing nothing; CREATE.md, "Upgrading
   to a newer Kinetic"). `.venv/bin/kinetic release-status [--json]`
   prints the version, the commit built from (`-dirty` when not clean),

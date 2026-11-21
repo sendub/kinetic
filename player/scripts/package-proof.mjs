@@ -37,7 +37,9 @@
 // (items 3 to 5): release-status --json against this checkout, upgrade
 // --dry-run (with and without --to) writing nothing, upgrade --to making
 // a copy with hard-linked media that validates (and whose Mac app still
-// verifies), and a script under the work folder, with no puppeteer-core
+// verifies), upgrade --to --link-media (Phase 59) hard-linking a file
+// nothing names under media/ with the copy line's counts matching, and a
+// script under the work folder, with no puppeteer-core
 // in a node_modules above it, importing the path `check --library` prints and opening the
 // assembled game with openGame on Chrome (and WebKit on macOS), then again
 // seeded with the state record the first open saved. Each is a checked
@@ -48,6 +50,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   linkSync,
   lstatSync,
@@ -767,7 +770,81 @@ function proveWheel() {
         `folder unchanged=${stillUntouched}; ${tail(upgraded.out, 3)}`,
     );
 
-    // 11. A script outside player/ imports the installed library.
+    // 11. --to --link-media (Phase 59 item 1) on a copy of the assembled
+    // folder with a file nothing names added under media/: that file is
+    // hard-linked too, and the copy line's counts match the folder's (the
+    // converter puts every media file under media/, so every regular file
+    // there is linked and everything else is copied, symbolic links
+    // included). The dry run says the same with "would be".
+    const keeper = join(cwd, "play-keeps-media");
+    const keeperNext = join(cwd, "play-keeps-media-next");
+    cpSync(play, keeper, { recursive: true, verbatimSymlinks: true });
+    const unnamed = join("media", "zz", "unnamed-old.png");
+    mkdirSync(join(keeper, "media", "zz"), { recursive: true });
+    writeFileSync(join(keeper, unnamed), "a picture nothing names now");
+    let wantLinked = 0;
+    let wantCopied = 0;
+    const count = (path, underMedia) => {
+      const st = lstatSync(path);
+      if (st.isDirectory()) {
+        for (const name of readdirSync(path)) {
+          count(join(path, name), underMedia || path === join(keeper, "media"));
+        }
+      } else if (underMedia && st.isFile()) {
+        wantLinked += 1;
+      } else {
+        wantCopied += 1;
+      }
+    };
+    count(keeper, false);
+    const keeperBefore = snapshot(keeper);
+    const linkDry = k(
+      "upgrade",
+      keeper,
+      "--to",
+      keeperNext,
+      "--link-media",
+      "--dry-run",
+    );
+    const linkReal = k("upgrade", keeper, "--to", keeperNext, "--link-media");
+    const lineOf = (out, prefix) =>
+      out.split("\n").find((line) => line.startsWith(prefix)) ?? "";
+    const realLine = lineOf(linkReal.out, `${keeperNext}: a copy of `);
+    const dryLine = lineOf(linkDry.out, `${keeperNext}: would be a copy of `);
+    const counts = realLine.match(
+      /, ([\d,]+) files? \([^)]*\) hard-linked and ([\d,]+) files? \([^)]*\) copied$/,
+    );
+    const number = (text) => Number(text.replaceAll(",", ""));
+    const countsMatch =
+      counts !== null &&
+      number(counts[1]) === wantLinked &&
+      number(counts[2]) === wantCopied;
+    const sameInode = (rel) =>
+      existsSync(join(keeperNext, rel)) &&
+      statSync(join(keeper, rel)).ino === statSync(join(keeperNext, rel)).ino;
+    const unnamedLinked = sameInode(unnamed);
+    const keeperPlayerCopied =
+      existsSync(join(keeperNext, "app.js")) && !sameInode("app.js");
+    const keeperUntouched = snapshot(keeper) === keeperBefore;
+    record(
+      "wheel: kinetic upgrade --to --link-media hard-links an unnamed media file and counts the copy",
+      linkReal.code === 0 &&
+        linkDry.code === 0 &&
+        countsMatch &&
+        dryLine === realLine.replace(": a copy of ", ": would be a copy of ") &&
+        !linkReal.out.includes("named by nothing") &&
+        unnamedLinked &&
+        keeperPlayerCopied &&
+        keeperUntouched
+        ? "PASS"
+        : "FAIL",
+      `exits ${linkDry.code}, ${linkReal.code}; want ${wantLinked} linked, ` +
+        `${wantCopied} copied; ${JSON.stringify(realLine)}; dry ` +
+        `${JSON.stringify(dryLine)}; unnamed shares inode=${unnamedLinked}; ` +
+        `app.js copied=${keeperPlayerCopied}; folder unchanged=${keeperUntouched}`,
+    );
+
+    // 12. A script outside player/ imports the installed library.
     const library = k("check", "--library");
     const libraryPath = library.out.trim();
     const work = join(cwd, "library-test");
