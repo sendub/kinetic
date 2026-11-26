@@ -6112,12 +6112,30 @@ truthful: an unchecked box means nothing was accepted.
       files 129 passed, converter and test_translations 1172 passed.
       Orchestrator: test_parser, test_renpy_translations and
       test_translations 171 passed.)
-- [ ] Script lines split as Ren'Py splits them (item 2b, a lead from
+- [x] Script lines split as Ren'Py splits them (item 2b, a lead from
       item 2). `parse_file` splits with `str.splitlines()`, which also
       breaks on `\x0b`, `\x0c`, `\x1c`-`\x1e`, `\x85`, U+2028 and
       U+2029; Ren'Py breaks only on `\n`, `\r` and `\r\n`, so such a
       character inside a line splits it and shifts line numbers (and the
       translation ids made from them). Split as the tl reader does.
+      (2026-11-26: parser.py gains `renpy_newlines` (BOM dropped, `\r\n`
+      and `\r` made `\n`) and `script_lines` (split at `\n`, a final
+      empty line dropped, so ordinary input splits as before); every
+      script reader uses them: `parse_file` and
+      `creator_statement_names` (were `splitlines`), the tl reader's
+      `logical_lines` and `_read_tl_file`'s physical lines (same
+      behaviour, one helper); rpyc.py's text goes through `parse_file`.
+      Left as they are, none splitting script text: po.py, the media
+      tools' checksum and output text, posters.py's id list, subprocess
+      output in app_hosts, assets and release_status, apps.py's licence.
+      Tests: per character (`\x0b`, `\x0c`, `\x1c`-`\x1e`, `\x85`,
+      U+2028, U+2029) a dialogue line keeps its text at its line and the
+      next lines their numbers with CRLF and lone CR mixed in (8 cases),
+      and the tl identifiers match those lines' blocks (8 cases); all 16
+      failed first (the parser's shifted sources missed their
+      translations). Subagent: converter and test_translations 1188
+      passed. Orchestrator: test_parser, test_renpy_translations,
+      test_rpyc and test_translations 192 passed.)
 - [ ] A one-choice menu keeps its line (item 3). The choice text a
       narration line in place, its translation from `strings`.
 - [ ] Menus whose choices jump become decisions (item 4). Routes from

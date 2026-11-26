@@ -286,6 +286,23 @@ def character_name(line: str) -> tuple[str, str] | None:
     return m.group(1), value
 
 
+def renpy_newlines(text: str) -> str:
+    """A script's text as Ren'Py's lexer reads it: a leading BOM gone,
+    ``\\r\\n`` and ``\\r`` made ``\\n``, its only line break. Other
+    characters ``str.splitlines`` breaks at (``\\x0b``, ``\\x0c``,
+    ``\\x1c`` to ``\\x1e``, ``\\x85``, U+2028, U+2029) stay in the line."""
+    return text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def script_lines(text: str) -> list[str]:
+    """A script's physical lines as Ren'Py numbers them (line ``n`` at
+    index ``n - 1``), split at ``\\n``, ``\\r`` and ``\\r\\n`` only."""
+    lines = renpy_newlines(text).split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    return lines
+
+
 def strip_comment(line: str) -> str:
     """Remove a ``#`` comment that is not inside a quoted string, double-
     or single-quoted (`color='#fff'` keeps its colour)."""
@@ -1132,7 +1149,7 @@ def _audio_event(result: FileParse, source: str, line: str,
 
 def creator_statement_names(text: str) -> set[str]:
     """The names a script registers with `renpy.register_statement`."""
-    raw_lines = text.lstrip("\ufeff").splitlines()
+    raw_lines = script_lines(text)
     names: set[str] = set()
     for n, raw in enumerate(raw_lines):
         if "register_statement(" in raw:
@@ -1148,7 +1165,7 @@ def parse_file(text: str, relname: str,
     ``creator_statements`` are statement names other files register."""
     result = FileParse(relname=relname,
                        creator_statements=set(creator_statements))
-    raw_lines = text.lstrip("\ufeff").splitlines()
+    raw_lines = script_lines(text)
     _scan_settings(raw_lines, relname, result)
     result.story_reports_from = len(result.reports)
     result.creator_statements |= creator_statement_names(text)

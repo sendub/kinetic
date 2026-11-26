@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from helpers import encoded_tracks, is_content_addressed, mask_tracks
 from kinetic_extract.cli import main as cli_main
 from kinetic_extract.parser import parse_file
@@ -157,6 +158,30 @@ def test_non_breaking_spaces_in_indentation_parse_as_plain() -> None:
     assert got.reports == want.reports
     assert ("seen", "later", "True") in want.assignments
     assert got.assignments == want.assignments
+
+
+# The characters str.splitlines breaks at that Ren'Py's lexer does not:
+# it breaks only at \n, \r and \r\n.
+NOT_LINE_BREAKS = ["\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85",
+                   " ", " "]
+
+
+@pytest.mark.parametrize("char", NOT_LINE_BREAKS,
+                         ids=lambda c: f"U+{ord(c):04X}")
+def test_only_ren_py_line_breaks_split_a_script(char: str) -> None:
+    text = ("label start:\n"                      # 1
+            f'    a "Before{char}after."\n'       # 2
+            '    a "Next."\r\n'                   # 3
+            '    "Last."\r'                       # 4
+            '    "End."\n')                       # 5
+    parsed = parse_file(text, "game/x.rpy")
+    dialogue = [e for e in parsed.events if e.kind == "dialogue"]
+    assert [(e.text, e.source) for e in dialogue] == [
+        (f"Before{char}after.", "game/x.rpy:2"),
+        ("Next.", "game/x.rpy:3"),
+        ("Last.", "game/x.rpy:4"),
+        ("End.", "game/x.rpy:5")]
+    assert parsed.reports == []
 
 
 def test_unknown_statement_reported_not_fatal() -> None:

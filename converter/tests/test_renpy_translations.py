@@ -466,6 +466,39 @@ def test_read_project_matches_items(tmp_path: Path) -> None:
         "game/tl/de/script.rpy:12 (start_11111111)"]
 
 
+# The characters str.splitlines breaks at that Ren'Py's lexer does not.
+NOT_LINE_BREAKS = ["\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85",
+                   " ", " "]
+
+
+@pytest.mark.parametrize("char", NOT_LINE_BREAKS,
+                         ids=lambda c: f"U+{ord(c):04X}")
+def test_only_ren_py_line_breaks_split_a_script_for_tl(
+        tmp_path: Path, char: str) -> None:
+    script = ('label start:\n'                   # 1
+              f'    e "Before{char}after."\n'    # 2
+              '    e "Next."\n')                 # 3
+    before = ident("start", f'e "Before{char}after."')
+    after = ident("start", 'e "Next."')
+    groups = groups_of(("game/script.rpy", script))
+    assert [(g.identifier, g.line) for g in groups] == [(before, 2),
+                                                        (after, 3)]
+    game = tmp_path / "game"
+    write(game / "script.rpy", script)
+    write(game / "tl" / "de" / "script.rpy",
+          f'# game/script.rpy:2\ntranslate de {before}:\n'
+          '    e "Vorher, nachher."\n\n'
+          f'# game/script.rpy:3\ntranslate de {after}:\n'
+          '    e "Weiter."\n')
+    records = walk(game)
+    project = tl.read_project(game, records)
+    texts = {r.item["text"]: r.translations.get("de") for r in records}
+    assert texts == {f"Before{char}after.": "Vorher, nachher.",
+                     "Next.": "Weiter."}
+    s = project.stats["de"]
+    assert (s.blocks, s.matched, s.unmatched, s.agree) == (2, 2, 0, 2)
+
+
 def test_read_project_without_tl_or_turned_off(tmp_path: Path) -> None:
     game = tmp_path / "game"
     write(game / "script.rpy", SCRIPT)

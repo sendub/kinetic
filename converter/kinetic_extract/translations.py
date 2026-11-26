@@ -53,7 +53,8 @@ from typing import Any
 
 from .language_file import base_hash, canonical_tag
 from .parser import (LABEL_MAX, PROMPT_MAX, _parse_quoted,
-                     creator_statement_names, walked_scripts)
+                     creator_statement_names, renpy_newlines,
+                     script_lines, walked_scripts)
 from .rpa import RpaArchive, RpaError, archives_in
 
 TL_DIR = "tl"
@@ -196,7 +197,7 @@ def logical_lines(text: str) -> list[tuple[int, str]]:
     to the end of the line, a newline inside brackets or a string (or
     after a backslash) continues the line, blank and comment-only lines
     are dropped. The text keeps everything else as written."""
-    data = text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
+    data = renpy_newlines(text)
     data += "\n"
     out: list[tuple[int, str]] = []
     pos, number, n = 0, 1, len(data)
@@ -955,7 +956,7 @@ def _block_text(block: list[Line]) -> tuple[list[str], list[str | None]]:
 
 def _read_tl_file(text: str, rel: str, languages: dict[str, LanguageRead],
                   folder: str) -> None:
-    physical = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    physical = script_lines(text)
     for line in grouped_lines(text):
         m = _TRANSLATE_RE.match(line.text)
         if m is None:
