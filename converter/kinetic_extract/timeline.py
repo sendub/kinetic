@@ -104,6 +104,10 @@ class ItemRecord:
     # shows the line and its extensions in one box). Their translations
     # are joined the same way (kinetic_extract.translations).
     text_parts: list[tuple[str, str]] = field(default_factory=list)
+    # The sources of the parts Ren'Py translates in a language's `strings`
+    # block, not a dialogue block: a one-choice menu's choice and caption
+    # (kinetic_extract.parser, Event.from_strings).
+    string_sources: set[str] = field(default_factory=set)
     # Language tag -> the item's text in that language, read from the
     # game's tl/ folders (kinetic_extract.translations).
     translations: dict[str, str] = field(default_factory=dict)
@@ -582,6 +586,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     cues.attach(record)
                     result.items.append(record)
                     check_limit()
+                if event.from_strings and last_line is not None:
+                    last_line.string_sources.add(event.source)
             elif event.kind == "menu-open":
                 # The lead-in ends here: a trailing visual becomes the
                 # decision's `after` item, and the region starts empty.

@@ -18,9 +18,12 @@ Design notes:
   ``choice-open`` / ``menu-close`` marker events, so the timeline can lay a
   branch decision over the items. A menu that fails the conservative shape
   (a non-quoted or conditional choice, a nested menu, a flow or unknown
-  statement inside a choice block, fewer than two choices) is reported
+  statement inside a choice block, a lone conditional choice) is reported
   with ``menu unsupported (...)`` and its whole block is skipped, as before
-  — never fatal.
+  — never fatal. A menu with one plain choice is no decision (Phase 60
+  item 3): its caption, if any, and its choice text become narration
+  lines where the menu stood, and the choice block is read in place as
+  label flow.
 - ``jump``, ``call`` and ``return`` become flow events (``Event.flow``, a
   ``FlowStep``), and so do the jumps and calls inside an ``if``/``elif``/
   ``else`` chain, a ``while`` or a menu the walk does not convert (a
@@ -384,6 +387,10 @@ class Event:
     transition: str | None = None
     # The flow statement (jump, call, return and fork events).
     flow: FlowStep | None = None
+    # A dialogue event made from a one-choice menu's choice or caption
+    # text, which Ren'Py translates in the language's `strings` block
+    # (old/new), not in a dialogue block (kinetic_extract.translations).
+    from_strings: bool = False
 
 
 @dataclass
@@ -901,6 +908,50 @@ def _parse_menu_body(block: list[tuple[int, str, int]], relname: str,
     return None, caption, choices
 
 
+_PLAIN_CHOICE_RE = re.compile(r"\s*:")
+
+
+def _one_choice(block: list[tuple[int, str, int]], caption: str | None,
+                menu_lineno: int) -> list[tuple[int, str]] | None:
+    """The narration lines of a one-choice menu, ``(lineno, text)``: its
+    caption, if it has one, then its choice text, the choice's line last
+    (its block follows it). None for any other menu: two or more choices,
+    a conditional choice (`"x" if cond:`), a statement before the choice,
+    or any line between choices the menu reader does not take."""
+    if not block:
+        return None
+    base = block[0][2]
+    lines: list[tuple[int, str]] = []
+    choice = None
+    for lineno, text, indent in block:
+        if indent > base:
+            if choice is None:
+                return None
+            continue
+        if indent < base or choice is not None \
+                or not text.startswith("\""):
+            return None
+        parsed = _parse_quoted(text, 0)
+        if parsed is None:
+            return None
+        said, end = parsed
+        if _PLAIN_CHOICE_RE.fullmatch(text[end:]):
+            if not said.strip():
+                return None
+            choice = (lineno, said)
+        elif caption is None and not lines and not text[end:].strip():
+            caption = said
+            lines.append((lineno, said))
+        else:
+            return None
+    if choice is None:
+        return None
+    if caption is not None and not lines:
+        # The caption of a `menu "caption":` head, said on its line.
+        lines.append((menu_lineno, caption))
+    return lines + [choice]
+
+
 def _handle_menu(raw_lines: list[str], i: int, relname: str,
                  menu_lineno: int, menu_line: str, menu_indent: int,
                  result: FileParse, cur_label: str | None,
@@ -908,13 +959,15 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
     """Parse the menu block whose ``menu:`` line was just read.
 
     ``i`` is the index of the line after the ``menu:`` line; the answer is
-    the index the outer scan resumes at. A menu passing the conservative
-    rules (two or more plain quoted choices, each body parsing to events
-    or noise) appends a MenuRecord plus marker events; anything else is
-    reported ``menu unsupported (reason)`` and its block contributes
-    nothing to the stream but a ``fork`` event when its choices jump or
-    call (the walk follows those, docs/plan.md Phase 57 item 4e). Never
-    fatal."""
+    the index the outer scan resumes at. A menu with one plain choice
+    gives narration lines (its caption, its choice text) and resumes the
+    scan inside its choice block, read as label flow. A menu passing the
+    conservative rules (two or more plain quoted choices, each body
+    parsing to events or noise) appends a MenuRecord plus marker events;
+    anything else is reported ``menu unsupported (reason)`` and its block
+    contributes nothing to the stream but a ``fork`` event when its
+    choices jump or call (the walk follows those, docs/plan.md Phase 57
+    item 4e). Never fatal."""
     source = f"{relname}:{menu_lineno}"
     head_rest = menu_line[len("menu"):].strip()
     if head_rest.startswith(":"):
@@ -936,6 +989,15 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
             break
         block.append((j + 1, content.strip(), indent))
         j += 1
+
+    single = _one_choice(block, caption, menu_lineno)
+    if single is not None:
+        for lineno, text in single:
+            result.events.append(Event("dialogue", f"{relname}:{lineno}",
+                                       text=text, from_strings=True))
+        # The outer scan reads the choice block, the lines after the
+        # choice line, as label flow.
+        return single[-1][0]
 
     if not block:
         reject, caption, choices = "empty menu", caption, []

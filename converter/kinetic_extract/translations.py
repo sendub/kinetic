@@ -23,7 +23,8 @@ loose or inside its ``.rpa`` archives:
   old English as the base it was made from, so that it reads stale;
 - string blocks, ``translate <language> strings:``, ``old``/``new``
   pairs, used here for menu choices (route labels), menu captions
-  (prompts), character names (speakers) and the title and version;
+  (prompts), character names (speakers), the title and version, and the
+  lines a one-choice menu's choice and caption became (items);
 - ``translate <language> style`` and ``translate <language> python``
   blocks (fonts and code) and the per-language file replacements (any
   other file under ``tl/<language>/``): ignored, and counted.
@@ -1125,6 +1126,8 @@ class ProjectTranslations:
 
     stats: dict[str, LanguageStats] = field(default_factory=dict)
     strings: dict[str, dict[str, str]] = field(default_factory=dict)
+    # Per tag the strings (normalised old) that translated item parts.
+    strings_used: dict[str, set[str]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
 
@@ -1323,6 +1326,8 @@ def read_project(game_dir: Path, records: list[Any],
         for block, group, old_english in stale:
             if _take(block, group, old_english, parts_at, found, stats):
                 stats.kept_stale += 1
+        project.strings_used[tag] = _take_strings(records, lang.strings,
+                                                  found)
         _assemble(tag, records, found, stats)
     return project
 
@@ -1354,6 +1359,25 @@ def _take(block: Block, group: Group, old_english: str | None,
         stats.same_as_base += 1
     parts[k] = _Part(text, english if old_english is None else old_english)
     return True
+
+
+def _take_strings(records: list[Any], strings: dict[str, str],
+                  found: dict[int, dict[int, _Part]]) -> set[str]:
+    """Give each item part Ren'Py translates in the `strings` block (a
+    one-choice menu's choice or caption, ``record.string_sources``) its
+    `new` text; the normalised `old` texts used."""
+    used: set[str] = set()
+    for record in records:
+        sources = getattr(record, "string_sources", set())
+        for k, (source, english) in enumerate(record.text_parts):
+            if source not in sources:
+                continue
+            new = strings.get(norm_key(english))
+            if new is not None and new.strip():
+                found.setdefault(id(record), {}).setdefault(
+                    k, _Part(new, english))
+                used.add(norm_key(english))
+    return used
 
 
 def _assemble(tag: str, records: list[Any],
@@ -1431,7 +1455,8 @@ def language_files(manifest: dict[str, Any], records: list[Any],
     for tag in sorted(stats):
         s = stats[tag]
         table = strings.get(tag, {})
-        used: set[str] = set()
+        used: set[str] = set().union(*(p.strings_used.get(tag, set())
+                                       for p in projects))
 
         def lookup(base: str, limit: int | None, what: str) -> str | None:
             key = norm_key(base)

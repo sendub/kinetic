@@ -159,7 +159,10 @@ def test_jump_inside_block_and_unknown_stmt_each_reject() -> None:
 
 
 def test_single_choice_and_dedented_tail_reject() -> None:
-    parsed = parse_file('menu:\n    "only":\n        "a"\n', "game/x.rpy")
+    # A lone conditional choice is rejected; a lone plain one is a line
+    # (Phase 60 item 3, test_one_choice_menu.py).
+    parsed = parse_file('menu:\n    "only" if x:\n        "a"\n',
+                        "game/x.rpy")
     assert any("fewer than two choices" in r.reason for r in parsed.reports)
     # After a rejected menu the walker resumes at the dedented lines.
     parsed = parse_file('menu\n    "one":\n        "a"\nlabel after:\n'

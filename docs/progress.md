@@ -6136,8 +6136,33 @@ truthful: an unchecked box means nothing was accepted.
       translations). Subagent: converter and test_translations 1188
       passed. Orchestrator: test_parser, test_renpy_translations,
       test_rpyc and test_translations 192 passed.)
-- [ ] A one-choice menu keeps its line (item 3). The choice text a
+- [x] A one-choice menu keeps its line (item 3). The choice text a
       narration line in place, its translation from `strings`.
+      (2026-11-26: parser.py's `_one_choice` takes a menu block of an
+      optional caption line and exactly one plain `"text":` choice;
+      `_handle_menu` then emits the caption (a `menu "x":` head's too)
+      and the choice text as speakerless dialogue marked
+      `from_strings`, and resumes the main scan inside the choice block,
+      so the block is label flow (jumps, calls, `$`, audio, scene/show)
+      with no second reader; no MenuRecord, no report, a named menu
+      still makes its label. timeline.py records those parts'
+      sources (`ItemRecord.string_sources`) and translations.py's
+      `_take_strings` gives them their language's `strings` `new`
+      text (`norm_key`, as route labels), counted in "strings used". A
+      conditional lone choice still reports `fewer than two choices`.
+      Subagent's calls: the caption is a line of its own before the
+      choice (Ren'Py shows it with the menu); no ledger note, left to
+      item 4. Tests: test_one_choice_menu.py (the line in place with
+      the block after it, `$` assignment and `$ renpy.jump`, a caption,
+      a named menu, the conditional case unchanged, the walk following
+      the block's jump; an extract with a de strings block: items in
+      order, no branches, both lines translated with the right `from`,
+      5 of 5 strings used, coverage 8 of 8, validate --strict silent);
+      6 of 7 failed first, the unchanged-case test passing as meant;
+      test_branch_extract's lone-choice reject now uses a conditional
+      choice. Subagent: the touched files 163, converter and tools 2138
+      passed. Orchestrator: those files with test_translations 205
+      passed.)
 - [ ] Menus whose choices jump become decisions (item 4). Routes from
       the walk's alternatives, results proven from how each path ends;
       empty choices get their text; in-place menus get their joins.
