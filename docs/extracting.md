@@ -162,7 +162,13 @@ game whose story order differs from its file order read out of order.
   end `"ending"`. The last choice reaching the join is the
   `continuingRoute`, and the join's first item the `continueAt`; a menu
   nested in a route whose choices meet where the enclosing menu's do
-  takes the enclosing `continueAt`, past its route's end. A menu whose
+  (a jump there, or falling through at the end of the enclosing
+  choice's block) takes the enclosing `continueAt`, past its route's
+  end. A route with no item of its own before a menu nested in it (the
+  choice's block opens with the menu, or jumps straight to a label that
+  does) starts with one line, its choice text, translated from the
+  language's `strings` block, and the nested decision hangs off that
+  line (Phase 60 item 8c). A menu whose
   choices all fall through meets right after the menu, so it continues
   there too; one with no item after its join (the story's end, or a
   second menu straight after it) is a pure choice, its routes
@@ -190,8 +196,9 @@ game whose story order differs from its file order read out of order.
   than the join or the menu (a jump back to a label whose way to the
   menu, after a line, passes an `if` with a jump, another menu, a call
   or another jump is such a rejoin), a conditional choice (`"x" if cond:`), a
-  `label` inside a choice block, and any line between choices other
-  than a caption. Such a menu's blocks are skipped as for an `if`, their
+  `label` inside a choice block, any line between choices other
+  than a caption, and a nested menu with no item of its route before
+  it (the route's lines dropped with an unresolved visual). Such a menu's blocks are skipped as for an `if`, their
   jumps and calls followed.
 - **Screens**: `show screen x` and `call screen x` are a fork of the
   screen's literal `Jump("label")` and `Call("label")` actions, and

@@ -6427,9 +6427,41 @@ truthful: an unchecked box means nothing was accepted.
       `"return"`) with its 446 animations kept, no menu refused for an
       item type. Leads: item 8c; the join's first line showing the last
       route's visual, docs/future.md "The visual at a join".)
-- [ ] A route that opens with a nested menu (item 8c, a lead from item
+- [x] A route that opens with a nested menu (item 8c, a lead from item
       8b). The nested decision hangs off the item before the route, so
       the join's line is never shown (`validate --strict` exit 3).
+      (2026-11-26: flow.py emits the enclosing choice's text as a
+      `choice-text` marker (item 4's `from_strings` mechanism) before
+      every menu nested in a choice's path, a `route-lead` once the
+      nested menu is a decision, in the file-order walk too;
+      timeline.py's `route_needs_lead` makes it a narration line only
+      when the enclosing route has no item yet and no visual waiting, so
+      item 8b's repeat gives it the menu's picture; a new `close_menu`
+      guard keeps a nested menu whose `after` lies before its route
+      linear ("no item of its enclosing route precedes the menu").
+      A related bug fixed: a nested menu falling through at its route's
+      end met at the block's `goto` and became a pure choice of
+      `"ending"` routes (a reader with Play all routes off had to read
+      every inner route); now `enclosing_join` counts that as the
+      enclosing menu's join, so its routes continue to the enclosing
+      `continueAt`; `path_end` follows a `goto` another path passed.
+      extracting.md's Menus and linear cases. Subagent's calls: the line
+      is added whenever a nested decision would otherwise have no
+      `after` in its route (a jump or call straight to a label opening
+      with a menu too), decided by the timeline from what it emitted; a
+      bare visual before the menu still serves as `after`; a route whose
+      lines drop with an unresolved visual gets no line (the guard keeps
+      the menu linear); a menu at the end of an `if` block keeps its old
+      behaviour. Tests: test_route_opens_with_menu.py 8 end-to-end (route
+      1, a later route with the repeated picture, two deep, a jump to a
+      label opening with a menu, de strings translations of the line,
+      prompts and labels, file order, a line before the menu with inner
+      routes now `"continue"`, the guard), 6 failing first, 5 failing
+      with the guard and join fix removed; test_flow's nested-menus test
+      now expects the Right route's line and the inner decision inside
+      it. Subagent: converter and tools 2216. Orchestrator: converter and
+      tools 2216 passed; a reporting agent's game (read-only walk)
+      unchanged at 35 decisions.)
 - [ ] Fixtures and docs (item 9). The extract demo covers the new
       shapes; package-proof.
 - [ ] Phase-closer (Phase 60): full suites; VERSION 1.15.0, the

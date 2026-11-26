@@ -15,7 +15,9 @@ Menus (docs/plan.md Phase 13; Phase 60 item 4): the walk lays each
 decision menu out between marker events (kinetic_extract.flow); the items
 between them are the routes, menus nested in a route included, and the
 first item of the join's path is the `continueAt`. A route may hold any
-item (Phase 60 item 8b). A `text` item shows the nearest earlier media
+item (Phase 60 item 8b). A route with no item before a menu nested in it
+gets its choice text as its first line (item 8c), so the nested decision
+hangs inside the route. A `text` item shows the nearest earlier media
 item in array order, so a route after the first whose first line is said
 over the visual on screen at the menu, when an earlier route changed the
 visual, gets that line on a repeat of the menu's visual: the same picture,
@@ -507,6 +509,19 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                                                    or at_menu):
             pending = at_menu.repeat(ms["record"].source)
 
+    def route_needs_lead() -> bool:
+        """Whether a menu opening now, nested in a route, would hang off
+        an item before that route (Phase 60 item 8c): the route has no
+        item yet and no visual waiting that the `menu-open` would emit.
+        A route whose visual is unresolved drops its lines, so it gets
+        none: close_menu keeps that nested menu linear."""
+        if not menu_stack or not menu_stack[-1]["starts"]:
+            return False
+        if len(result.items) > menu_stack[-1]["starts"][-1]:
+            return False
+        return pending is None or pending.consumed or (
+            pending.origin is not None and not pending.unresolved)
+
     def emit_media(pend: _Pending, speaker: str | None,
                    text: str | None,
                    line_source: str | None = None) -> ItemRecord:
@@ -642,6 +657,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         reason = ms.get("reject") or outcome.get("linear")
         if reason is None and ms["after"] < 0:
             reason = "no item precedes the menu in the walked flow"
+        elif reason is None and len(menu_stack) > 1 \
+                and ms["after"] < menu_stack[-2]["starts"][-1]:
+            reason = "no item of its enclosing route precedes the menu"
         elif reason is None and len(starts) != len(record.choices):
             reason = "choice count does not match the walked blocks"
         elif reason is None:
@@ -695,6 +713,13 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 flush_bare()
                 continue
             check_limit()
+            if event.kind == "route-lead":
+                if not route_needs_lead():
+                    continue
+                # The enclosing route's choice text, as a line (Phase 60
+                # item 8c): the nested decision hangs off it.
+                event = Event("dialogue", event.source, text=event.text,
+                              from_strings=True)
             if event.kind in ("dialogue", "interact", "menu-open",
                               "choice-open", "menu-close",
                               "stop-movie", "path-end"):

@@ -38,7 +38,12 @@ story events in that order, each statement once:
   the decision's lead-in, which is not laid out again. The menu stays
   linear (a path rejoining content read elsewhere, every choice empty); a
   choice with nothing of its own gets its text as a line
-  (kinetic_extract.timeline makes the decision).
+  (kinetic_extract.timeline makes the decision). A menu nested in a
+  choice's path is preceded by that choice's text as a `route-lead`
+  marker once it is a decision (item 8c), a line the timeline keeps when
+  the route has no item before the menu. A nested menu whose choices meet
+  at the end of the enclosing choice's block meets where the enclosing
+  menu's choices do.
 
 After the story the walk can go on from more labels: each `--also-label`
 (a Ren'Py entry label such as `splashscreen` the walk never runs, say),
@@ -324,18 +329,26 @@ def _line(source: str) -> tuple[str, int]:
 
 
 def _in_file_order(parsed: FileParse, stream: list[Event],
-                   out: list[tuple[FileParse, Event]]) -> bool:
+                   out: list[tuple[FileParse, Event]],
+                   choice: tuple[str, str] | None = None) -> bool:
     """``stream``'s story events in file order onto ``out``, a menu that
     becomes a decision laid out between its markers as the walk lays it
     out, with no join (nothing follows a jump here, so nothing proves
-    one): every route ``"ending"``, a pure choice. True when a story
-    event (or a choice's text) was added."""
+    one): every route ``"ending"``, a pure choice. ``choice`` is the
+    ``(source, text)`` of the choice whose block ``stream`` is, which a
+    menu nested in it is preceded by, as the walk's route lead. True
+    when a story event (or a choice's text) was added."""
     story = False
     for event in stream:
         flow = event.flow
         if event.kind == "fork" and flow is not None \
                 and flow.menu is not None:
             record = parsed.menus[flow.menu]
+            lead = None
+            if choice is not None:
+                lead = Event("choice-text", choice[0], text=choice[1],
+                             from_strings=True)
+                out.append((parsed, lead))
             out.append((parsed, Event("menu-open", event.source,
                                       name=str(flow.menu))))
             texts: list[Event] = []
@@ -344,7 +357,9 @@ def _in_file_order(parsed: FileParse, stream: list[Event],
                 out.append((parsed, Event(
                     "choice-open", record.choice_sources[k],
                     name=f"{flow.menu}:{k}")))
-                filled.append(_in_file_order(parsed, body, out))
+                filled.append(_in_file_order(
+                    parsed, body, out,
+                    (record.choice_sources[k], record.choices[k])))
                 if not filled[-1]:
                     texts.append(Event("choice-text",
                                        record.choice_sources[k],
@@ -356,6 +371,8 @@ def _in_file_order(parsed: FileParse, stream: list[Event],
             if linear is None:
                 for marker in texts:
                     marker.kind = "dialogue"
+                if lead is not None:
+                    lead.kind = "route-lead"
                 story = True
             out.append((parsed, Event(
                 "menu-close", event.source, name=str(flow.menu),
@@ -534,6 +551,8 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                "walked": {}, "sites": []}
         events = out["events"]
         menus: dict[int, dict[str, Any]] = {}
+        # Each menu fork walked -> where its choices meet.
+        menu_joins: dict[int, int] = {}
         # True from a decision's `menu-close` until its join's path shows
         # a story event, opens a menu or ends (a `path-end` marker).
         awaiting = [False]
@@ -565,6 +584,13 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 awaiting[0] = False
                 events.append((parsed_of[ops[min(n, exit_ - 1)].file],
                                Event("path-end", "")))
+            steps = 0
+            while kind == "stop" and n < exit_ and ops[n].kind == "goto" \
+                    and n not in stops and steps < _LEAD_IN_MAX:
+                # A block's end another path already passed: where it
+                # goes is where this path ends (a menu at the end of a
+                # choice's block meets the enclosing menu's join).
+                n, steps = ops[n].to, steps + 1
             for depth in range(len(ctx) - 1, floor - 1, -1):
                 fork, k, frame_stops = ctx[depth]
                 info = menus[fork]
@@ -599,6 +625,35 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                            text=record.choices[k], from_strings=True)
             info["texts"].append(marker)
             events.append((parsed_of[ops[fork].file], marker))
+
+        def enclosing_join(join: int, ctx: Ctx) -> int:
+            """A menu whose choices meet at the end of an enclosing
+            choice's block (its `goto`, nothing between) meets where that
+            enclosing menu's choices do (Phase 60 item 8c): its routes
+            continue there, as a jump there would."""
+            m, steps = join, 0
+            while 0 <= m < exit_ and ops[m].kind == "goto" \
+                    and steps < _LEAD_IN_MAX:
+                m, steps = ops[m].to, steps + 1
+            if m != join and any(menu_joins.get(f) == m
+                                 for f, _k, _s in ctx):
+                return m
+            return join
+
+        def route_lead(ctx: Ctx) -> Event | None:
+            """Before a menu nested in a choice's path, that choice's text
+            as a marker (Phase 60 item 8c): a `route-lead` line once the
+            menu is a decision, which the timeline keeps when the route
+            has no item of its own before the menu, so the nested
+            decision hangs inside its route."""
+            if not ctx:
+                return None
+            outer, k, _s = ctx[-1]
+            record = parsed_of[ops[outer].file].menus[ops[outer].menu]
+            marker = Event("choice-text", record.choice_sources[k],
+                           text=record.choices[k], from_strings=True)
+            events.append((parsed_of[ops[outer].file], marker))
+            return marker
 
         def close_menu(fork: int, ctx: Ctx) -> None:
             info = menus[fork]
@@ -637,6 +692,8 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             if linear is None:
                 for marker in info["texts"]:
                     marker.kind = "dialogue"
+                if info["route_lead"] is not None:
+                    info["route_lead"].kind = "route-lead"
                 for outer, k, _s in ctx:
                     menus[outer]["story"][k] = True
             link = info["link"]
@@ -740,7 +797,9 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                     elif op.kind == "goto":
                         n = op.to
                     elif op.kind == "fork" and op.menu is not None:
-                        join = _menu_join(ops, n, ipdom)
+                        join = enclosing_join(_menu_join(ops, n, ipdom),
+                                              ctx)
+                        menu_joins[n] = join
                         has_join = 0 <= join < exit_
                         inner = stops | {join} if has_join else stops
                         if final:
@@ -760,6 +819,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 "lead": [None] * count,
                                 "story": [False] * count, "texts": []}
                             awaiting[0] = False
+                            menus[n]["route_lead"] = route_lead(ctx)
                             events.append((parsed_of[op.file], Event(
                                 "menu-open", op.source, name=str(op.menu))))
                         if has_join and join not in stops:

@@ -311,7 +311,9 @@ def test_nested_menus_with_jumps_rejoin(tmp_path: Path) -> None:
     """The walk reads each choice's path in turn up to the scene they all
     reach, then that scene once; menus whose choices jump are decisions
     (Phase 60 item 4), the nested one inside the outer one's route, and
-    so is the plain menu after them."""
+    so is the plain menu after them. The Right route opens with the
+    nested menu, so its choice text is its first line, which the nested
+    decision hangs off (item 8c)."""
     game = project(tmp_path, {
         "a.rpy": ('label down:\n    "Down path."\n    jump joined\n'
                   'label joined:\n    "Together again."\n'
@@ -329,11 +331,14 @@ def test_nested_menus_with_jumps_rejoin(tmp_path: Path) -> None:
     })
     result, parses = walk(game)
     assert texts(result) == [
-        "Lead.", "Left path.", "Up path.", "Down path.", "Together again.",
-        "Stayed.", "Went.", "The end."]
+        "Lead.", "Left path.", "Right", "Up path.", "Down path.",
+        "Together again.", "Stayed.", "Went.", "The end."]
     assert not any("menu unsupported" in r for r in reasons(parses))
     assert [c["record"].choices for c in result.branch_candidates] == [
         ["Up", "Down"], ["Left", "Right"], ["Stay", "Go"]]
+    inner, outer, _plain = result.branch_candidates
+    assert inner["after_idx"] == 2
+    assert outer["route_spans"][1] == ("Right", 2, 4)
     # Left, up and down each jump to where the paths meet.
     assert result.walk["rejoins"] == 3
 

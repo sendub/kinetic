@@ -380,8 +380,10 @@ class Event:
     sits between its ``choice-open`` and the next boundary, so the
     timeline can attribute items to route spans by position; the walk
     adds ``choice-text`` (a choice with nothing of its own, its text a
-    line when the menu is a decision) and ``path-end`` (the join's path
-    ended before any story event) markers."""
+    line when the menu is a decision; before a menu nested in a choice's
+    path, that choice's text, a ``route-lead`` when the nested menu is a
+    decision) and ``path-end`` (the join's path ended before any story
+    event) markers."""
 
     kind: str            # visual | video | dialogue | stop-movie | label |
                          # menu-open | choice-open | menu-close | audio |
