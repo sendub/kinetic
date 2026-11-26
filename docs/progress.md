@@ -6059,3 +6059,30 @@ truthful: an unchecked box means nothing was accepted.
       the wheel built and attached to the GitHub release v1.14.0 with
       the CHANGELOG entry as notes; the Pages demo republished from
       the release commit.)
+
+## Phase 60: Choices that jump, content that follows a choice, ATL animations (2026-11-26, converting agents)
+
+- [ ] A reload at an open choice shows the choice (docs/plan.md Phase
+      60, item 1). The overlay drawn from the current state at mount;
+      the other listeners checked; scenario parts on Chrome and WebKit.
+- [ ] Lines indented with non-breaking spaces (item 2). The tl reader
+      and the script parser read indentation as Ren'Py's lexer does.
+- [ ] A one-choice menu keeps its line (item 3). The choice text a
+      narration line in place, its translation from `strings`.
+- [ ] Menus whose choices jump become decisions (item 4). Routes from
+      the walk's alternatives, results proven from how each path ends;
+      empty choices get their text; in-place menus get their joins.
+- [ ] A decision that follows an earlier one (item 5). `follows` and
+      `when` in the format, validator, player and tools.
+- [ ] Conditions become decisions (item 6). `follows` decisions,
+      counter ranges and choice-named labels; `--condition-names`; the
+      report's section.
+- [ ] Animation timing (item 7). `frameSeconds` and `holdLastFrame` in
+      the format, validator, player and tools.
+- [ ] ATL frame lists become animations (item 8). Frames, pauses and
+      `repeat` read; one-frame blocks as stills; lines kept.
+- [ ] Fixtures and docs (item 9). The extract demo covers the new
+      shapes; package-proof.
+- [ ] Phase-closer (Phase 60): full suites; VERSION 1.15.0, the
+      CHANGELOG dated, tag v1.15.0, `main` fast-forwarded, the wheel
+      attached to the GitHub release, the Pages demo republished.

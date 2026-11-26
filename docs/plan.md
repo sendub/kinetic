@@ -4599,6 +4599,259 @@ The decisions (2026-11-21, the user with the requesting agent):
 
 Sequencing: 1 -> 2.
 
+## Phase 60: Choices that jump, content that follows a choice, ATL animations (2026-11-26, converting agents)
+
+Two converting agents reported, on Kinetic 1.14.0, six problems
+(requests of 2026-11-26, kept in their own workspaces):
+
+- A reload or reopen at an open choice comes back with no choice on
+  screen; with Play all routes off the reader is stuck until a wheel
+  notch back and forward. The choice overlay in `src/main.ts` draws only
+  from `machine.subscribe`, which does not call the listener with the
+  current state, so the restored `choice` is never drawn.
+- A menu whose choices `jump` (the most common Ren'Py menu) never
+  becomes a decision: `jump inside a choice block`, `unrecognized
+  statement in a choice block: $ x = "..."`, linear flow kept. The walk
+  already reads each choice's target in turn up to the fork's
+  post-dominator, then the shared rest: exactly the route spans and the
+  `continueAt` a decision needs.
+- Content chosen by an earlier pick (`if x == "...": ... elif ...:`)
+  is lost: the `.rpy` parser skips every arm of an `if` chain as an
+  unrecognized block (the request saw the arms read one after another;
+  item 6 checks which on a synthetic project), with the arms' audio
+  reported dropped.
+- A one-choice menu (`fewer than two choices`) drops its choice, which is
+  the protagonist's line.
+- An `image name:` ATL block listing frames and pauses (a frame-by-frame
+  animation) is `image without a file`, and every line said while it
+  shows is dropped with it.
+- Translation lines indented with a mix of spaces and U+00A0 are read as
+  no lines (`texts=[]`), though Ren'Py reads them.
+
+The user's decisions (2026-11-26):
+
+- **Content that follows a choice: a `follows` decision.** A decision
+  may name an earlier decision it follows, and each of its routes the
+  earlier routes it belongs to. With Play all routes off it fires with no
+  choice screen and takes the route matching the reader's last pick
+  there; with no pick known, an ordinary choice. With Play all routes on
+  it is an ordinary decision whose matching route plays last. An older
+  player shows an ordinary choice. The converter makes one from an
+  `if`/`elif`/`else` chain on a variable only one decision's choices
+  set.
+- **Counters and other conditions: an ordinary decision labelled in
+  words.** A chain on a counter (`if love >= 3:`), or on a variable
+  several places set, becomes an ordinary decision; each arm's route
+  label says what it needs ("love 3 or more", "If you chose: Wake
+  Robin"), and the reader picks. The game tracks nothing. An optional
+  names file maps a variable to reader words, so labels survive a
+  re-extract; `kinetic report` lists every decision made from a
+  condition. Conditions on two variables, function calls or Python
+  state the script does not set stay as today, reported.
+- **Animation timing: per-frame durations and a held last frame.** An
+  `animation` item may give each frame's duration and may hold its last
+  frame after its loops instead of looping on under its lines. The
+  converter still writes an `fps`, so an older player plays it looping
+  at an even pace.
+
+The orchestrator's choices, within those decisions:
+
+- **Provable joins.** The walk's post-dominator is a proof of where a
+  menu's paths meet, so a converted menu now gets `continuingRoute`
+  (the last choice that reaches the join) and `continueAt`, its other
+  joining routes `"continue"`; in-place menus whose choices fall
+  through get the same, instead of 1.14.0's pure choice whose routes
+  are all `"ending"` (which made a reader with Play all routes off read
+  every route before going on).
+- **A choice with no content of its own** (it jumps straight to the
+  join) gets one text item, its choice text, as its route, as a
+  one-choice menu's choice becomes a line. A menu every choice of which
+  is empty stays linear, as now.
+- **What a converted menu cannot express stays linear and reported:**
+  a choice whose path rejoins content another choice read somewhere
+  other than the join, and conditional choices (`"x" if cond:`).
+- **`holdLastFrame`, not `once`.** The held frame is a field of its
+  own, `holdLastFrame: true`, so it reads correctly with `loopCount`
+  (ATL `repeat 3` is `loopCount: 3` held; no `repeat` is `loopCount: 1`
+  held; a bare `repeat` loops as today).
+- **Generated words are English.** The prompt and labels the converter
+  writes for a condition ("Which fits your story so far?", "If you
+  chose: ...", "love 3 or more") are English in the base text; a
+  choice's own text inside them takes its translation from the `strings`
+  block in each language file. The names file sets a variable's words.
+- **A one-frame ATL image is a still.** `image x:` with one frame and
+  transform properties (`zoom`, `xalign`) becomes that picture, its
+  properties reported as not applied, so its lines stay.
+- **Version.** New optional manifest fields: the phase closes as the
+  minor 1.15.0; `schemaVersion` stays 1.
+
+1. A reload at an open choice shows the choice (the reload request). In
+   `player/src/main.ts` the choice overlay is drawn from the machine's
+   current state when it mounts, as `src/render/app.ts` does for the
+   stage, and every other `machine.subscribe` listener in `main.ts` that
+   draws from state is checked for the same gap and fixed where it has
+   one. Tests: a scenario part (in `branches` or `playall`) that reads to
+   a decision's open choice, reloads, and finds the choice open with
+   Space and Enter leaving it open and `1` picking route 1, with Play all
+   routes off; with it on the choice is open after the reload and its
+   countdown picks; the same after closing and reopening the game
+   (`openGame` with the saved state). Chrome and WebKit; failing first.
+2. Translation and script lines indented with non-breaking spaces (the
+   tl request). The tl reader (`read_tl`, `translations.py`) and the
+   script parser read indentation as Ren'Py's lexer does: the item reads
+   the lexer of a Ren'Py copy in the read-only corpus (renpy/lexer.py)
+   for which characters count as indentation, and treats U+00A0 there as
+   a space at least. Tests: a tl block whose lines are indented with
+   mixed spaces and U+00A0 (CRLF endings) gives its texts; a `.rpy`
+   label body indented that way parses as with spaces; existing tl tests
+   unchanged.
+3. A one-choice menu keeps its line (the request on single choices).
+   A menu with one plain quoted choice is no decision: the parser emits
+   the choice text as a narration line where the menu stood, then the
+   choice block's statements in place (its flow followed by the walk, as
+   any label flow's). Its translation comes from the language's
+   `strings` block, as route labels' do. The `fewer than two choices`
+   report goes; a one-choice menu with a condition (`"x" if cond:`)
+   stays as today. Tests: parser and extract tests (the line's item in
+   place, its translation in `lang/<tag>.json`, the body's lines after
+   it, a jump in the body followed).
+4. Menus whose choices jump become decisions (the jump-menu request). A
+   menu's choice block may hold story statements, assignments (`$ x =
+   ...`, `+=`, `-=`, kept for item 6) and end in `jump`, `call` (which
+   returns and goes on in place) or `return`. The parser gives the walk
+   such a menu as a fork whose alternatives carry each choice's
+   statements and flow; the walk lays out menu markers around what it
+   reads for each alternative (up to the post-dominator) and the join,
+   and the timeline makes the decision from them as for an in-place
+   menu. Each route's `result` follows how its path ended: at the join
+   `"continue"` (the last such choice is the `continuingRoute`, the join
+   `continueAt`); back at the menu (its label, or a jump to the label
+   the menu opens with no story between) `"return"`; at the story's end
+   `"ending"`. A choice with no item of its own gets one text item, its
+   choice text (the orchestrator's choice above); a menu all of whose
+   choices are empty, a path that rejoins another choice's content away
+   from the join, and conditional choices stay linear with a report
+   saying which. Nested menus inside a route become nested decisions.
+   In-place menus whose choices fall through get `continuingRoute`/
+   `continueAt` too (the orchestrator's choice above), and the ledger's
+   `branchDetection` notes say how each route's result was proven.
+   Tests: synthetic projects for two choices jumping to labels that
+   rejoin, three choices, a refusal choice jumping back to its menu,
+   menus nested several deep inside routes, every choice to one label
+   (linear), a choice ending the story, a `call` in a choice, `$`
+   assignments in choices, an in-place menu falling through; each folder
+   validates `--strict` clean, `kinetic routes` counts match, and
+   `kinetic check --steps all` walks to the end. The orchestrator also
+   runs the extract on a reporting agent's game, read-only and outside
+   the repo, and records only counts in the evidence note.
+5. A decision that follows an earlier one (format and player; the
+   user's decision above). A decision's optional `follows` names a
+   decision whose `after` comes before its own in array order (not
+   itself, not a decision enclosing it); each of its routes may give
+   `when`, a non-empty list of that decision's route ids, no id in two
+   routes' lists; at most one route has no `when` and takes every
+   earlier route no other names. When it fires with Play all routes
+   off and the reader's last pick at the followed decision is known:
+   a route naming it is entered at once, as a pick, with no choice
+   screen (the route pill shows); a pick no route names, with no
+   `when`-less route, passes the decision and flow goes on at
+   `continueAt`. With no pick known it shows its choice screen. With
+   Play all routes on it is an ordinary decision, its matching route
+   played last in place of the continuing route. The wheel's walk takes
+   the matching route where the decision has no pick of its own; `u`,
+   the end card and seen marks treat its routes as any decision's.
+   docs/content-format.md (Branches, the rules list), the schema,
+   `validate_content.py`, folder_model, `kinetic routes` and `export`
+   (a line naming what the decision follows), docs/player.md and a
+   CHANGELOG bullet. Tests: machine tests (each case above, a reload
+   at it, a rewind past it), validator tests (each rule), a scenario
+   file `follows` on Chrome and WebKit, and an older player's reading
+   unchanged (the field ignored).
+6. Conditions become decisions (the user's decisions above). An
+   `if`/`elif`/`else` chain in label flow or inside a route, each
+   condition on one variable the game's script sets (`$ x = literal`,
+   `+=`, `-=`, `default`, `define`; not `persistent.`, `renpy.`,
+   `config.`, `_`-prefixed or Python-block state), is given to the walk
+   as a fork whose arms carry their statements (audio included) and
+   flow, laid out as item 4's menus are, and becomes a decision with
+   every route `"continue"` to the chain's join:
+   - a variable whose assignments are all literal and all in one
+     decision's choice blocks (with its `default`/`define` value for
+     the routes that set nothing): `follows` that decision, each arm's
+     `when` the routes whose value satisfies its condition (`==`, `!=`,
+     `in`, `not in`, truth, `not`), no route for arms no route satisfies
+     and no route for an absent `else` (the decision passes);
+   - a counter (`+=`/`-=`, or numbers set in several places) compared
+     with whole numbers: an ordinary decision labelled by ranges in
+     words ("love 3 or more", "love 1 or 2", "love under 1"; the `else`
+     the rest, or "Otherwise" when the rest cannot be said);
+   - any other one-variable condition: an ordinary decision labelled
+     "If you chose: A" (or "A or B") when every assignment satisfying
+     the arm is in a menu choice, else the condition in words ("met_x
+     is set", "met_x is not set").
+   An ordinary decision's absent `else` is a route whose one text item
+   is its label in parentheses. The prompt is "Which fits your story
+   so far?". `kinetic extract --condition-names FILE` reads a JSON
+   object mapping a variable to reader words, used in every label that
+   names it (an unknown key a warning). Chains this cannot read stay as
+   today, reported. `kinetic report` gains a section listing each
+   decision made from a condition (its id, the condition, its labels)
+   and the ledger notes each. docs/extracting.md and CREATE.md
+   ("Converting a Ren'Py project") describe it. Tests: synthetic
+   projects for each kind (a chain following a menu's choice with and
+   without `else`, `!=` and `in`, a counter chain with three ranges, a
+   flag set in two menus, a chain whose arms jump before rejoining,
+   audio in an arm, a chain inside a route, an unreadable condition),
+   each validating `--strict` clean and walking to the end; report
+   tests.
+7. Animation timing (format and player; the user's decision above).
+   An `animation` may give `frameSeconds` (one number greater than 0 per
+   frame) in place of even timing at `fps` (still required, so an older
+   player plays it), and `holdLastFrame: true` (after `loopCount` loops
+   it holds its last frame, under the text items after it too, instead
+   of looping on; rewind, skip and `e` onto those text items show the
+   last frame). Loop time becomes the sum of `frameSeconds` (else
+   `len(frames) / fps`) times `loopCount`. docs/content-format.md (Items,
+   Text items, Timing, the rules list), the schema, the validator,
+   the player's animation renderer and timing, `kinetic report`'s
+   reading time and every other tool that reads animation timing, and
+   a CHANGELOG bullet. Tests: player unit tests for frame timing and
+   the held frame; validator tests; a scenario part in `media` on
+   Chrome and WebKit (frame changes at the given times within a
+   tolerance, the held frame under a following text item).
+8. ATL frame lists become animations (the ATL request). An `image
+   name:` ATL block made only of frames (quoted files or image names
+   the converter resolves as it does `show`), `pause N` and an optional
+   last `repeat` / `repeat N` becomes an animation the walk's `show`
+   finds: `frameSeconds` from the pauses (one pause throughout gives
+   `fps` alone), `fps` from their average, `loopCount` and
+   `holdLastFrame` from the `repeat` (bare `repeat` loops; `repeat N`
+   is `loopCount: N` held; none is `loopCount: 1` held). A per-frame
+   `with` becomes a cut and a `function` is dropped, each reported;
+   a block with other ATL (motion, `parallel`, `block`, `choice`,
+   transform properties over several frames) stays `image without a
+   file` with the statement named. A one-frame block is that frame as a
+   still, its properties reported (the orchestrator's choice above).
+   Frames ship as images through the usual media path (shared frames
+   ship once); the lines said over the animation are kept. Tests:
+   parser tests per shape; an extract test where a `show` of an ATL
+   animation keeps its lines and the folder validates `--strict` and
+   walks; mixed pauses give `frameSeconds`; `kinetic media rebuild`
+   reproduces the frames.
+9. Fixtures and docs. `fixtures/renpy_demo` gains a jump menu with a
+   refusal choice, a chain following its choice, a counter chain and an
+   ATL animation, so package-proof's extract stage covers them (its
+   expected counts updated); docs/extracting.md, CREATE.md, AGENTS.md
+   (`--condition-names`), docs/player.md and the CHANGELOG as items 1 to
+   8 left them. Tests: package-proof.
+10. Phase-closer: full suites; VERSION 1.15.0, the CHANGELOG dated, tag
+    v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
+    release, the Pages demo republished.
+
+Sequencing: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10, serial.
+Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
+item 7. Items 1, 2 and 3 stand alone.
+
 ## Sequencing
 
 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 7b -> 8 -> 9 -> 9b -> 9c -> 9d ->
