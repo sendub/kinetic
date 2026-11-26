@@ -27,6 +27,15 @@ story events in that order, each statement once:
 - The end of a file returns, as a `return` does. (In Ren'Py falling off
   the end of a file inside a call ends the game; a return keeps the
   content after the call.)
+- A menu that becomes a decision (docs/plan.md Phase 60 item 4) is a
+  fork whose blocks are its choices: each choice's path is walked in turn
+  up to where the choices meet (_menu_join), between `menu-open`,
+  `choice-open` and `menu-close` markers, then the join once. The
+  `menu-close` marker's ``outcome`` says how each path ended (at the
+  join, back at the menu, at the story's end) or why the menu stays
+  linear (a path rejoining content read elsewhere, every choice empty); a
+  choice with nothing of its own gets its text as a line
+  (kinetic_extract.timeline makes the decision).
 
 After the story the walk can go on from more labels: each `--also-label`
 (a Ren'Py entry label such as `splashscreen` the walk never runs, say),
@@ -71,6 +80,10 @@ class _Op:
     alts: list[int] = field(default_factory=list)
     candidates: list[str] = field(default_factory=list)
     scope: str | None = None
+    # A menu that becomes a decision: its index in its file's menus, and
+    # the op index each alternative's block ends at (its `goto`).
+    menu: int | None = None
+    alt_ends: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -116,32 +129,39 @@ def _program(parses: list[tuple[str, FileParse]]
     for _rel, parsed in parses:
         for name, flow in parsed.screens.items():
             screens.setdefault(name, flow)
-    pending: list[tuple[int, list[list[FlowStep]]]] = []
+    pending: list[tuple[int, list[list[FlowStep]] | list[list[Event]]]] = []
 
     def add(step: FlowStep, f: int, event: Event | None = None) -> None:
         if step.kind == "label":
             labels.setdefault(step.target or "", len(ops))
-        alternatives = step.alternatives
+        alternatives: list[list[FlowStep]] | list[list[Event]] = \
+            step.alternatives
         kind = step.kind
         if kind == "screen":
             actions = _screen_actions(screens, step.target or "")
             alternatives = [[a] for a in actions] + [[]]
             kind = "fork" if actions else "goto"
+        if kind == "fork" and step.menu is not None:
+            alternatives = step.bodies
         if kind == "fork":
             pending.append((len(ops), alternatives))
         ops.append(_Op(kind, f, event, step.source, step.statement,
                        step.target, to=len(ops) + 1,
-                       candidates=list(step.candidates), scope=step.scope))
+                       candidates=list(step.candidates), scope=step.scope,
+                       menu=step.menu if kind == "fork" else None))
+
+    def add_event(event: Event, f: int) -> None:
+        if event.kind == "label":
+            labels.setdefault(event.name or "", len(ops))
+            ops.append(_Op("label", f, event, event.source))
+        elif event.kind in _FLOW_KINDS and event.flow is not None:
+            add(event.flow, f)
+        else:
+            ops.append(_Op("emit", f, event, event.source))
 
     for f, (_rel, parsed) in enumerate(parses):
         for event in parsed.events:
-            if event.kind == "label":
-                labels.setdefault(event.name or "", len(ops))
-                ops.append(_Op("label", f, event, event.source))
-            elif event.kind in _FLOW_KINDS and event.flow is not None:
-                add(event.flow, f)
-            else:
-                ops.append(_Op("emit", f, event, event.source))
+            add_event(event, f)
         ops.append(_Op("end", f))
     while pending:
         at, alternatives = pending.pop(0)
@@ -149,9 +169,68 @@ def _program(parses: list[tuple[str, FileParse]]
         for steps in alternatives:
             fork.alts.append(len(ops))
             for step in steps:
-                add(step, fork.file)
+                if isinstance(step, Event):
+                    add_event(step, fork.file)
+                else:
+                    add(step, fork.file)
+            fork.alt_ends.append(len(ops))
             ops.append(_Op("goto", fork.file, to=at + 1))
     return ops, labels
+
+
+# How far a choice's post-dominator chain is read when the choices do not
+# all meet (one ends the story): they meet within a scene, not a chapter.
+_CHAIN_MAX = 5000
+
+
+def _menu_join(ops: list[_Op], n: int, ipdom: list[int]) -> int:
+    """Where the choices of the menu fork ``n`` meet (docs/plan.md Phase
+    60 item 4), -1 for nowhere. Each choice's post-dominator chain is
+    read from its block's start, the block's own ops left out (a choice
+    that falls through meets the others after the menu, not in its own
+    lines); a choice whose chain passes the menu itself loops back to
+    it and is left out. The join is the first op common to the most
+    remaining chains: the fork's immediate post-dominator when every
+    choice gets there; otherwise where most of them meet, so a choice
+    that ends the story leaves the others their join. A lone remaining
+    choice, or one with a chain beside choices that end at once, meets
+    the story at the first op past its block."""
+    exit_ = len(ops)
+    fork = ops[n]
+    blocks = list(zip(fork.alts, fork.alt_ends))
+    common = ipdom[n]
+    if 0 <= common < exit_ and not any(lo <= common <= hi
+                                       for lo, hi in blocks):
+        return common   # every choice gets there: the usual case
+    chains: list[list[int]] = []
+    for lo, hi in blocks:
+        chain: list[int] = []
+        m, looping, steps = lo, False, 0
+        while 0 <= m < exit_ and steps <= _CHAIN_MAX:
+            if m == n:
+                looping = True
+                break
+            if not lo <= m <= hi:
+                chain.append(m)
+            m = ipdom[m]
+            steps += 1
+        if not looping:
+            chains.append(chain)
+    if len(chains) == 1:
+        return chains[0][0] if chains[0] else -1
+    count: dict[int, int] = {}
+    for chain in chains:
+        for m in set(chain):
+            count[m] = count.get(m, 0) + 1
+    best = max(count.values(), default=0)
+    if best < 2:
+        reaching = [chain for chain in chains if chain]
+        return reaching[0][0] if len(reaching) == 1 else -1
+    for chain in chains:
+        for m in chain:
+            if count[m] == best:
+                return m
+    return -1
 
 
 def _successors(ops: list[_Op], labels: dict[str, int],
@@ -238,13 +317,59 @@ def _line(source: str) -> tuple[str, int]:
     return rel, int(line) if line.isdigit() else 0
 
 
+def _in_file_order(parsed: FileParse, stream: list[Event],
+                   out: list[tuple[FileParse, Event]]) -> bool:
+    """``stream``'s story events in file order onto ``out``, a menu that
+    becomes a decision laid out between its markers as the walk lays it
+    out, with no join (nothing follows a jump here, so nothing proves
+    one): every route ``"ending"``, a pure choice. True when a story
+    event (or a choice's text) was added."""
+    story = False
+    for event in stream:
+        flow = event.flow
+        if event.kind == "fork" and flow is not None \
+                and flow.menu is not None:
+            record = parsed.menus[flow.menu]
+            out.append((parsed, Event("menu-open", event.source,
+                                      name=str(flow.menu))))
+            texts: list[Event] = []
+            filled = []
+            for k, body in enumerate(flow.bodies):
+                out.append((parsed, Event(
+                    "choice-open", record.choice_sources[k],
+                    name=f"{flow.menu}:{k}")))
+                filled.append(_in_file_order(parsed, body, out))
+                if not filled[-1]:
+                    texts.append(Event("choice-text",
+                                       record.choice_sources[k],
+                                       text=record.choices[k],
+                                       from_strings=True))
+                    out.append((parsed, texts[-1]))
+            linear = None if any(filled) else (
+                "every choice is empty: none reads anything")
+            if linear is None:
+                for marker in texts:
+                    marker.kind = "dialogue"
+                story = True
+            out.append((parsed, Event(
+                "menu-close", event.source, name=str(flow.menu),
+                outcome={"linear": linear,
+                         "results": ["ending"] * len(flow.bodies),
+                         "how": ["read in file order (no label start): no "
+                                 "walk proves a join"] * len(flow.bodies),
+                         "join": None, "link": None})))
+        elif event.kind not in _FLOW_KINDS:
+            out.append((parsed, event))
+            story = story or event.kind in _STORY_KINDS
+    return story
+
+
 def file_order(parses: list[tuple[str, FileParse]]) -> Walk:
     """Every file's story events in file order, a ``flush`` after each
     file: the walk before item 4e, for a project with no `label start`."""
     events: list[tuple[FileParse, Event]] = []
     for _rel, parsed in parses:
-        events += [(parsed, e) for e in parsed.events
-                   if e.kind not in _FLOW_KINDS]
+        _in_file_order(parsed, parsed.events, events)
         events.append((parsed, Event("flush", "")))
     return Walk(events, {"order": "file names (no label start)"},
                 ["walk: no label start, scripts read in file-name order"])
@@ -353,16 +478,52 @@ def follow_labels(parses: list[tuple[str, FileParse]],
     dynamic_ops = [n for n, op in enumerate(ops)
                    if op.kind in ("jump", "call") and op.target is None]
 
+    def leads_to(n: int, menu: int) -> bool:
+        """Whether the walk from op ``n`` reaches the menu fork ``menu``
+        with no story event between: its own label, a named menu, or a
+        label that jumps or runs straight to it."""
+        steps = 0
+        while 0 <= n < exit_ and steps < 64:
+            if n == menu:
+                return True
+            op = ops[n]
+            if op.kind == "label" or (
+                    op.kind == "emit" and op.event is not None
+                    and op.event.kind not in _STORY_KINDS):
+                n += 1
+            elif op.kind == "goto":
+                n = op.to
+            elif op.kind == "jump" and op.target in labels:
+                n = labels[op.target or ""]
+            else:
+                return False
+            steps += 1
+        return False
+
     def run(entries: list[tuple[int, frozenset[int], int]],
             cands: dict[int, list[int]], ipdom: list[int],
             visited: bytearray, final: bool) -> dict[str, Any]:
         """Walk from each entry ``(op, stops, site)`` in turn (a site >= 0
         marks a computed jump's or call's candidate), marking
-        ``visited``; with ``final``, the events and counts too."""
+        ``visited``; with ``final``, the events and counts too.
+
+        A menu that becomes a decision is walked as a fork whose join is
+        _menu_join's, laid out between markers: `menu-open`, then per
+        choice `choice-open` and its path up to the join, then
+        `menu-close` (its ``outcome``: how each path ended) and the join
+        once. A task carries the menu choices it is inside (``ctx``, each
+        ``(fork op, choice, stops at the choice's start)``, outermost
+        first) and how many of them a call inside cuts off (``floor``:
+        where a callee's path ends says nothing of the choice's)."""
         out: dict[str, Any] = {"events": [], "rejoins": 0,
                                "not_repeated": [], "unfollowed": [],
                                "walked": {}, "sites": []}
         events = out["events"]
+        menus: dict[int, dict[str, Any]] = {}
+        # True from a decision's `menu-close` until its join's path shows
+        # a story event, opens a menu or ends (a `path-end` marker).
+        awaiting = [False]
+        Ctx = tuple[tuple[int, int, frozenset[int]], ...]
 
         def report(op: _Op, reason: str) -> None:
             if final:
@@ -379,20 +540,132 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 return None
             return labels[op.target]
 
+        def path_end(kind: str, n: int, stops: frozenset[int], ctx: Ctx,
+                     floor: int) -> None:
+            """A path ended at op ``n``: a ``stop`` (a join or an op
+            already walked), an ``exit`` (a return, a file's end) or
+            ``unfollowed``. Each menu choice it is inside notes how."""
+            if not final:
+                return
+            if awaiting[0]:
+                awaiting[0] = False
+                events.append((parsed_of[ops[min(n, exit_ - 1)].file],
+                               Event("path-end", "")))
+            for depth in range(len(ctx) - 1, floor - 1, -1):
+                fork, k, frame_stops = ctx[depth]
+                info = menus[fork]
+                got = kind
+                if kind == "stop":
+                    if n == info["join"]:
+                        got = "join"
+                    elif leads_to(n, fork):
+                        got = "menu"
+                    elif (n in stops and n not in frame_stops) or any(
+                            n == menus[inner]["join"] or leads_to(n, inner)
+                            for inner, _k, _s in ctx[depth + 1:]):
+                        continue   # a fork inside the choice goes on there
+                    else:
+                        got = "rejoin"
+                info["endings"][k].add(got)
+                if got in ("rejoin", "unfollowed") \
+                        and info["where"][k] is None:
+                    info["where"][k] = ops[n].source if n < exit_ else ""
+
+        def finish_choice(fork: int, k: int) -> None:
+            """A choice with no story event of its own gets its text as a
+            line, enabled at `menu-close` if the menu is a decision."""
+            info = menus[fork]
+            if info["story"][k]:
+                return
+            record = parsed_of[ops[fork].file].menus[ops[fork].menu]
+            marker = Event("choice-text", record.choice_sources[k],
+                           text=record.choices[k], from_strings=True)
+            info["texts"].append(marker)
+            events.append((parsed_of[ops[fork].file], marker))
+
+        def close_menu(fork: int, ctx: Ctx) -> None:
+            info = menus[fork]
+            op = ops[fork]
+            record = parsed_of[op.file].menus[op.menu]
+            linear = None
+            for k, label in enumerate(record.choices):
+                where = info["where"][k]
+                if "unfollowed" in info["endings"][k]:
+                    linear = (f"choice {k + 1} ({label}) leads where the "
+                              f"walk does not follow, at {where}")
+                    break
+                if "rejoin" in info["endings"][k]:
+                    linear = (f"choice {k + 1} ({label}) rejoins content "
+                              f"read at {where}")
+                    break
+            if linear is None and not any(info["story"]):
+                linear = ("every choice is empty: none reads anything "
+                          "before where the choices meet")
+            join = info["join"]
+            join_source = ops[join].source if 0 <= join < exit_ else None
+            results, how = [], []
+            for ends in info["endings"]:
+                if "join" in ends:
+                    results.append("continue")
+                    how.append(f"reaches the join at {join_source}")
+                elif "menu" in ends:
+                    results.append("return")
+                    how.append("jumps back to the menu")
+                else:
+                    results.append("ending")
+                    how.append("reaches the story's end"
+                               if "exit" in ends else
+                               "its paths end in other routes")
+            if linear is None:
+                for marker in info["texts"]:
+                    marker.kind = "dialogue"
+                for outer, k, _s in ctx:
+                    menus[outer]["story"][k] = True
+            link = info["link"]
+            outcome = {
+                "linear": linear, "results": results, "how": how,
+                "join": join_source,
+                "link": None if link is None else
+                (parsed_of[ops[link].file], ops[link].menu)}
+            events.append((parsed_of[op.file],
+                           Event("menu-close", op.source,
+                                 name=str(op.menu), outcome=outcome)))
+            if info["walk_join"] and not visited[join]:
+                awaiting[0] = True
+
         for entry in entries:
-            tasks = [entry]
+            tasks: list[tuple[int, frozenset[int], int, Ctx, int,
+                              tuple[Any, ...] | None]] = [
+                (*entry, (), 0, None)]
             while tasks:
-                n, stops, site = tasks.pop()
+                n, stops, site, ctx, floor, mark = tasks.pop()
+                if mark is not None:
+                    if final and mark[0] == "open":
+                        _kind, fork, k = mark
+                        if k > 0:
+                            finish_choice(fork, k - 1)
+                        record = parsed_of[ops[fork].file].menus[
+                            ops[fork].menu]
+                        events.append((parsed_of[ops[fork].file], Event(
+                            "choice-open", record.choice_sources[k],
+                            name=f"{ops[fork].menu}:{k}")))
+                    elif final and mark[0] == "close":
+                        fork = mark[1]
+                        finish_choice(fork, len(ops[fork].alts) - 1)
+                        close_menu(fork, ctx)
+                    continue
                 jumped = False
                 if site >= 0 and n != exit_ and n not in stops \
                         and not visited[n]:
                     out["walked"][site] = out["walked"].get(site, 0) + 1
+                ended = "exit"
                 while n != exit_:
                     if n in stops or visited[n]:
                         # A jump to the place the fork's paths meet, or
                         # to a label already walked: flow rejoins what is
                         # read once.
                         out["rejoins"] += jumped
+                        ended = "stop"
                         break
                     visited[n] = 1
                     op = ops[n]
@@ -400,6 +673,10 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                     if op.kind in ("emit", "label"):
                         if op.event is not None and final:
                             events.append((parsed_of[op.file], op.event))
+                            if op.event.kind in _STORY_KINDS:
+                                awaiting[0] = False
+                                for fork, k, _s in ctx:
+                                    menus[fork]["story"][k] = True
                         n += 1
                     elif op.kind in ("jump", "call") and op.target is None:
                         # Computed: each candidate in turn, a call
@@ -408,14 +685,18 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                         found = cands.get(n, [])
                         if op.kind == "call":
                             if found:
-                                tasks.append((n + 1, stops, -1))
-                            tasks += [(c, frozenset(), n)
-                                      for c in reversed(found)]
+                                tasks.append((n + 1, stops, -1, ctx, floor,
+                                              None))
+                            tasks += [(c, frozenset(), n, ctx, len(ctx),
+                                       None) for c in reversed(found)]
                             if found:
+                                ended = ""
                                 break
                             n += 1
                         else:
-                            tasks += [(c, stops, n) for c in reversed(found)]
+                            tasks += [(c, stops, n, ctx, floor, None)
+                                      for c in reversed(found)]
+                            ended = "" if found else "unfollowed"
                             break
                     elif op.kind == "call":
                         to = target_of(op)
@@ -425,28 +706,69 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                     "source": op.source,
                                     "statement": op.statement})
                         elif to is not None:
-                            tasks.append((n + 1, stops, -1))
-                            tasks.append((to, frozenset(), -1))
+                            tasks.append((n + 1, stops, -1, ctx, floor,
+                                          None))
+                            tasks.append((to, frozenset(), -1, ctx,
+                                          len(ctx), None))
+                            ended = ""
                             break
                         n += 1
                     elif op.kind == "jump":
                         to = target_of(op)
                         if to is None:
+                            ended = "unfollowed"
                             break
                         n, jumped = to, True
                     elif op.kind == "goto":
                         n = op.to
+                    elif op.kind == "fork" and op.menu is not None:
+                        join = _menu_join(ops, n, ipdom)
+                        has_join = 0 <= join < exit_
+                        inner = stops | {join} if has_join else stops
+                        if final:
+                            link = None
+                            if has_join and join in stops:
+                                link = next((f for f, _k, _s in
+                                             reversed(ctx)
+                                             if menus[f]["join"] == join),
+                                            None)
+                            count = len(op.alts)
+                            menus[n] = {
+                                "join": join if has_join else -1,
+                                "walk_join": has_join and join not in stops,
+                                "link": link,
+                                "endings": [set() for _ in range(count)],
+                                "where": [None] * count,
+                                "story": [False] * count, "texts": []}
+                            awaiting[0] = False
+                            events.append((parsed_of[op.file], Event(
+                                "menu-open", op.source, name=str(op.menu))))
+                        if has_join and join not in stops:
+                            tasks.append((join, stops, -1, ctx, floor, None))
+                        tasks.append((-1, stops, -1, ctx, floor,
+                                      ("close", n)))
+                        for k in reversed(range(len(op.alts))):
+                            frame = (*ctx, (n, k, inner))
+                            tasks.append((op.alts[k], inner, -1, frame,
+                                          floor, None))
+                            tasks.append((-1, inner, -1, frame, floor,
+                                          ("open", n, k)))
+                        ended = ""
+                        break
                     elif op.kind == "fork":
                         join = ipdom[n]
                         inner = stops
                         if 0 <= join < exit_:
-                            tasks.append((join, stops, -1))
+                            tasks.append((join, stops, -1, ctx, floor, None))
                             inner = stops | {join}
-                        tasks += [(alt, inner, -1)
+                        tasks += [(alt, inner, -1, ctx, floor, None)
                                   for alt in reversed(op.alts)]
+                        ended = ""
                         break
                     else:
                         break
+                if ended:
+                    path_end(ended, n, stops, ctx, floor)
         return out
 
     # 1. Literal flow alone: which labels it reaches.

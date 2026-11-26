@@ -308,9 +308,10 @@ def test_unknown_target_and_call_screen(tmp_path: Path) -> None:
 
 
 def test_nested_menus_with_jumps_rejoin(tmp_path: Path) -> None:
-    """Menus whose choices jump are not decisions (as before); the walk
-    reads each choice's path in turn up to the scene they all reach, then
-    that scene once. A plain menu after it is still a decision."""
+    """The walk reads each choice's path in turn up to the scene they all
+    reach, then that scene once; menus whose choices jump are decisions
+    (Phase 60 item 4), the nested one inside the outer one's route, and
+    so is the plain menu after them."""
     game = project(tmp_path, {
         "a.rpy": ('label down:\n    "Down path."\n    jump joined\n'
                   'label joined:\n    "Together again."\n'
@@ -330,10 +331,9 @@ def test_nested_menus_with_jumps_rejoin(tmp_path: Path) -> None:
     assert texts(result) == [
         "Lead.", "Left path.", "Up path.", "Down path.", "Together again.",
         "Stayed.", "Went.", "The end."]
-    assert any("menu unsupported (jump inside a choice block" in r
-               for r in reasons(parses))
+    assert not any("menu unsupported" in r for r in reasons(parses))
     assert [c["record"].choices for c in result.branch_candidates] == [
-        ["Stay", "Go"]]
+        ["Up", "Down"], ["Left", "Right"], ["Stay", "Go"]]
     # Left, up and down each jump to where the paths meet.
     assert result.walk["rejoins"] == 3
 
@@ -381,9 +381,9 @@ def test_loop_back_ends_the_path(tmp_path: Path) -> None:
         'label stop:\n    "Three."\n')})
     result, _parses = walk(game)
     assert texts(result) == ["One.", "Two.", "Three."]
-    # The jump back to a label walked; the way out (Stop) is where every
-    # path meets, so it is read after the loop, not jumped to as a join.
-    assert result.walk["rejoins"] == 1
+    # The jump back to a label walked, and Stop's jump to where the
+    # choices meet (past Stop's own block, Phase 60 item 4).
+    assert result.walk["rejoins"] == 2
 
 
 def test_label_inside_a_menu_block_and_named_menu(tmp_path: Path) -> None:
@@ -403,7 +403,9 @@ def test_label_inside_a_menu_block_and_named_menu(tmp_path: Path) -> None:
         '        "Done":\n            "Done."\n'
         '    "End."\n')})
     result, parses = walk(game)
-    assert texts(result) == ["One.", "Two.", "Side.", "End."]
+    # The named menu is a decision (Phase 60 item 4): Done's line is its
+    # route; the first menu, with a label in a choice block, is not.
+    assert texts(result) == ["One.", "Two.", "Side.", "Done.", "End."]
     assert not any("not a label" in r for r in reasons(parses))
     assert [u["label"] for u in result.walk["labelsUnreached"]] == ["tail"]
 
@@ -482,8 +484,11 @@ def test_parser_flow_events() -> None:
     if_fork, menu_fork = [e.flow for e in parsed.events if e.kind == "fork"]
     assert [[s.target for s in alt] for alt in if_fork.alternatives] == [
         ["c"], []]
-    assert [[s.target for s in alt] for alt in menu_fork.alternatives] == [
-        ["d"], []]
+    # A menu that becomes a decision carries each choice block's events.
+    assert menu_fork.menu == 0 and menu_fork.alternatives == []
+    assert [[(e.kind, e.flow.target if e.flow else e.text) for e in body]
+            for body in menu_fork.bodies] == [[("jump", "d")],
+                                              [("dialogue", "Q.")]]
 
 
 # --- the CLI: ledger, summary, a valid folder ------------------------------

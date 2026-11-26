@@ -11,6 +11,11 @@ the next item emitted through kinetic_extract.audio_cues (docs/plan.md
 Phase 47 item 8): each record's ``audio`` and the result's
 ``audio_tracks``.
 
+Menus (docs/plan.md Phase 13; Phase 60 item 4): the walk lays each
+decision menu out between marker events (kinetic_extract.flow); the items
+between them are the routes, menus nested in a route included, and the
+first item of the join's path is the `continueAt`.
+
 Transitions (docs/plan.md Phase 57 item 4): a scene/show's `with` clause
 gives its visual's item the transition; a bare `with` gives it to the
 visual still waiting to be emitted when that visual changed since the
@@ -143,11 +148,15 @@ class TimelineResult:
     # Sizes of images a --decoder hook unwrapped (the raw files above do
     # not open); the asset pass adds them, the size probe counts them.
     decoded_sizes: list[tuple[int, int]] = field(default_factory=list)
-    # Menu regions that passed the conservative shape check, as
+    # Menu regions that passed the shape check, as
     # {"record": MenuRecord, "after_idx": int,
-    #  "route_spans": [(label, start_idx, end_idx)]}
-    # with indices into ``items`` (docs/plan.md Phase 13). The CLI turns
-    # these into manifest `branches` once the asset pass is known.
+    #  "route_spans": [(label, start_idx, end_idx)],
+    #  "results": [route result], "how": [how the walk proved it],
+    #  "continuing": route index | None, "continue_idx": int | None,
+    #  "join": the join's source | None}
+    # with indices into ``items`` (docs/plan.md Phase 13; Phase 60 item 4
+    # for the results and the join). The CLI turns these into manifest
+    # `branches` once the asset pass is known.
     branch_candidates: list[dict[str, Any]] = field(default_factory=list)
     # Track id -> the track the items' audio cues name.
     audio_tracks: dict[str, AudioTrack] = field(default_factory=dict)
@@ -193,6 +202,40 @@ class _Pending:
         # The item `transition` its `with` gave (docs/content-format.md,
         # "Transitions"); None: a cut.
         self.transition: dict[str, Any] | None = None
+
+
+def finish_candidates(candidates: list[dict[str, Any]]) -> None:
+    """Each candidate's `continueAt` and continuing route (docs/plan.md
+    Phase 60 item 4): a decision whose choices meet where an enclosing
+    one's do takes that one's `continueAt`; the continuing route is the
+    last that reaches the join. A decision with no join item is a pure
+    choice: its routes that reached the join end there (`"ending"`), as
+    every route did before the walk proved joins."""
+    def continue_of(cand: dict[str, Any], depth: int = 0) -> int | None:
+        if "link" in cand:
+            state = cand["link"]
+            outer = state.get("cand") if state is not None else None
+            return (continue_of(outer, depth + 1)
+                    if outer is not None and depth < 64 else None)
+        return cand["continue_idx"]
+
+    for cand in candidates:
+        cand["continue_idx"] = continue_of(cand)
+    for cand in candidates:
+        state = cand.pop("link", None)
+        if state is not None and state.get("cand") is not None:
+            # The CLI drops this join too if it withdraws that decision.
+            cand["joins_with"] = state["cand"]
+        joining = [k for k, r in enumerate(cand["results"])
+                   if r == "continue"]
+        if cand["continue_idx"] is None or not joining:
+            cand["continue_idx"] = None
+            for k in joining:
+                cand["results"][k] = "ending"
+                cand["how"][k] += (", which has no item of its own: a "
+                                   "pure choice")
+        else:
+            cand["continuing"] = joining[-1]
 
 
 class _SliceDone(Exception):
@@ -255,7 +298,12 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     transition_notes: dict[str, list[Any]] = {}
     walk = follow_labels(parses, start_label, also_labels, include_unreached)
     result.walk, result.walk_summary = walk.record, walk.summary
-    menu_state: dict[str, Any] | None = None  # open menu region (Phase 13)
+    # The open menu regions, innermost last (Phase 13; nested since Phase
+    # 60 item 4).
+    menu_stack: list[dict[str, Any]] = []
+    # Decisions whose `continueAt` is the join's first item, not yet seen:
+    # each (candidate, item count at its `menu-close`).
+    awaiting: list[tuple[dict[str, Any], int]] = []
     # The item the last say statement's text went to, which an `extend`
     # line continues; None at a menu's boundaries (a route's line never
     # continues the lead-in's) and before the first line.
@@ -394,25 +442,45 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         record.notes.append(f"extended by the extend line at {event.source}")
         note_interpolations(record)
 
-    def close_menu(parsed: FileParse, ms: dict[str, Any]) -> None:
+    def resolve_awaiting(follows: dict[str, Any] | None = None) -> None:
+        """The decisions waiting for their join's first item get it when
+        an item came since their `menu-close`, else none. A menu opening
+        (``follows``) right after one that got none would hang off that
+        one's last route: it stays linear."""
+        for cand, count in awaiting:
+            if len(result.items) > count:
+                cand["continue_idx"] = count
+            elif follows is not None:
+                follows["reject"] = (
+                    f"the menu follows the menu at "
+                    f"{cand['record'].source} with no line between")
+        awaiting.clear()
+
+    def close_menu(parsed: FileParse, ms: dict[str, Any],
+                   outcome: dict[str, Any] | None) -> None:
         """Judge an opened menu region when its `menu-close` arrives.
 
         The region's items are exactly those emitted between the choice
         boundaries (every boundary flushes the pending visual first), so
         adjacency is index arithmetic: each choice block must own a
-        non-empty contiguous run of items, an item may only be an image
-        or text item, and an item must precede the menu. A failure keeps
-        the emitted items in the linear flow (as always) and records the
-        menu as unsupported; it is never fatal."""
+        non-empty contiguous run of items (a choice with nothing of its
+        own has its text, kinetic_extract.flow), an item may only be an
+        image or text item, and an item must precede the menu. The walk's
+        ``outcome`` gives each route's result and how it was proven, or
+        why the menu stays linear (a path rejoining content read
+        elsewhere, every choice empty). A failure keeps the emitted items
+        in the linear flow (as always) and records the menu as
+        unsupported; it is never fatal."""
         record = ms["record"]
         starts = ms["starts"]
         ends = starts[1:] + [len(result.items)]
-        reason = None
-        if ms["after"] < 0:
+        outcome = outcome or {}
+        reason = ms.get("reject") or outcome.get("linear")
+        if reason is None and ms["after"] < 0:
             reason = "no item precedes the menu in the walked flow"
-        elif len(starts) != len(record.choices):
+        elif reason is None and len(starts) != len(record.choices):
             reason = "choice count does not match the walked blocks"
-        else:
+        elif reason is None:
             for k, (s, e) in enumerate(zip(starts, ends)):
                 if s >= e:
                     reason = f"choice {k + 1} produced no item"
@@ -429,12 +497,31 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 f"menu unsupported ({reason}): branch skipped, "
                 "linear flow kept"))
             return
-        result.branch_candidates.append({
+        results = list(outcome.get("results")
+                       or ["ending"] * len(starts))
+        cand = {
             "record": record,
             "after_idx": ms["after"],
             "route_spans": [(record.choices[k], starts[k], ends[k] - 1)
                             for k in range(len(starts))],
-        })
+            "results": results,
+            "how": list(outcome.get("how") or [""] * len(starts)),
+            "continuing": None,
+            "continue_idx": None,
+            "join": outcome.get("join"),
+        }
+        result.branch_candidates.append(cand)
+        ms["cand"] = cand
+        link = outcome.get("link")
+        if link is not None:
+            # The choices meet where an enclosing menu's do: its
+            # `continueAt`, past the enclosing route's end, is theirs.
+            cand["link"] = next(
+                (open_ms for open_ms in reversed(menu_stack)
+                 if open_ms["parsed"] is link[0]
+                 and open_ms["index"] == link[1]), None)
+        elif "continue" in results and outcome.get("join"):
+            awaiting.append((cand, len(result.items)))
 
     def end_route(ms: dict[str, Any]) -> None:
         """Close the route block before the boundary just reached."""
@@ -451,7 +538,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             check_limit()
             if event.kind in ("dialogue", "interact", "menu-open",
                               "choice-open", "menu-close",
-                              "stop-movie"):
+                              "stop-movie", "path-end"):
                 fresh = False
             if event.kind == "with":
                 got = read_transition(parsed, event.source,
@@ -588,37 +675,50 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     check_limit()
                 if event.from_strings and last_line is not None:
                     last_line.string_sources.add(event.source)
+            elif event.kind == "path-end":
+                # The join's path ended before an item of its own.
+                flush_bare()
+                last_line = None
+                resolve_awaiting()
             elif event.kind == "menu-open":
                 # The lead-in ends here: a trailing visual becomes the
                 # decision's `after` item, and the region starts empty.
                 flush_bare()
                 last_line = None
-                cues.menu_open()
-                menu_state = {
+                state = {
                     "record": parsed.menus[int(event.name)],
+                    "parsed": parsed,
+                    "index": int(event.name),
                     "after": len(result.items) - 1,
                     "starts": [],
                 }
+                resolve_awaiting(state)
+                cues.menu_open()
+                menu_stack.append(state)
             elif event.kind == "choice-open":
-                if menu_state is not None:
+                if menu_stack:
                     flush_bare()
                     last_line = None
-                    end_route(menu_state)
-                    menu_state["starts"].append(len(result.items))
+                    resolve_awaiting()
+                    end_route(menu_stack[-1])
+                    menu_stack[-1]["starts"].append(len(result.items))
                     cues.route_start()
             elif event.kind == "menu-close":
-                if menu_state is not None:
+                if menu_stack:
                     flush_bare()
                     last_line = None
-                    end_route(menu_state)
-                    close_menu(parsed, menu_state)
+                    resolve_awaiting()
+                    end_route(menu_stack[-1])
+                    close_menu(parsed, menu_stack[-1], event.outcome)
                     cues.menu_close()
-                    menu_state = None
+                    menu_stack.pop()
             elif event.kind == "audio":
                 cues.statement(parsed, event)
         flush_bare()
     except _SliceDone:
         pass
+    resolve_awaiting()
+    finish_candidates(result.branch_candidates)
     for note, (parsed, source, statement, uses) in transition_notes.items():
         parsed.reports.append(Report(
             source, statement,

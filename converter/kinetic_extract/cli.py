@@ -127,12 +127,15 @@ SIMPLIFICATIONS = [
     "computed jump/call expression walks the labels string literals in "
     "the game's code name (ledger walk); with no label start the scripts "
     "are read in filename order",
-    "menus become branch decisions only when conservatively detectable "
-    "(plain quoted choices whose blocks form contiguous runs of recognized "
-    "image/text items, with flow continuing in place); all routes then get "
-    "result \"ending\" and a continuingRoute is never guessed; any other "
-    "menu is reported and skipped, linear flow kept (ledger "
-    "branchDetection)",
+    "menus of two or more plain quoted choices become branch decisions: "
+    "each choice block is read as label flow, its path walked up to where "
+    "the choices meet (the walk's join), and each route's result is how "
+    "its path ended: at the join \"continue\" (the last such route the "
+    "continuingRoute, the join's first item continueAt), back at the menu "
+    "\"return\", at the story's end \"ending\"; a choice with nothing of "
+    "its own is its choice text; a menu with a conditional choice, every "
+    "choice empty or a path rejoining content read elsewhere is reported "
+    "and kept linear (ledger branchDetection)",
     "first dialogue line under a visual attaches to the media item; later "
     "lines become text items over the same visual",
     "assets ship at their sniffed true format (preserve or lossless-JXL "
@@ -376,18 +379,27 @@ def finalize_branches(result: TimelineResult,
     the ledger says so. Route ids reuse the slug scheme of item ids;
     decision and route ids are made unique manifest-wide. Every menu
     parsed in the run gets one ledger `branchDetection` note — detected
-    (with the conservative choices stated) or skipped (with its reason).
-    v1 never emits `continuingRoute`: after-menu joins are not provable
-    from a linear walk, and the rules forbid guessing one."""
+    (each route's result and how the walk proved it) or skipped (with its
+    reason). Results, the continuing route and `continueAt` come from the
+    walk (docs/plan.md Phase 60 item 4): the join is where the choices'
+    paths meet, never guessed. A `continueAt` item the asset pass dropped
+    moves to the next item kept; with none the decision is a pure choice."""
     manifest_ids = {record.item["id"] for record in result.items
                     if not record.skipped}
     branches: list[dict[str, Any]] = []
-    decision_of: dict[int, str] = {}
+    decision_of: dict[int, tuple[dict[str, Any], list[str]]] = {}
+
+    def dropped(cand: dict[str, Any]) -> bool:
+        top = max(end for _label, _start, end in cand["route_spans"])
+        return any(result.items[i].skipped
+                   for i in range(cand["after_idx"], top + 1))
+
+    withdrawn = {id(cand) for cand in result.branch_candidates
+                 if dropped(cand)}
     for cand in result.branch_candidates:
         rec = cand["record"]
         after_idx = cand["after_idx"]
-        top = max(end for _label, _start, end in cand["route_spans"])
-        if any(result.items[i].skipped for i in range(after_idx, top + 1)):
+        if id(cand) in withdrawn:
             rec.skip_reason = "route item dropped by the asset pass"
             reports.append(Report(
                 rec.source, rec.statement,
@@ -400,30 +412,63 @@ def finalize_branches(result: TimelineResult,
         while decision_id in used:
             decision_id = f"{rec.decision_id}-{n}"[:ID_MAX]
             n += 1
+        results = list(cand.get("results")
+                       or ["ending"] * len(cand["route_spans"]))
+        how = list(cand.get("how") or [""] * len(results))
+        continuing = cand.get("continuing")
+        at = cand.get("continue_idx")
+        lost = ", whose first item the asset pass dropped: a pure choice"
+        if id(cand.get("joins_with")) in withdrawn:
+            at = None
+            lost = (", the join of an enclosing decision the asset pass "
+                    "withdrew: a pure choice")
+        while at is not None and at < len(result.items) \
+                and result.items[at].skipped:
+            at += 1
+        if continuing is not None and (at is None
+                                       or at >= len(result.items)):
+            continuing = None
+            for k, got in enumerate(results):
+                if got == "continue":
+                    results[k] = "ending"
+                    how[k] += lost
         routes = [{
             "id": f"{slug(label, 'route')}-{k + 1}"[:ID_MAX],
             "label": label,
             "start": result.items[start].item["id"],
             "end": result.items[end].item["id"],
-            "result": "ending",
+            "result": results[k],
         } for k, (label, start, end) in enumerate(cand["route_spans"])]
-        branches.append({
+        decision: dict[str, Any] = {
             "id": decision_id,
             "after": result.items[after_idx].item["id"],
             "prompt": rec.prompt,
             "routes": routes,
-        })
+        }
+        if continuing is not None:
+            decision["continuingRoute"] = routes[continuing]["id"]
+            decision["continueAt"] = result.items[at].item["id"]
+        branches.append(decision)
         # The decision the candidate became, for its translations.
         cand["branch"] = branches[-1]
-        decision_of[id(rec)] = decision_id
+        decision_of[id(rec)] = (decision, how)
     notes: list[dict[str, str]] = []
     for _rel, parsed in parses:
         for rec in getattr(parsed, "menus", []):
-            decision_id = decision_of.get(id(rec))
-            if decision_id is not None:
-                note = (f"decision {decision_id}: {len(rec.choices)} routes, "
-                        "all result \"ending\"; continuingRoute not emitted "
-                        "(v1 never guesses a join after a menu)")
+            made = decision_of.get(id(rec))
+            if made is not None:
+                decision, how = made
+                note = (f"decision {decision['id']}: {len(rec.choices)} "
+                        "routes: " + "; ".join(
+                            f"{route['label']!r} {route['result']} "
+                            f"({proof})" if proof else
+                            f"{route['label']!r} {route['result']}"
+                            for route, proof in zip(decision["routes"], how)))
+                if "continuingRoute" in decision:
+                    note += (f"; continuingRoute {decision['continuingRoute']}"
+                             f", continueAt {decision['continueAt']}")
+                else:
+                    note += "; a pure choice (no join item to continue at)"
                 if rec.prompt_defaulted:
                     note += "; prompt defaulted (menu has no caption)"
                 notes.append({"source": rec.source, "result": "detected",
@@ -974,6 +1019,7 @@ def _join_results(results: list[TimelineResult]) -> TimelineResult:
     if len(results) == 1:
         return results[0]
     joined = TimelineResult()
+    copies: dict[int, dict[str, Any]] = {}
     for result in results:
         offset = len(joined.items)
         joined.items += result.items
@@ -981,12 +1027,19 @@ def _join_results(results: list[TimelineResult]) -> TimelineResult:
         joined.decoded_sizes += result.decoded_sizes
         joined.audio_tracks |= result.audio_tracks
         joined.transitions.add(result.transitions)
-        joined.branch_candidates += [{
-            **cand,
-            "after_idx": cand["after_idx"] + offset,
-            "route_spans": [(label, start + offset, end + offset)
-                            for label, start, end in cand["route_spans"]],
-        } for cand in result.branch_candidates]
+        for cand in result.branch_candidates:
+            copies[id(cand)] = {
+                **cand,
+                "after_idx": cand["after_idx"] + offset,
+                "continue_idx": (None if cand.get("continue_idx") is None
+                                 else cand["continue_idx"] + offset),
+                "route_spans": [(label, start + offset, end + offset)
+                                for label, start, end in cand["route_spans"]],
+            }
+            joined.branch_candidates.append(copies[id(cand)])
+    for cand in joined.branch_candidates:
+        if "joins_with" in cand:
+            cand["joins_with"] = copies[id(cand["joins_with"])]
     return joined
 
 

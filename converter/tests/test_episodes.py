@@ -98,7 +98,8 @@ def _prefixed(manifest: dict, prefix: str) -> tuple[list, list, dict]:
         **b, "id": pid(b["id"]), "after": pid(b["after"]),
         "routes": [{**r, "start": pid(r["start"]), "end": pid(r["end"])}
                    for r in b["routes"]],
-    } for b in manifest.get("branches", [])]
+    } | ({"continueAt": pid(b["continueAt"])} if "continueAt" in b else {})
+        for b in manifest.get("branches", [])]
     tracks = {pid(t): track
               for t, track in manifest.get("audio", {}).get("tracks",
                                                             {}).items()}

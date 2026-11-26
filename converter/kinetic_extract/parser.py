@@ -12,22 +12,25 @@ Design notes:
 - A line ending in ":" opens a block: all following lines indented deeper
   than the opening line belong to it. ``label`` blocks continue the linear
   walk; blocks other than ``label`` and ``menu`` are skipped.
-- ``menu`` is parsed structurally (docs/plan.md Phase 13): the caption and
-  the ``"label":`` choice blocks are captured into a ``MenuRecord`` and the
-  choice bodies feed the linear event stream between ``menu-open`` /
-  ``choice-open`` / ``menu-close`` marker events, so the timeline can lay a
-  branch decision over the items. A menu that fails the conservative shape
-  (a non-quoted or conditional choice, a nested menu, a flow or unknown
-  statement inside a choice block, a lone conditional choice) is reported
-  with ``menu unsupported (...)`` and its whole block is skipped, as before
-  — never fatal. A menu with one plain choice is no decision (Phase 60
-  item 3): its caption, if any, and its choice text become narration
-  lines where the menu stood, and the choice block is read in place as
-  label flow.
+- ``menu`` is parsed structurally (docs/plan.md Phase 13; Phase 60 item
+  4): the caption and the ``"label":`` choices are captured into a
+  ``MenuRecord``, and each choice block is read as label flow into its
+  own event list (its lines, audio, nested menus, `$` lines and the
+  `jump`, `call` or `return` it ends in), carried by a ``fork`` event
+  tagged with the record; kinetic_extract.flow walks each choice's path
+  and lays it out between menu marker events, so the timeline can lay a
+  branch decision over the items. A menu with a conditional choice, a
+  line between choices other than a caption, a statement before the
+  first choice or a `label` in a choice block is reported with ``menu
+  unsupported (...)`` and its whole block is skipped, its jumps and calls
+  followed — never fatal. A menu with one plain choice is no decision
+  (Phase 60 item 3): its caption, if any, and its choice text become
+  narration lines where the menu stood, and the choice block is read in
+  place as label flow.
 - ``jump``, ``call`` and ``return`` become flow events (``Event.flow``, a
   ``FlowStep``), and so do the jumps and calls inside an ``if``/``elif``/
-  ``else`` chain, a ``while`` or a menu the walk does not convert (a
-  ``fork`` event, one alternative per block). kinetic_extract.flow follows
+  ``else`` chain, a ``while`` or a menu that is no decision (a ``fork``
+  event, one alternative per block). kinetic_extract.flow follows
   them from ``label start`` (docs/plan.md Phase 57 item 4e); the blocks'
   other statements are skipped as before.
 - Audio statements (``play``, ``queue``, ``stop``, ``voice`` and literal
@@ -53,6 +56,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .audio_statements import (AudioChannel, AudioStatement, mentions_audio,
                                read_audio_define, read_channel, read_python,
@@ -138,9 +142,6 @@ _QUIET_BLOCK_KEYWORDS = frozenset({"init", "python", "screen", "transform"})
 # Single-line statements skipped without a report.
 _QUIET_STATEMENT_KEYWORDS = frozenset(
     {"window", "with", "pause", "return", "default", "$"})
-# Cosmetics that may sit inside a menu choice block without disqualifying
-# it: they change no flow and no state (unlike `return` or `$`).
-_MENU_NOISE_KEYWORDS = frozenset({"window", "with", "pause"})
 
 # docs/content-format.md caps enforced by the validator.
 PROMPT_MAX = 199       # prompt "shorter than 200 characters"
@@ -345,7 +346,11 @@ class FlowStep:
     screen`, ``target`` the screen, whose `Jump` and `Call` actions the
     walk follows), or a ``fork``: the blocks of an `if` chain, a `while`
     or a menu the walk does not convert, each block's own steps in
-    ``alternatives`` (an empty one goes on after the fork)."""
+    ``alternatives`` (an empty one goes on after the fork). A menu that
+    becomes a decision (docs/plan.md Phase 60 item 4) is a fork with
+    ``menu`` its index in ``FileParse.menus`` and ``bodies`` each choice
+    block's own events, story and flow alike, in place of
+    ``alternatives``."""
 
     kind: str                 # jump | call | return | label | screen | fork
     source: str               # "game/script.rpy:12"
@@ -358,18 +363,25 @@ class FlowStep:
     # (whose assignments to its variables tie labels to it).
     candidates: list[str] = field(default_factory=list)
     scope: str | None = None
+    menu: int | None = None
+    bodies: list[list["Event"]] = field(default_factory=list)
 
 
 @dataclass
 class Event:
     """A recognized statement in linear flow order.
 
-    Menu structure arrives as marker events: ``menu-open`` (name is the
-    menu's index in ``FileParse.menus``), ``choice-open`` (name is
-    ``"<menu index>:<choice index>"``), and ``menu-close`` (name is the
-    menu index again). The statements of a choice block sit between its
-    ``choice-open`` and the next boundary, so the timeline can attribute
-    items to route spans by position."""
+    A menu that becomes a decision is a ``fork`` event (``flow.menu``,
+    ``flow.bodies``); kinetic_extract.flow lays it out for the timeline
+    as marker events: ``menu-open`` (name is the menu's index in
+    ``FileParse.menus``), ``choice-open`` (name is ``"<menu index>:<choice
+    index>"``), and ``menu-close`` (name is the menu index again,
+    ``outcome`` how each choice's path ended). What a choice's path reads
+    sits between its ``choice-open`` and the next boundary, so the
+    timeline can attribute items to route spans by position; the walk
+    adds ``choice-text`` (a choice with nothing of its own, its text a
+    line when the menu is a decision) and ``path-end`` (the join's path
+    ended before any story event) markers."""
 
     kind: str            # visual | video | dialogue | stop-movie | label |
                          # menu-open | choice-open | menu-close | audio |
@@ -391,17 +403,22 @@ class Event:
     # text, which Ren'Py translates in the language's `strings` block
     # (old/new), not in a dialogue block (kinetic_extract.translations).
     from_strings: bool = False
+    # A `menu-close` marker's account of the walk (kinetic_extract.flow):
+    # each choice's result and how it was proven, the join, or why the
+    # menu stays linear.
+    outcome: dict[str, Any] | None = None
 
 
 @dataclass
 class MenuRecord:
     """One ``menu:`` block parsed structurally, for branch detection.
 
-    The parser fills the decision shape (id, prompt, choice labels) and
-    rejects menus that fail the conservative syntactic rules by setting
-    ``skip_reason``; the timeline rejects shape problems it can only see
-    after the walk (no item precedes the menu, an empty choice span); the
-    CLI withdraws a candidate whose items the asset pass dropped. A record
+    The parser fills the decision shape (id, prompt, choice labels and
+    their lines) and rejects menus that fail the syntactic rules by
+    setting ``skip_reason``; the walk and the timeline reject what they
+    can only see after the walk (a choice's path rejoining content read
+    elsewhere, every choice empty, no item before the menu); the CLI
+    withdraws a candidate whose items the asset pass dropped. A record
     with ``skip_reason is None`` after the CLI pass became a manifest
     decision."""
 
@@ -411,6 +428,14 @@ class MenuRecord:
     prompt: str
     prompt_defaulted: bool  # no caption in the source; prompt synthesized
     choices: list[str] = field(default_factory=list)
+    # Each choice's line ("game/script.rpy:39"), whose text a choice with
+    # no item of its own becomes.
+    choice_sources: list[str] = field(default_factory=list)
+    # Per choice, the `$ x = ...`, `+=` and `-=` lines written directly in
+    # its block, ``(variable, operator, expression)`` (Phase 60 item 6
+    # reads them); the walk treats them as noise.
+    assignments: list[list[tuple[str, str, str]]] = field(
+        default_factory=list)
     skip_reason: str | None = None
 
 
@@ -542,87 +567,6 @@ def _is_creator_statement(line: str, names: set[str]) -> bool:
     so `sfx "boom"` is the statement, not a line spoken by `sfx`."""
     words = line.replace(":", " ").split()
     return any(words[:len(name.split())] == name.split() for name in names)
-
-
-def _classify_menu_statement(src: str, line: str,
-                             creator: set[str] = frozenset()):
-    """Classify one line inside a menu choice block.
-
-    Answers ``("event", Event)``, ``("noise", None)``, or
-    ``("reject", reason)``. Only image/text-item statements (scene/show
-    and dialogue), audio statements and pure cosmetics (window/with/pause)
-    keep the menu eligible (docs/plan.md Phase 13, conservative
-    extraction): a nested ``menu``, a flow statement
-    (``jump``/``call``/``return``), a video statement, and any unknown
-    statement disqualify the whole menu, which is then reported and
-    skipped as before. An audio statement that cannot be converted keeps
-    the menu too: it answers a ``report`` event (``name`` the reason)
-    that the menu handler turns into a report (Phase 47 item 8)."""
-    keyword = line.split(" ", 1)[0].split(":", 1)[0]
-    rest = line[len(keyword):].strip()
-    if rest.startswith(":"):
-        rest = rest[1:].strip()
-    if _is_creator_statement(line, creator):
-        return "reject", f"creator-defined statement in a choice block: {line}"
-    read = _read_audio(keyword, line)
-    if isinstance(read, AudioStatement):
-        return "event", Event("audio", src, cue=read)
-    if isinstance(read, str):
-        return "event", Event("report", src, text=line, name=read)
-    if keyword == "menu":
-        return "reject", "nested menu inside a choice block"
-    if keyword == "scene":
-        return "event", Event("visual", src,
-                              name=_name_tokens(rest) or "black",
-                              transition=with_clause(rest))
-    if keyword == "show":
-        if rest.startswith("layer "):
-            return "reject", "show layer inside a choice block"
-        if rest.startswith("screen "):
-            return "event", Event("report", src, text=line, name=SHOW_SCREEN)
-        name = _name_tokens(rest)
-        if not name:
-            return "reject", f"show without an image: {line}"
-        return "event", Event("visual", src, name=name,
-                              transition=with_clause(rest))
-    if keyword == "with" and rest:
-        return "event", Event("with", src, name=rest)
-    if keyword == "pause":
-        return "event", Event("interact", src)
-    if keyword in {"jump", "call", "return"}:
-        return "reject", (f"{keyword} inside a choice block "
-                          "(flow does not continue in place)")
-    if keyword in _MENU_NOISE_KEYWORDS:
-        return "noise", None
-    # Video/state/control statements: recognized, but their presence in a
-    # choice block breaks the conservative shape. (`$` and `default` are
-    # caught below as unrecognized, like any unknown statement.)
-    if keyword in {"movie", "stop", "hide", "image", "define", "label",
-                   "init", "python", "screen", "transform", "if", "elif",
-                   "else"}:
-        return "reject", f"unsupported in a choice block: {line}"
-    quoted_start = line.find("\"")
-    if quoted_start == 0:
-        parsed = _parse_quoted(line, 0)
-        if parsed:
-            return "event", Event("dialogue", src, text=parsed[0])
-        return "reject", f"unrecognized statement in a choice block: {line}"
-    m = _SPEAKER_SAY_RE.match(line)
-    if m and quoted_start != -1:
-        parsed = _parse_quoted(line, quoted_start)
-        if parsed:
-            return "event", Event("dialogue", src, text=parsed[0],
-                                  speaker=m.group(1))
-    return "reject", f"unrecognized statement in a choice block: {line}"
-
-
-def _read_audio(keyword: str, line: str) -> AudioStatement | str | None:
-    """The audio statement on ``line``, a report reason, or None."""
-    if line.startswith("$"):
-        return read_python(line)
-    if keyword in _AUDIO_KEYWORDS:
-        return read_statement(line)
-    return None
 
 
 def full_label(name: str, cur_global: str | None) -> str:
@@ -860,54 +804,6 @@ def _chain_fork(raw_lines: list[str], i: int, lineno: int, line: str,
     return steps[0] if steps else None
 
 
-def _parse_menu_body(block: list[tuple[int, str, int]], relname: str,
-                     caption: str | None, creator: set[str] = frozenset()):
-    """Classify the interior lines of a menu block.
-
-    ``block`` holds ``(lineno, text, indent)`` for every non-blank line
-    deeper than the ``menu:`` line, in order; ``caption`` is the caption
-    taken from the ``menu "…":`` head, if any. Answers
-    ``(reject reason | None, caption, choices)`` where choices is a list
-    of ``(label, choice-line source, body events)``. Choice lines sit at
-    the base indent; every body line must classify as an event or noise,
-    so choice blocks are adjacent in file order with only skipped noise
-    between them by construction."""
-    base = block[0][2]
-    choices: list[tuple[str, str, list[Event]]] = []
-    for (lineno, text, indent) in block:
-        src = f"{relname}:{lineno}"
-        if indent <= base:
-            if indent < base:
-                return (f"unexpected indent at line {lineno}",
-                        caption, choices)
-            if text.startswith("\"") and text.endswith(":"):
-                parsed = _parse_quoted(text, 0)
-                label = parsed[0].strip() if parsed else ""
-                if not label:
-                    return "empty choice label", caption, choices
-                choices.append((label[:LABEL_MAX], src, []))
-            elif (caption is None and not choices
-                  and len(text) > 1 and text.startswith("\"")
-                  and text.endswith("\"")):
-                parsed = _parse_quoted(text, 0)
-                if parsed is None:
-                    return f"unsupported line between choices: {text}", \
-                        caption, choices
-                caption = parsed[0]
-            else:
-                return (f"unsupported line between choices: {text}",
-                        caption, choices)
-            continue
-        if not choices:
-            return ("statement before the first choice", caption, choices)
-        kind, payload = _classify_menu_statement(src, text, creator)
-        if kind == "reject":
-            return payload, caption, choices
-        if kind == "event":
-            choices[-1][2].append(payload)
-    return None, caption, choices
-
-
 _PLAIN_CHOICE_RE = re.compile(r"\s*:")
 
 
@@ -952,22 +848,92 @@ def _one_choice(block: list[tuple[int, str, int]], caption: str | None,
     return lines + [choice]
 
 
+# `$ x = ...`, `$ x += ...` or `$ x -= ...` on a plain or dotted name.
+_CHOICE_ASSIGN_RE = re.compile(
+    r"\$\s*([A-Za-z_][\w.]*)\s*(\+=|-=|=)(?!=)\s*(.+)")
+
+
+def _menu_choices(block: list[tuple[int, str, int]], caption: str | None,
+                  ) -> tuple[str | None, str | None, list[tuple[str, int]]]:
+    """The structure of a menu block (``(lineno, text, indent)`` of its
+    lines deeper than the `menu:` line): ``(reject reason | None,
+    caption, choices)``, each choice ``(label, lineno)``. The lines at the
+    block's base indent must be an optional caption, then plain quoted
+    `"text":` choices; a conditional choice (`"x" if cond:`), any other
+    line there, a statement before the first choice or a `label` inside
+    a choice block (a place a jump could enter a route from outside)
+    rejects the menu. A conditional choice is counted with the others,
+    so a lone one is still `fewer than two choices`."""
+    base = block[0][2]
+    choices: list[tuple[str, int]] = []
+    conditional = None
+    for lineno, text, indent in block:
+        if indent > base:
+            if not choices:
+                return "statement before the first choice", caption, choices
+            if text.split(" ", 1)[0].split(":", 1)[0] == "label":
+                return "label inside a choice block", caption, choices
+            continue
+        if indent < base:
+            return f"unexpected indent at line {lineno}", caption, choices
+        parsed = _parse_quoted(text, 0) if text.startswith("\"") else None
+        if parsed is None:
+            return f"unsupported line between choices: {text}", caption, \
+                choices
+        said, end = parsed
+        rest = text[end:]
+        if _PLAIN_CHOICE_RE.fullmatch(rest):
+            if not said.strip():
+                return "empty choice label", caption, choices
+            choices.append((said.strip()[:LABEL_MAX], lineno))
+        elif rest.strip().startswith("if ") and rest.endswith(":"):
+            conditional = conditional or f"conditional choice: {text}"
+            choices.append((said.strip()[:LABEL_MAX], lineno))
+        elif caption is None and not choices and not rest.strip():
+            caption = said
+        else:
+            return f"unsupported line between choices: {text}", caption, \
+                choices
+    if conditional is not None and len(choices) >= 2:
+        return conditional, caption, choices
+    return None, caption, choices
+
+
+def _choice_assignments(block: list[tuple[int, str, int]]
+                        ) -> list[tuple[str, str, str]]:
+    """The `$` assignments written directly in a choice block (not in a
+    block inside it), ``(variable, operator, expression)`` in order."""
+    if not block:
+        return []
+    depth = block[0][2]
+    out: list[tuple[str, str, str]] = []
+    for _lineno, text, indent in block:
+        m = _CHOICE_ASSIGN_RE.fullmatch(text) if indent == depth else None
+        if m is not None:
+            out.append((m.group(1), m.group(2), m.group(3).strip()))
+    return out
+
+
 def _handle_menu(raw_lines: list[str], i: int, relname: str,
                  menu_lineno: int, menu_line: str, menu_indent: int,
-                 result: FileParse, cur_label: str | None,
+                 result: FileParse, events: list[Event],
+                 cur_label: str | None,
                  cur_global: str | None = None) -> int:
     """Parse the menu block whose ``menu:`` line was just read.
 
     ``i`` is the index of the line after the ``menu:`` line; the answer is
     the index the outer scan resumes at. A menu with one plain choice
     gives narration lines (its caption, its choice text) and resumes the
-    scan inside its choice block, read as label flow. A menu passing the
-    conservative rules (two or more plain quoted choices, each body
-    parsing to events or noise) appends a MenuRecord plus marker events;
-    anything else is reported ``menu unsupported (reason)`` and its block
-    contributes nothing to the stream but a ``fork`` event when its
-    choices jump or call (the walk follows those, docs/plan.md Phase 57
-    item 4e). Never fatal."""
+    scan inside its choice block, read as label flow. A menu of two or
+    more plain quoted choices (docs/plan.md Phase 60 item 4) appends a
+    MenuRecord and a ``fork`` event tagged with it whose ``bodies`` hold
+    each choice block read as label flow (_scan_lines: its lines, audio,
+    nested menus, `$` lines and the `jump`, `call` or `return` it ends
+    in); kinetic_extract.flow lays the choices out between menu markers.
+    Any other menu is reported ``menu unsupported (reason)`` and its block
+    contributes nothing to the stream but a ``fork`` event of its
+    choices' jumps and calls (the walk follows those, docs/plan.md Phase
+    57 item 4e). Never fatal."""
     source = f"{relname}:{menu_lineno}"
     head_rest = menu_line[len("menu"):].strip()
     if head_rest.startswith(":"):
@@ -993,44 +959,20 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
     single = _one_choice(block, caption, menu_lineno)
     if single is not None:
         for lineno, text in single:
-            result.events.append(Event("dialogue", f"{relname}:{lineno}",
-                                       text=text, from_strings=True))
+            events.append(Event("dialogue", f"{relname}:{lineno}",
+                                text=text, from_strings=True))
         # The outer scan reads the choice block, the lines after the
         # choice line, as label flow.
         return single[-1][0]
 
     if not block:
-        reject, caption, choices = "empty menu", caption, []
+        reject, choices = "empty menu", []
     else:
-        reject, caption, choices = _parse_menu_body(
-            block, relname, caption, result.creator_statements)
+        reject, caption, choices = _menu_choices(block, caption)
     if reject is None and not choices:
         reject = "no choices"
     elif reject is None and len(choices) < 2:
         reject = "fewer than two choices"
-    if reject:
-        result.reports.append(Report(
-            source, menu_line,
-            f"menu unsupported ({reject}): branch skipped, linear flow kept"))
-        result.reports.extend(
-            Report(f"{relname}:{lineno}", text, AUDIO_IN_MENU)
-            for lineno, text, _indent in block if mentions_audio(text))
-        result.menus.append(MenuRecord(
-            source=source, statement=menu_line,
-            decision_id=f"menu-{slug(cur_label, Path(relname).stem)}"
-                        f"-{menu_lineno}"[:ID_MAX],
-            prompt=(caption if caption is not None else _DEFAULT_PROMPT)
-                   [:PROMPT_MAX],
-            prompt_defaulted=caption is None,
-            choices=[label[:LABEL_MAX] for label, _src, _body in choices],
-            skip_reason=reject))
-        alts = menu_alternatives(block, relname, cur_global)
-        if any(alts):
-            result.events.append(Event(
-                "fork", source, text=menu_line,
-                flow=FlowStep("fork", source, menu_line, alternatives=alts)))
-        return j
-
     record = MenuRecord(
         source=source, statement=menu_line,
         decision_id=f"menu-{slug(cur_label, Path(relname).stem)}"
@@ -1038,22 +980,42 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
         prompt=(caption if caption is not None else _DEFAULT_PROMPT)
                [:PROMPT_MAX],
         prompt_defaulted=caption is None,
-        choices=[label for label, _src, _body in choices])
+        choices=[label for label, _lineno in choices],
+        choice_sources=[f"{relname}:{lineno}" for _label, lineno in choices],
+        skip_reason=reject)
     menu_idx = len(result.menus)
     result.menus.append(record)
-    result.events.append(Event("menu-open", source, name=str(menu_idx)))
-    for k, (_label, choice_src, body) in enumerate(choices):
-        result.events.append(
-            Event("choice-open", choice_src, name=f"{menu_idx}:{k}"))
-        for event in body:
-            if event.kind == "report":
-                result.reports.append(
-                    Report(event.source, event.text, event.name or ""))
-            else:
-                result.events.append(event)
-    result.events.append(
-        Event("menu-close", f"{relname}:{block[-1][0]}",
-              name=str(menu_idx)))
+    if reject:
+        result.reports.append(Report(
+            source, menu_line,
+            f"menu unsupported ({reject}): branch skipped, linear flow kept"))
+        result.reports.extend(
+            Report(f"{relname}:{lineno}", text, AUDIO_IN_MENU)
+            for lineno, text, _indent in block if mentions_audio(text))
+        alts = menu_alternatives(block, relname, cur_global)
+        if any(alts):
+            events.append(Event(
+                "fork", source, text=menu_line,
+                flow=FlowStep("fork", source, menu_line, alternatives=alts)))
+        return j
+
+    # Each choice block, read as label flow into its own event list: the
+    # raw lines after its choice line up to the next choice (the last up
+    # to the menu's end).
+    bodies: list[list[Event]] = []
+    starts = [lineno for _label, lineno in choices]
+    for k, start in enumerate(starts):
+        stop = starts[k + 1] - 1 if k + 1 < len(starts) else j
+        body: list[Event] = []
+        _scan_lines(raw_lines, start, stop, relname, result, body,
+                    cur_label, cur_global)
+        bodies.append(body)
+        record.assignments.append(_choice_assignments(
+            [entry for entry in block if start < entry[0] <= stop]))
+    events.append(Event(
+        "fork", source, text=menu_line,
+        flow=FlowStep("fork", source, menu_line, menu=menu_idx,
+                      bodies=bodies)))
     return j
 
 
@@ -1192,19 +1154,19 @@ def _read_character(line: str, source: str, result: FileParse) -> None:
             result.character_kinds[var] = kind
 
 
-def _screen_event(result: FileParse, source: str, line: str) -> None:
+def _screen_event(events: list[Event], source: str, line: str) -> None:
     """A ``screen`` flow event for a `show screen`/`call screen` line."""
     name = screen_shown(line)
     if name is not None:
-        result.events.append(Event("screen", source, text=line, flow=FlowStep(
+        events.append(Event("screen", source, text=line, flow=FlowStep(
             "screen", source, line, name)))
 
 
-def _audio_event(result: FileParse, source: str, line: str,
-                 read: AudioStatement | str | None) -> None:
+def _audio_event(result: FileParse, events: list[Event], source: str,
+                 line: str, read: AudioStatement | str | None) -> None:
     """Add an audio statement's event, or report why it is not read."""
     if isinstance(read, AudioStatement):
-        result.events.append(Event("audio", source, cue=read))
+        events.append(Event("audio", source, cue=read))
     elif isinstance(read, str):
         result.reports.append(Report(source, line, read))
 
@@ -1232,12 +1194,23 @@ def parse_file(text: str, relname: str,
     result.story_reports_from = len(result.reports)
     result.creator_statements |= creator_statement_names(text)
 
+    _scan_lines(raw_lines, 0, len(raw_lines), relname, result,
+                result.events, None, None)
+    return result
+
+
+def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
+                result: FileParse, events: list[Event],
+                cur_label: str | None, cur_global: str | None) -> None:
+    """The statement walk over ``raw_lines[start:stop]``: its events go to
+    ``events`` (the file's stream, or a menu choice block's own list),
+    its reports, menus and definitions to ``result``. ``cur_label`` is the
+    label whose body the lines are in, ``cur_global`` the global label
+    local ones belong to."""
     skip_indent: int | None = None  # depth of the line that opened a block
     skip_opener = ""                # that line's keyword
-    cur_label: str | None = None    # label whose body the walk is in
-    cur_global: str | None = None   # the global label local ones belong to
-    i = 0
-    while i < len(raw_lines):
+    i = start
+    while i < stop:
         raw = raw_lines[i]
         lineno = i + 1
         i += 1
@@ -1288,21 +1261,21 @@ def parse_file(text: str, relname: str,
             line, i = _continued(raw_lines, lineno - 1, line)
             step = flow_statement(line, source, cur_global)
             if isinstance(step, FlowStep):
-                result.events.append(Event(step.kind, source, text=line,
+                events.append(Event(step.kind, source, text=line,
                                            flow=step))
                 continue
-            _audio_event(result, source, line, read_python(line))
+            _audio_event(result, events, source, line, read_python(line))
             continue
         if keyword == "default":
             continue
         if keyword == "with" and rest:
-            result.events.append(Event("with", source, name=rest))
+            events.append(Event("with", source, name=rest))
             continue
         if keyword == "pause":
-            result.events.append(Event("interact", source))
+            events.append(Event("interact", source))
             continue
         if keyword == "return":
-            result.events.append(Event(
+            events.append(Event(
                 "return", source, text=line,
                 flow=FlowStep("return", source, line)))
             continue
@@ -1321,7 +1294,7 @@ def parse_file(text: str, relname: str,
             continue
         if keyword == "scene":
             name = _name_tokens(rest)
-            result.events.append(
+            events.append(
                 Event("visual", source, name=name or "black",
                       transition=with_clause(rest)))
             continue
@@ -1337,11 +1310,11 @@ def parse_file(text: str, relname: str,
                 # x` and dropped); the walk follows its Jump and Call
                 # actions (kinetic_extract.flow).
                 result.reports.append(Report(source, line, SHOW_SCREEN))
-                _screen_event(result, source, line)
+                _screen_event(events, source, line)
                 continue
             name = _name_tokens(rest)
             if name:
-                result.events.append(
+                events.append(
                     Event("visual", source, name=name,
                           transition=with_clause(rest)))
             else:
@@ -1354,8 +1327,8 @@ def parse_file(text: str, relname: str,
             if clause is not None:
                 # `hide x with t` is `with None`, `hide x`, `with t`: the
                 # hide changes no picture the folder shows.
-                result.events.append(Event("interact", source))
-                result.events.append(Event("with", source, name=clause))
+                events.append(Event("interact", source))
+                events.append(Event("with", source, name=clause))
             continue
         if keyword == "movie":
             quoted = _parse_quoted(rest, rest.find("\""))
@@ -1363,10 +1336,10 @@ def parse_file(text: str, relname: str,
                 result.reports.append(
                     Report(source, line, "movie without a file"))
             else:
-                result.events.append(Event("video", source, asset=quoted[0]))
+                events.append(Event("video", source, asset=quoted[0]))
             continue
         if keyword == "stop" and rest == "movie":
-            result.events.append(Event("stop-movie", source))
+            events.append(Event("stop-movie", source))
             continue
         if keyword in _AUDIO_KEYWORDS:
             # A playlist may run over several lines; its lines are not
@@ -1376,17 +1349,17 @@ def parse_file(text: str, relname: str,
             if read is None:
                 result.reports.append(
                     Report(source, line, f"unsupported statement: {line}"))
-            _audio_event(result, source, line, read)
+            _audio_event(result, events, source, line, read)
             continue
         if keyword == "menu":
             named = _NAMED_MENU_RE.match(line)
             if named:
                 # `menu name:` is a label too: a jump to it shows the menu.
-                result.events.append(Event(
+                events.append(Event(
                     "label", source, name=full_label(named.group(1),
                                                      cur_global)))
             i = _handle_menu(raw_lines, i, relname, lineno, line, indent,
-                             result, cur_label, cur_global)
+                             result, events, cur_label, cur_global)
             continue
         if keyword == "label":
             # The label body is the linear flow itself: never skipped. The
@@ -1402,16 +1375,16 @@ def parse_file(text: str, relname: str,
                 name = full_label(full.group(1), cur_global)
                 if "." not in full.group(1):
                     cur_global = name
-                result.events.append(Event("label", source, name=name))
+                events.append(Event("label", source, name=name))
             continue
         if keyword in {"jump", "call"}:
             step = flow_statement(line, source, cur_global)
             if isinstance(step, FlowStep):
-                result.events.append(Event(keyword, source, text=line,
+                events.append(Event(keyword, source, text=line,
                                            flow=step))
             elif step is not None:
                 result.reports.append(Report(source, line, step))
-                _screen_event(result, source, line)
+                _screen_event(events, source, line)
             open_block()
             continue
         if keyword == "screen":
@@ -1423,7 +1396,7 @@ def parse_file(text: str, relname: str,
             fork = _chain_fork(raw_lines, i, lineno, line, indent, relname,
                                cur_global)
             if fork is not None:
-                result.events.append(Event("fork", source, text=line,
+                events.append(Event("fork", source, text=line,
                                            flow=fork))
         if keyword in _QUIET_BLOCK_KEYWORDS:
             open_block()
@@ -1434,14 +1407,14 @@ def parse_file(text: str, relname: str,
         if quoted_start == 0:
             parsed = _parse_quoted(line, 0)
             if parsed:
-                result.events.append(
+                events.append(
                     Event("dialogue", source, text=parsed[0]))
             continue
         m = _SPEAKER_SAY_RE.match(line)
         if m:
             parsed = _parse_quoted(line, quoted_start)
             if parsed:
-                result.events.append(
+                events.append(
                     Event("dialogue", source, text=parsed[0],
                           speaker=m.group(1)))
             continue
@@ -1449,8 +1422,6 @@ def parse_file(text: str, relname: str,
         result.reports.append(
             Report(source, line, f"unrecognized statement: {line}"))
         open_block()
-
-    return result
 
 
 def _rpyc_glob(files_glob: str | None) -> str:

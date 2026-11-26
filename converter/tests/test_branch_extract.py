@@ -1,10 +1,13 @@
-"""Conservative `menu:` -> `branches` extraction (docs/plan.md Phase 13).
+"""`menu:` -> `branches` extraction (docs/plan.md Phase 13; Phase 60
+item 4 for choices that jump and the joins the walk proves).
 
-Golden-fixture assertions cover the detected decision (after, route
-spans, ends); parse/timeline units cover the reported-skipped shapes
-(nested menu, unknown statement or jump inside a block, a menu nothing
-precedes); the CLI check covers the ledger notes, the summary line, and
-validation of the detected output with tools/validate_content.py.
+Golden-fixture assertions cover the detected decisions (after, route
+spans, results, the continuing route and `continueAt`); parse/timeline
+units cover the shapes (a nested menu, a jump or an unknown statement in a
+block, a conditional choice, an empty choice, a menu nothing precedes);
+the CLI check covers the ledger notes, the summary line, and validation
+of the detected output with tools/validate_content.py. Synthetic projects
+for each kind of jump menu are in test_jump_menus.py.
 """
 
 from __future__ import annotations
@@ -42,7 +45,7 @@ def test_golden_manifest_carries_the_decision(tmp_path: Path) -> None:
     assert mask_tracks(manifest, encoded) == mask_tracks(
         json.loads(GOLDEN.read_text("utf-8")), encoded)
     branches = manifest["branches"]
-    assert len(branches) == 1
+    assert len(branches) == 2
     decision = branches[0]
     ids = [i["id"] for i in manifest["items"]]
     assert decision["id"] == "menu-start-47"
@@ -55,15 +58,27 @@ def test_golden_manifest_carries_the_decision(tmp_path: Path) -> None:
         ("Walk the garden path", "bg-yard-010", "line-011"),
     ]
     for route in routes:
-        assert route["result"] == "ending"
+        assert route["result"] == "continue"
         assert ids.index(route["start"]) <= ids.index(route["end"])
         assert ids.index(route["start"]) > ids.index(decision["after"])
-    # v1 never guesses a join: pure-choice decision, no continuingRoute.
-    assert "continuingRoute" not in decision
-    assert "continueAt" not in decision
+    # Both choices fall through to the line after the menu: the walk's
+    # join, so the last is the continuing route (Phase 60 item 4).
+    assert decision["continuingRoute"] == "Walk-the-garden-path-2"
+    assert decision["continueAt"] == "line-012"
     # The route spans tile the region: block two starts right after the
     # last item of block one, and nothing else was attributed.
     assert ids.index(routes[1]["start"]) == ids.index(routes[0]["end"]) + 1
+    # The second menu's first choice jumps straight to label inside, where
+    # the second choice's path goes too: its route is its choice text.
+    second = branches[1]
+    assert (second["id"], second["after"]) == ("menu-start-62", "line-012")
+    assert [(r["label"], r["start"], r["end"], r["result"])
+            for r in second["routes"]] == [
+        ("Go back inside", "line-013", "line-013", "continue"),
+        ("Stay under the stars", "line-014", "line-014", "continue")]
+    assert manifest["items"][12]["text"] == "Go back inside"
+    assert second["continuingRoute"] == "Stay-under-the-stars-2"
+    assert second["continueAt"] == "bg-room-015"
 
 
 def test_detected_choice_flow_stays_in_the_item_array() -> None:
@@ -82,21 +97,23 @@ def test_ledger_notes_every_menu(tmp_path: Path) -> None:
     notes = ledger["branchDetection"]
     detected = [n for n in notes if n["result"] == "detected"]
     skipped = [n for n in notes if n["result"] == "skipped"]
-    assert len(detected) == 1 and len(skipped) == 1
-    assert "continuingRoute not emitted" in detected[0]["note"]
-    assert detected[0]["source"] == "game/script.rpy:47"
-    assert skipped[0]["source"] == "game/script.rpy:62"
-    assert "jump inside a choice block" in skipped[0]["reason"]
+    assert len(detected) == 2 and skipped == []
+    assert [n["source"] for n in detected] == ["game/script.rpy:47",
+                                                "game/script.rpy:62"]
+    assert detected[0]["note"] == (
+        "decision menu-start-47: 2 routes: 'Warm the room again' continue "
+        "(reaches the join at game/script.rpy:58); 'Walk the garden path' "
+        "continue (reaches the join at game/script.rpy:58); "
+        "continuingRoute Walk-the-garden-path-2, continueAt line-012")
+    assert "reaches the join at game/script.rpy:72" in detected[1]["note"]
     reasons = [r["reason"] for r in ledger["report"]]
-    assert any("menu unsupported (jump inside a choice block" in r
-               for r in reasons)
+    assert not any("menu unsupported" in r for r in reasons)
 
 
 def test_cli_summary_counts_branches(tmp_path: Path, capsys) -> None:
     cli_main([str(FIXTURE), str(tmp_path / "out")])
     out = capsys.readouterr().out
-    assert "branches: 1 detected, 1 menus skipped" in out
-    assert "jump inside a choice block" in out  # reason list
+    assert "branches: 2 detected, 0 menus skipped" in out
 
 
 def test_detected_output_validates(tmp_path: Path) -> None:
@@ -118,7 +135,16 @@ def test_detected_output_validates(tmp_path: Path) -> None:
 MENU_OK = ('menu "P?":\n    "one":\n        "a"\n    "two":\n        "b"\n')
 
 
-def test_nested_menu_reported_unsupported() -> None:
+def _bodies(parsed) -> list[list[tuple]]:
+    (fork,) = [e.flow for e in parsed.events if e.kind == "fork"]
+    return [[(e.kind, e.flow.target if e.flow and e.kind != "fork"
+              else e.text) for e in body] for body in fork.bodies]
+
+
+def test_nested_menu_is_a_fork_in_its_choice() -> None:
+    """A menu in a choice block is read with the block (Phase 60 item 4):
+    the outer menu's fork carries it, as a fork of its own, in the
+    choice's events."""
     text = ("label start:\n"
             '    "lead"\n'
             "    menu:\n"
@@ -127,35 +153,50 @@ def test_nested_menu_reported_unsupported() -> None:
             "            menu:\n"
             '                "deep":\n'
             '                    "b"\n'
+            '                "deeper":\n'
+            '                    "c"\n'
             '        "two":\n'
-            '            "c"\n')
+            '            "d"\n')
     parsed = parse_file(text, "game/x.rpy")
-    assert all(m.skip_reason for m in parsed.menus)
-    assert not any(e.kind == "menu-open" for e in parsed.events)
-    reasons = [r.reason for r in parsed.reports]
-    assert any("menu unsupported" in r and "nested menu" in r
-               for r in reasons)
-    # The whole block is skipped, contents and all: only the lead line
-    # survives in the stream.
-    assert [e.text for e in parsed.events if e.kind == "dialogue"] == ["lead"]
+    assert parsed.reports == []
+    assert [m.choices for m in parsed.menus] == [["one", "two"],
+                                                 ["deep", "deeper"]]
+    assert all(m.skip_reason is None for m in parsed.menus)
+    assert _bodies(parsed) == [[("dialogue", "a"), ("fork", "menu:")],
+                               [("dialogue", "d")]]
 
 
-def test_jump_inside_block_and_unknown_stmt_each_reject() -> None:
+def test_jump_and_unknown_statement_read_as_label_flow() -> None:
+    """A choice block is label flow: a jump ends its path, an unknown
+    statement is reported as in a label and the menu stays a decision."""
     jumpy = ('label s:\n    "lead"\n    menu:\n        "one":\n'
              "            jump elsewhere\n        \"two\":\n            \"b\"\n")
     parsed = parse_file(jumpy, "game/x.rpy")
-    assert any("menu unsupported" in r.reason and "jump inside" in r.reason
-               for r in parsed.reports)
-    assert not any(e.kind == "menu-open" for e in parsed.events)
+    assert parsed.reports == []
+    assert _bodies(parsed) == [[("jump", "elsewhere")], [("dialogue", "b")]]
 
     weird = ('label s:\n    "lead"\n    menu:\n        "one":\n'
              '            "a"\n            imgfl 12345\n        "two":\n'
              '            "b"\n')
     parsed = parse_file(weird, "game/x.rpy")
-    assert any("menu unsupported" in r.reason
-               and "unrecognized statement in a choice block" in r.reason
-               for r in parsed.reports)
-    assert not any(e.kind == "menu-open" for e in parsed.events)
+    assert [r.reason for r in parsed.reports] == [
+        "unrecognized statement: imgfl 12345"]
+    assert _bodies(parsed) == [[("dialogue", "a")], [("dialogue", "b")]]
+
+
+def test_conditional_choice_and_label_in_a_block_reject() -> None:
+    for text, why in (
+            ('menu:\n    "one" if x:\n        "a"\n    "two":\n'
+             '        "b"\n', "conditional choice: \"one\" if x:"),
+            ('menu:\n    "one":\n        label inner:\n        "a"\n'
+             '    "two":\n        "b"\n', "label inside a choice block")):
+        parsed = parse_file(text, "game/x.rpy")
+        assert [r.reason for r in parsed.reports] == [
+            f"menu unsupported ({why}): branch skipped, linear flow kept"]
+        assert parsed.menus[0].skip_reason == why
+        # No decision fork: the blocks are skipped, their flow followed.
+        assert not any(e.flow.menu is not None for e in parsed.events
+                       if e.kind == "fork")
 
 
 def test_single_choice_and_dedented_tail_reject() -> None:
@@ -191,12 +232,25 @@ def test_menu_with_no_items_before_is_unsupported(tmp_path: Path) -> None:
     assert [r.item.get("text") for r in result.items] == ["a", "b"]
 
 
-def test_menu_with_empty_choice_block_is_unsupported(tmp_path: Path) -> None:
+def test_empty_choice_block_gets_its_text(tmp_path: Path) -> None:
     parsed, result = _run(tmp_path,
                           '"lead"\nmenu:\n    "one":\n        with dissolve\n'
                           '    "two":\n        "b"\n')
+    assert [r.item.get("text") for r in result.items] == ["lead", "one", "b"]
+    (cand,) = result.branch_candidates
+    assert cand["route_spans"] == [("one", 1, 1), ("two", 2, 2)]
+    assert result.items[1].string_sources == {"game/x.rpy:3"}
+    assert parsed.reports == []
+
+
+def test_menu_every_choice_of_which_is_empty_is_unsupported(
+        tmp_path: Path) -> None:
+    parsed, result = _run(tmp_path,
+                          '"lead"\nmenu:\n    "one":\n        pass\n'
+                          '    "two":\n        with dissolve\n"after"\n')
     assert result.branch_candidates == []
-    assert any("menu unsupported (choice 1 produced no item" in r.reason
+    assert [r.item.get("text") for r in result.items] == ["lead", "after"]
+    assert any("menu unsupported (every choice is empty" in r.reason
                for r in parsed.reports)
 
 

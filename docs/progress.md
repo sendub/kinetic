@@ -6163,9 +6163,76 @@ truthful: an unchecked box means nothing was accepted.
       choice. Subagent: the touched files 163, converter and tools 2138
       passed. Orchestrator: those files with test_translations 205
       passed.)
-- [ ] Menus whose choices jump become decisions (item 4). Routes from
+- [x] Menus whose choices jump become decisions (item 4). Routes from
       the walk's alternatives, results proven from how each path ends;
       empty choices get their text; in-place menus get their joins.
+      (2026-11-26: parser.py's statement scan is now `_scan_lines`, so
+      each choice block of a menu of two or more plain choices is read
+      as label flow into its own events (lines, audio, nested menus, `$`
+      lines, the closing jump, call or return); the menu is one `fork`
+      event carrying its MenuRecord and the bodies, and MenuRecord
+      keeps each choice's `$ x =`/`+=`/`-=` assignments for item 6.
+      Still rejected as before: a conditional choice, a `label` in a
+      choice block, a statement before the first choice, other lines
+      between choices, a lone conditional choice. flow.py's
+      `_menu_join` takes the fork's post-dominator when it lies outside
+      every choice block, else the node most choices' post-dominator
+      chains share (loops back to the menu left out); `run` lays the
+      menu out as markers around each choice's path and the join once,
+      and classifies each path's end: join, back at the menu (its label,
+      a named menu, or a label reaching it with no story between),
+      exit, a rejoin elsewhere, or not followed. timeline.py nests menus
+      (`menu_stack`), takes `continueAt` from the first item after the
+      region, and `finish_candidates` sets the continuing route (the
+      last `"continue"` one), gives a nested decision whose join is its
+      parent's the parent's `continueAt`, and makes a decision with no
+      join item a pure choice. audio_cues.py's CueWalker keeps a stack
+      of enclosing menus' states. cli.py emits each route's `result`,
+      `continuingRoute` and `continueAt`, moves a dropped `continueAt`
+      to the next kept item (else a pure choice), and the
+      `branchDetection` note gives each route's result and its proof.
+      An empty choice gets its text as a line from `strings`; a menu of
+      empty choices stays linear. extracting.md's walk section.
+      Subagent's calls: every decision menu goes through the walk, so an
+      unknown statement in a choice block is reported as in a label,
+      not a reject, and a nested menu is a nested decision; a choice's
+      `return` counts as the story's end even inside a called label (a
+      documented limit); a jump back to a label with a line before the
+      menu is a rejoin (item 4b takes it up); a choice ending the story
+      beside one jumping on still gets a join. Tests: test_jump_menus.py
+      16 end-to-end cases (two rejoining choices, three with `$` lines
+      and lines before the jumps, a refusal to the menu's label and to a
+      named menu, three-deep nesting, every choice to one label, a
+      story-ending choice, a `call`, an empty choice with its de
+      strings translation, a rejoin into another choice's content, an
+      in-place menu falling through, a menu at the story's end, a
+      conditional choice, a menu straight after a menu, a route item
+      dropped by the asset pass), each validating --strict silent,
+      `kinetic routes --json` counts matching, and `kinetic check
+      --steps all` reaching the end with exit 0 (play-all plays every
+      route); 14 failed first, the story-end case passing as meant, the
+      asset-pass case shown failing with its fix off; an audio test of a
+      menu nested in a route. Changed expectations: the renpy_demo
+      golden (its second menu is now a decision with a line kept that
+      was dropped, ids after line-012 shifted by 2, the first menu now
+      continuing), test_branch_extract (2 detected, fork-body tests),
+      test_flow, test_audio_extract, test_parser, test_pipeline,
+      test_audio_ship, test_renpy_translations (de coverage 15/33),
+      test_episodes. Subagent: touched files 281, converter and tools
+      2179, npm test 1919. Orchestrator: converter and tools 2179
+      passed. On a reporting agent's game (read-only, a parse-only walk
+      outside the repo): 61 menus noted, 35 decisions (60 routes
+      `"continue"`, 7 `"ending"`, 6 `"return"`, 32 with `continueAt`),
+      26 linear: 3 with every choice empty, 23 rejoining content another
+      route read: mostly a shared tail that many nested choices jump
+      to (docs/future.md, "Routes that share a tail"), and choices
+      jumping back to a label that reaches the menu through lines or a
+      screen (item 4b).)
+- [ ] A jump back through the menu's lead-in is a return (item 4b, a
+      lead from item 4). A choice whose path jumps to a label that
+      reaches its menu by straight-line story (lines, shows, audio, no
+      fork or other flow), re-reading the decision's lead-in, is a
+      `"return"` route, not a rejoin.
 - [x] A decision that follows an earlier one (item 5). `follows` and
       `when` in the format, validator, player and tools.
       (2026-11-26: types.ts `Branch.follows`, `Route.when`; machine.ts

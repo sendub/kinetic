@@ -143,9 +143,43 @@ game whose story order differs from its file order read out of order.
   rest, as the file-order join usually read them; an `if` with no
   `else`, and a `while`, also go on past the fork. A label inside such a
   block is a place a jump can land. A menu that becomes a decision is
-  unchanged: its choices hold no jump or call (Branches, in
-  docs/content-format.md, and the conservative rule in the ledger's
-  `simplifications`).
+  read as the next item says.
+- **Menus** (docs/plan.md Phase 60 item 4): a menu of two or more plain
+  quoted choices becomes a decision (Branches, in
+  docs/content-format.md). Each choice block is read as label flow: its
+  lines, audio and nested menus, its `$` lines (assignments are kept on
+  the menu's record for conditions; they change nothing here) and the
+  `jump`, `call` or `return` it ends in. The walk reads each choice's
+  path in turn up to where the choices meet, then that join once, as for
+  any fork; the join is the post-dominator of the choices that do not
+  loop back to the menu, read past each choice's own block, or, when one
+  choice ends the story, where the others meet. What a choice's path
+  reads is its route, and its `result` is how the path ended: at the
+  join `"continue"`, back at the menu (its label, a named menu, or a
+  label that reaches it with no line between) `"return"`, at the
+  story's end `"ending"`. The last choice reaching the join is the
+  `continuingRoute`, and the join's first item the `continueAt`; a menu
+  nested in a route whose choices meet where the enclosing menu's do
+  takes the enclosing `continueAt`, past its route's end. A menu whose
+  choices all fall through meets right after the menu, so it continues
+  there too; one with no item after its join (the story's end, or a
+  second menu straight after it) is a pure choice, its routes
+  `"ending"`, and that second menu stays linear. A choice with nothing
+  of its own (it goes straight to the join) is one line, its choice
+  text, translated from the language's `strings` block. The ledger's
+  `branchDetection` note for a decision gives each route's result and
+  how the walk proved it (`reaches the join at game/script.rpy:58`,
+  `jumps back to the menu`, `reaches the story's end`), and its
+  `continuingRoute` and `continueAt` or that it is a pure choice. A
+  `return` in a choice is read as the story's end, even in a label
+  reached by `call`. Linear and reported (`menu unsupported (...)`,
+  `skipped` in `branchDetection`): a menu every choice of which is
+  empty, one where a choice's path rejoins content read somewhere other
+  than the join or the menu (a jump back to a label with a line before
+  the menu is such a rejoin), a conditional choice (`"x" if cond:`), a
+  `label` inside a choice block, and any line between choices other
+  than a caption. Such a menu's blocks are skipped as for an `if`, their
+  jumps and calls followed.
 - **Screens**: `show screen x` and `call screen x` are a fork of the
   screen's literal `Jump("label")` and `Call("label")` actions, and
   those of the screens it `use`s, in the screen's order, and of going
@@ -746,7 +780,8 @@ How a cue maps:
   `if_changed` changes nothing: a wanted track is never restarted.
 
 Menus. Audio statements in a choice block keep the menu, and a cue there
-attaches to the route's first item. A cue read just before a detected
+attaches to the route's first item; a menu nested in a route does the
+same inside that route. A cue read just before a detected
 menu reaches the first item of every route; each route starts from the
 state before the menu; a cue after a route's last item stays on that
 item. After the menu the last route's state goes on, and when the

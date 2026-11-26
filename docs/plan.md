@@ -4759,6 +4759,19 @@ The orchestrator's choices, within those decisions:
    `kinetic check --steps all` walks to the end. The orchestrator also
    runs the extract on a reporting agent's game, read-only and outside
    the repo, and records only counts in the evidence note.
+4b. A jump back through the menu's lead-in is a return (a lead from
+    item 4). Item 4 counts a choice as `"return"` only when its jump
+    reaches the menu with no story between, so the common refusal form
+    (`label ask:`, a line asking, `menu:`, a choice jumping back to
+    `ask`) stays linear as a rejoin. A path that rejoins at a place
+    from which the menu follows by straight-line story (lines, shows,
+    hides, audio, no fork or other flow) re-reads only the decision's
+    lead-in, so it is a `"return"` route too; the re-read lines are
+    not repeated (the player re-offers the choice). The ledger note says
+    the lead-in was re-read. Tests: the refusal form with one and with
+    several lead-in lines (a `"return"` route, validate --strict
+    silent, the walk ends); a jump back to a label whose way to the
+    menu passes a fork or another jump stays a rejoin.
 5. A decision that follows an earlier one (format and player; the
    user's decision above). A decision's optional `follows` names a
    decision whose `after` comes before its own in array order (not
@@ -4877,7 +4890,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 7 -> 8 -> 9 -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

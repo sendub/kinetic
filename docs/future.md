@@ -201,6 +201,26 @@ To settle:
 - Whether reduced motion changes the timing rules in
   docs/content-format.md, "Timing".
 
+## Routes that share a tail (maybe, 2026-11-26)
+
+Ren'Py games often send many choices, across nested menus, to one label
+(a common failure scene) that then rejoins the story. Kinetic routes
+cannot share items, so Phase 60's converter keeps such a menu linear
+("rejoins content read at ..."): on a converted corpus game, 23 of 61
+menus. Candidates:
+
+- A route that ends by joining another place than its decision's
+  `continueAt` (a per-route join), with the shared content laid out
+  once as a route of its own.
+- The converter copying the shared scene into each route that reaches
+  it, at the cost of repeated items.
+
+To settle:
+
+- Whether the format grows a per-route join, and how the wheel, `u`,
+  the end card and play-all treat it.
+- Whether copies are acceptable, and how seen marks count them.
+
 ## Per-language pictures (maybe, 2026-11-16)
 
 Phase 56 keeps pictures the same in every language. Words drawn into a

@@ -563,9 +563,13 @@ def test_demo_german_language_file(demo: dict) -> None:
         "bg-yard-006": "Stille im Garten. [wind]",          # narrator
         "bg-room-008": "Das Feuer knistert, und das Zimmer wird warm.",
         "line-012": "Die Nacht legt sich über das Haus.",
-        "line-014": "Gute Nacht.",                          # suffix _1
+        # A choice that jumps straight on is its text, from `strings`;
+        # the other choice's line is walked since Phase 60 item 4.
+        "line-013": "Wieder hineingehen",
+        "line-014": "Der Himmel ist unglaublich weit.",
+        "line-016": "Gute Nacht.",                          # suffix _1
         # By comment only, and its extend line's block joined to it.
-        "talk-020": "Der Fernseher summt mit. Dann verstummt er.",
+        "talk-022": "Der Fernseher summt mit. Dann verstummt er.",
     }
     assert "line-003" not in items                          # `pass`
     for item_id, entry in de["items"].items():
@@ -577,6 +581,9 @@ def test_demo_german_language_file(demo: dict) -> None:
     assert {k: v["text"] for k, v in decision["routes"].items()} == {
         "Warm-the-room-again-1": "Das Zimmer wieder wärmen",
         "Walk-the-garden-path-2": "Den Gartenweg entlang"}
+    assert {k: v["text"] for k, v in
+            de["decisions"]["menu-start-62"]["routes"].items()} == {
+        "Go-back-inside-1": "Wieder hineingehen"}
     zh = lang_file(demo["out"], "zh-Hans")
     assert {k: v["text"] for k, v in zh["items"].items()} == {
         "bg-room-001": "欢迎来到这所房子。"}
@@ -600,7 +607,7 @@ def validator_coverage(out: Path) -> dict[str, tuple[int, int, int, int]]:
 
 def test_demo_output_validates_with_coverage(demo: dict) -> None:
     assert validator_coverage(demo["out"]) == {
-        "de": (12, 28, 0, 0), "zh-Hans": (1, 28, 0, 0)}
+        "de": (15, 33, 0, 0), "zh-Hans": (1, 33, 0, 0)}
 
 
 def test_demo_report(demo: dict) -> None:
@@ -610,13 +617,13 @@ def test_demo_report(demo: dict) -> None:
         in printed
     assert ("translations: 2 language file(s) written (de, zh-Hans); "
             "skipped: klingon (unknown name)") in printed
-    assert ("  de (tl/de): dialogue blocks 13: matched to items 9 (by "
-            "comment only 1), kept as stale 0, lines not in the story 2, "
+    assert ("  de (tl/de): dialogue blocks 13: matched to items 10 (by "
+            "comment only 1), kept as stale 0, lines not in the story 1, "
             "pass or empty 1, unmatched 1; identifier and comment: agree "
             "11, disagree 0, no comment 0") in printed
-    assert ("    strings used 4 of 5; several lines joined 1, duplicates 0, "
-            "same as the base text 0; coverage de: 12 of 28 strings "
-            "(42.8%), 0 stale, 0 unchecked; ignored: style blocks 1, "
+    assert ("    strings used 5 of 5; several lines joined 1, duplicates 0, "
+            "same as the base text 0; coverage de: 15 of 33 strings "
+            "(45.4%), 0 stale, 0 unchecked; ignored: style blocks 1, "
             "python blocks 1, replacement files 1") in printed
     assert ("    unmatched: game/tl/de/script.rpy:77 (inside_deadbeef)"
             in printed)
@@ -624,7 +631,7 @@ def test_demo_report(demo: dict) -> None:
     assert ledger["skipped"] == ["klingon (unknown name)"]
     de = ledger["languages"]["de"]
     assert (de["name"], de["blocks"], de["matched"], de["done"],
-            de["total"]) == ("de", 13, 9, 12, 28)
+            de["total"]) == ("de", 13, 10, 15, 33)
 
 
 def test_demo_without_translations_is_the_english_golden(

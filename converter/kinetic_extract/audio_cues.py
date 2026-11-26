@@ -370,6 +370,10 @@ class CueWalker:
         self._voice: tuple[str, FileParse, str, str] | None = None
         self._lead: tuple[_Group, dict[str, str]] | None = None
         self._route_states: list[dict[str, str]] = []
+        # The enclosing menus' lead and route states while a menu inside
+        # one of their routes is open (docs/plan.md Phase 60 item 4).
+        self._outer: list[tuple[tuple[_Group, dict[str, str]] | None,
+                                list[dict[str, str]]]] = []
         self._ambiguous = False
 
     # --- reading -------------------------------------------------------------
@@ -572,6 +576,7 @@ class CueWalker:
         """A detected menu starts: the waiting cues lead every route."""
         if self._voice is not None:
             self._report_voice(VOICE_MENU)
+        self._outer.append((self._lead, self._route_states))
         self._lead = (self._group, dict(self._ambience))
         self._route_states = []
         self._group = _Group()
@@ -597,14 +602,16 @@ class CueWalker:
         self._group = _Group()
 
     def menu_close(self) -> None:
-        """After the menu the last route's state goes on."""
+        """After the menu the last route's state goes on, inside the
+        enclosing menu's route when it is nested in one."""
         if self._lead is None:
             return
         states = self._route_states or [self._lead[1]]
         self._ambiguous = any(set(s.values()) != set(states[-1].values())
                               for s in states)
         self._ambience = dict(states[-1])
-        self._lead = None
+        self._lead, self._route_states = (self._outer.pop() if self._outer
+                                          else (None, []))
         self._group = _Group()
 
     # --- reports -------------------------------------------------------------

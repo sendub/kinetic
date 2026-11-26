@@ -146,7 +146,7 @@ def test_demo_items_carry_their_cues(demo) -> None:
     assert audio["bg-yard-010"] == {"music": "theme-2", "ambience": [],
                                     "fadeMs": 1000}
     # The movie with sound plays it; the one with no audio stream has none.
-    assert audio["talk-020"] == {"videoSound": {"track": "talk"}}
+    assert audio["talk-022"] == {"videoSound": {"track": "talk"}}
     assert audio["clip-004"] is None
     assert sum(1 for a in audio.values() if a) == 5
 
@@ -222,7 +222,7 @@ def test_demo_ledger_records_the_sound(demo) -> None:
         "file": tracks["door"]["file"]}
     # Both theme tracks name the one file.
     assert ledger["audioTracks"]["theme-2"]["file"] == tracks["theme"]["file"]
-    assert ledger["items"]["talk-020"]["sound"] == "extract"
+    assert ledger["items"]["talk-022"]["sound"] == "extract"
     assert ledger["items"]["clip-004"]["sound"] == "no audio"
     # The cues live in the manifest now, not in the ledger's items.
     assert all("audio" not in e for e in ledger["items"].values())

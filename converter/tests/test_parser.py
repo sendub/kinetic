@@ -41,7 +41,7 @@ def test_golden_manifest(tmp_path: Path) -> None:
 def test_movie_item_gets_duration_via_ffprobe(tmp_path: Path) -> None:
     manifest = extract(tmp_path)
     videos = {i["id"]: i for i in manifest["items"] if i["type"] == "video"}
-    assert list(videos) == ["clip-004", "talk-020"]
+    assert list(videos) == ["clip-004", "talk-022"]
     video = videos["clip-004"]
     # The fixture clip is 1 s; allow a little slack for ffprobe rounding.
     assert 0.9 < video["durationSeconds"] <= 1.1
@@ -58,7 +58,9 @@ def test_skipped_report_contents(tmp_path: Path) -> None:
     statements = [r["statement"] for r in ledger["report"]]
     assert "unrecognized statement: imgfl 12345" in reasons
     assert "imgfl 12345" in statements
-    assert any("menu unsupported" in r for r in reasons)
+    # Both menus are decisions since Phase 60 item 4 (the second's choices
+    # jump): none is reported unsupported.
+    assert not any("menu unsupported" in r for r in reasons)
     # The walk follows labels (Phase 57 item 4e): a call to a label no
     # walked script defines is reported, not followed.
     assert ("call target 'distant_scene' is not a label of the walked "
@@ -149,7 +151,16 @@ def test_non_breaking_spaces_in_indentation_parse_as_plain() -> None:
         for level, text in lines)
     want = parse_file(plain, "game/x.rpy")
     got = parse_file(mixed, "game/x.rpy")
-    assert [e.text for e in want.events if e.kind == "dialogue"] == [
+
+    def said(events):
+        # The menu's choice blocks are its fork's bodies (Phase 60 item 4).
+        for e in events:
+            if e.kind == "dialogue":
+                yield e.text
+            for body in (e.flow.bodies if e.flow is not None else []):
+                yield from said(body)
+
+    assert list(said(want.events)) == [
         "Hello.", "You go left.", "You go right.", "Both roads meet.",
         "Later."]
     assert len(want.menus) == 1

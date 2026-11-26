@@ -53,8 +53,8 @@ def mean_luma(path: Path) -> float:
 
 def test_mislabeled_assets_sniffed_to_true_format(tmp_path: Path) -> None:
     _, ledger = extract(tmp_path / "out")
-    bmp = ledger["items"]["mislabel-bmp-015"]   # source name *.png
-    png = ledger["items"]["mislabel-png-016"]   # source name *.jpg
+    bmp = ledger["items"]["mislabel-bmp-017"]   # source name *.png
+    png = ledger["items"]["mislabel-png-018"]   # source name *.jpg
     assert bmp["sniffedFormat"] == "bmp"
     assert bmp["decision"] == "decode-convert"
     assert png["sniffedFormat"] == "png"
@@ -78,8 +78,8 @@ def test_sniff_image_direct() -> None:
 
 def test_jxl_smaller_rule_recorded(tmp_path: Path) -> None:
     _, ledger = extract(tmp_path / "out")
-    noise = ledger["items"]["photo-noise-018"]
-    gif = ledger["items"]["bg-gif-019"]
+    noise = ledger["items"]["photo-noise-020"]
+    gif = ledger["items"]["bg-gif-021"]
     # libjxl is a pinned dependency (imagecodecs): always available.
     assert assets.jxl_available()
     assert noise["decision"] == "jxl"
@@ -108,14 +108,14 @@ def test_identical_sources_share_one_shipped_file(tmp_path: Path) -> None:
     manifest, ledger = extract(tmp_path / "out")
     by_id = {i["id"]: i for i in manifest["items"]}
     first = by_id["bg-room-001"]["file"]
-    assert by_id["bg-room-013"]["file"] == first      # `scene bg-room` again
-    assert by_id["bg-reprise-017"]["file"] == first   # same bytes, new name
+    assert by_id["bg-room-015"]["file"] == first      # `scene bg-room` again
+    assert by_id["bg-reprise-019"]["file"] == first   # same bytes, new name
     out = tmp_path / "out"
     data = (out / first).read_bytes()
     copies = [p.relative_to(out).as_posix() for p in out.rglob("*")
               if p.is_file() and p.read_bytes() == data]
     assert copies == [first]                          # written once
-    assert ledger["items"]["bg-reprise-017"]["file"] == first
+    assert ledger["items"]["bg-reprise-019"]["file"] == first
     # One media entry, one source: bg-reprise names the same file.
     media = ledger["media"][first]
     assert media["source"]["path"] == "game/data/bg-room.png"

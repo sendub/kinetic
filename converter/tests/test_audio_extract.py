@@ -595,18 +595,61 @@ def test_routes_start_from_the_state_before_the_menu(tmp_path: Path) -> None:
                         "different sets")
 
 
+def test_a_menu_nested_in_a_route_keeps_the_routes_states(
+        tmp_path: Path) -> None:
+    """A menu inside a route (Phase 60 item 4): its routes start from the
+    state before it, inside the enclosing route, and the enclosing menu's
+    next route still starts from the state before the enclosing menu."""
+    result, _reasons = walk(tmp_path, """
+        init python:
+            renpy.music.register_channel("amb", "sfx", True)
+            renpy.music.register_channel("amb2", "sfx", True)
+        label start:
+            play amb "rain.ogg"
+            "Lead."
+            menu:
+                "A":
+                    play amb2 "birds.ogg"
+                    "A1."
+                    menu:
+                        "Deep":
+                            "Deep1."
+                        "Deeper":
+                            stop amb
+                            "Deeper1."
+                    "A2."
+                "B":
+                    play amb2 "birds.ogg"
+                    "B1."
+            "After."
+        """, files=("rain.ogg", "birds.ogg"))
+    assert [c["record"].choices for c in result.branch_candidates] == [
+        ["Deep", "Deeper"], ["A", "B"]]
+    assert by_text(result) == {
+        "Lead.": {"ambience": ["rain"]},
+        "A1.": {"ambience": ["rain", "birds"]},
+        "Deep1.": None,
+        "Deeper1.": {"ambience": ["birds"]},
+        "A2.": None,
+        # B starts from rain alone, not from where the nested menu's last
+        # route left the A route.
+        "B1.": {"ambience": ["rain", "birds"]},
+        "After.": None,
+    }
+
+
 def test_audio_in_an_unsupported_menu_is_reported(tmp_path: Path) -> None:
     _result, reasons = walk(tmp_path, """
         label start:
             "Lead."
             menu:
-                "Go":
+                "Go" if ready:
                     play sound "go.ogg"
                     jump elsewhere
                 "Stay":
                     "You stay."
         """, files=("go.ogg",))
-    assert has(reasons, "menu unsupported (jump inside a choice block")
+    assert has(reasons, "menu unsupported (conditional choice")
     assert has(reasons, "audio inside an unsupported menu: not converted")
 
 
