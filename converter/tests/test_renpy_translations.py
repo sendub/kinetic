@@ -360,6 +360,55 @@ def test_read_tl_blocks_strings_and_ignored(tmp_path: Path) -> None:
             fr.replacement_files, fr.compiled_only) == (2, 1, 1, 1, 1)
 
 
+NBSP = " "
+
+
+def test_read_tl_indentation_with_non_breaking_spaces(tmp_path: Path) -> None:
+    # Ren'Py's lexer counts only the leading spaces as a line's indent
+    # and skips the rest of its whitespace (U+00A0 too) as it reads the
+    # statement, so these lines are read as if their indentation were
+    # plain: the `new` line is the `old` line's sibling, not its block.
+    game = tmp_path / "game"
+    path = game / "tl" / "english" / "script.rpy"
+    path.parent.mkdir(parents=True)
+    path.write_bytes((
+        '# game/script.rpy:3\r\n'
+        'translate english start_aaaa1111:\r\n'
+        '\r\n'
+        '    # a "*{i}Zehn Euro?!{i}*"\r\n'
+        f'  {NBSP}  a "*{{i}}Ten whole euros?!{{i}}*"\r\n'
+        '\r\n'
+        'translate english start_bbbb2222:\r\n'
+        '\r\n'
+        '    # "Es regnet."\r\n'
+        f'{"  "}{NBSP}{NBSP} "It rains."{NBSP}\r\n'
+        '\r\n'
+        'translate english strings:\r\n'
+        '\r\n'
+        '    old "Links"\r\n'
+        f'    {NBSP}new "Left"\r\n').encode("utf-8"))
+    english = tl.read_tl(game)["english"]
+    assert [(b.identifier, b.texts) for b in english.blocks] == [
+        ("start_aaaa1111", ["*{i}Ten whole euros?!{i}*"]),
+        ("start_bbbb2222", ["It rains."]),
+    ]
+    assert english.strings == {"Links": "Left"}
+
+
+def test_identifiers_ignore_non_breaking_spaces_in_indentation() -> None:
+    plain = ('label start:\n'
+             '    e "Hello."\n'
+             '    menu:\n'
+             '        "Go":\n'
+             '            "The wind rises."\n')
+    mixed = ('label start:\n'
+             f'  {NBSP} e "Hello."\n'
+             f'  {NBSP}{NBSP}menu:\n'
+             f'    {NBSP}   "Go":\n'
+             f'      {NBSP}{NBSP}    "The wind rises."\n')
+    assert ids_of(mixed) == ids_of(plain)
+
+
 def test_join_texts() -> None:
     assert tl.join_texts(["Der Bildschirm", " erwacht."],
                          ["a", "extend"]) == "Der Bildschirm erwacht."

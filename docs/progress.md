@@ -6062,11 +6062,62 @@ truthful: an unchecked box means nothing was accepted.
 
 ## Phase 60: Choices that jump, content that follows a choice, ATL animations (2026-11-26, converting agents)
 
-- [ ] A reload at an open choice shows the choice (docs/plan.md Phase
+- [x] A reload at an open choice shows the choice (docs/plan.md Phase
       60, item 1). The overlay drawn from the current state at mount;
       the other listeners checked; scenario parts on Chrome and WebKit.
-- [ ] Lines indented with non-breaking spaces (item 2). The tl reader
+      (2026-11-26: `main.ts` names the overlay's listener `syncChoice`,
+      subscribes it and calls it once with `machine.getState()`, as
+      render/app.ts does for the stage; the comment that a resume never
+      reopens a decision, wrong since `reopenChoice`, rewritten. No
+      machine change: the play-all countdown already restarted at a
+      reload and picked with nothing on screen. Listeners checked:
+      `persistQuietly` draws nothing; routes.ts and segmentnote.ts read
+      their values at mount and show nothing at load by design;
+      audiorules.ts and trace.ts already sync at mount; the voice and
+      host-link subscribers are not machine listeners. Tests: two
+      branches parts on a nine-item folder built at run time, Play all
+      routes off (reload and reopen with `savedState`: the choice open
+      over the `after` item, Space and Enter leave it open, `1` enters
+      route 1) and on (open, its countdown picks route 1 unaided, no
+      sooner than 2 s), no console errors; the four reload and reopen
+      checks failed first on Chrome and WebKit (73/77). Subagent:
+      branches 77/77 Chrome and WebKit, npm test 1882, check clean,
+      smoke 6/6, playall 29/29, choicelist 11/11, continueroute 8/8,
+      menus 11/11. Orchestrator: npm test 1882/1882, check clean, smoke
+      6/6, branches 77/77 on Chrome and 77/77 on WebKit at load 11-23.)
+- [x] Lines indented with non-breaking spaces (item 2). The tl reader
       and the script parser read indentation as Ren'Py's lexer does.
+      (2026-11-26: Ren'Py's lexer (8.4.2 and 8.5.0 read in the corpus,
+      7.6.3 compared) takes a line's depth from its leading U+0020 only,
+      then `skip_whitespace` (`\s`, Unicode under Python 3) skips any
+      other leading whitespace when the statement is read, which is why
+      8.x reads such lines; counting U+00A0 as depth would wrongly nest
+      a line under its sibling. The tl reader now matches: depth from
+      leading spaces and tabs, then the rest of the leading whitespace
+      stripped (`grouped_lines`); `_Cursor.ws` skips any `isspace()`
+      character; the original-line comment scan ends a block at a line
+      with no leading space or tab. The `.rpy` parser already took depth
+      from spaces and tabs and stripped content with `strip()`; only
+      `_scan_settings`' top-level label test (`isspace()` on the first
+      character) took a U+00A0 line at column 0 as indented, breaking a
+      local label's assignment scope, now fixed. Ren'Py quirks not
+      copied: its speaker regexp keeps a trailing U+00A0 in the name, and
+      a line of only U+00A0 is its lexer's "empty line" error. Tests: a
+      CRLF tl block with mixed spaces and U+00A0 (say, narration with a
+      trailing U+00A0, an old/new pair) gives its texts (failed first
+      with `texts=[]`); source ids of a body indented that way equal the
+      plain ones (failed first); a script written with U+00A0 and CRLF
+      parses to the same events, menus, reports and assignments as with
+      spaces (the scope part failed first). Subagent: parser and tl test
+      files 129 passed, converter and test_translations 1172 passed.
+      Orchestrator: test_parser, test_renpy_translations and
+      test_translations 171 passed.)
+- [ ] Script lines split as Ren'Py splits them (item 2b, a lead from
+      item 2). `parse_file` splits with `str.splitlines()`, which also
+      breaks on `\x0b`, `\x0c`, `\x1c`-`\x1e`, `\x85`, U+2028 and
+      U+2029; Ren'Py breaks only on `\n`, `\r` and `\r\n`, so such a
+      character inside a line splits it and shifts line numbers (and the
+      translation ids made from them). Split as the tl reader does.
 - [ ] A one-choice menu keeps its line (item 3). The choice text a
       narration line in place, its translation from `strings`.
 - [ ] Menus whose choices jump become decisions (item 4). Routes from

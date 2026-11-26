@@ -1042,7 +1042,7 @@ def _scan_settings(raw_lines: list[str], relname: str,
             result.literals.update(name_literals(text))
         _scan_code(raw_lines, n, text, relname, result)
         stripped = text.strip()
-        if stripped and not text[:1].isspace():
+        if stripped and text[:1] not in " \t":  # Ren'Py's indent
             head = _LABEL_FULL_RE.match(stripped)
             scope = (None if head is None else
                      full_label(head.group(1), scope).split(".", 1)[0])

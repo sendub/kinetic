@@ -4710,6 +4710,16 @@ The orchestrator's choices, within those decisions:
    mixed spaces and U+00A0 (CRLF endings) gives its texts; a `.rpy`
    label body indented that way parses as with spaces; existing tl tests
    unchanged.
+2b. Script lines split as Ren'Py splits them (a lead from item 2).
+    `parse_file` splits a script with `str.splitlines()`, which also
+    breaks at `\x0b`, `\x0c`, `\x1c` to `\x1e`, `\x85`, U+2028 and
+    U+2029, while Ren'Py breaks only at `\n`, `\r` and `\r\n`; such a
+    character inside a line splits it and shifts the line numbers that
+    sources and translation identifiers are built from. Every script
+    reader splits as Ren'Py does (the tl reader already does). Tests:
+    each of those characters inside a dialogue line keeps the line whole
+    and the next line's number unchanged, in the parser and in the
+    identifiers the tl matcher computes.
 3. A one-choice menu keeps its line (the request on single choices).
    A menu with one plain quoted choice is no decision: the parser emits
    the choice text as a narration line where the menu stood, then the
@@ -4867,7 +4877,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

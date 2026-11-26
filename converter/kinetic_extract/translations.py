@@ -255,12 +255,16 @@ def logical_lines(text: str) -> list[tuple[int, str]]:
 
 def grouped_lines(text: str) -> list[Line]:
     """The file's logical lines as Ren'Py groups them into blocks: a
-    line's block is the lines after it indented deeper."""
+    line's block is the lines after it indented deeper. As in Ren'Py's
+    lexer, the indent is the leading spaces (tabs too, which Ren'Py
+    refuses); any other whitespace after them, such as U+00A0, is
+    skipped as Ren'Py skips it when it reads the statement."""
     root: list[Line] = []
     stack: list[tuple[int, list[Line]]] = [(-1, root)]
     for number, raw in logical_lines(text):
         rest = raw.lstrip(" \t")
         indent = len(raw) - len(rest)
+        rest = rest.lstrip()
         while len(stack) > 1 and indent <= stack[-1][0]:
             stack.pop()
         line = Line(number, indent, rest)
@@ -296,8 +300,11 @@ class _Cursor:
         self.text, self.pos = text, 0
 
     def ws(self) -> None:
+        """Skip whitespace as Ren'Py's ``skip_whitespace`` does
+        (``\\s``: U+00A0 and other Unicode spaces too) and
+        backslash-newlines."""
         while self.pos < len(self.text):
-            if self.text[self.pos] in " \t\n":
+            if self.text[self.pos].isspace():
                 self.pos += 1
             elif self.text.startswith("\\\n", self.pos):
                 self.pos += 2
@@ -991,7 +998,7 @@ def _read_tl_file(text: str, rel: str, languages: dict[str, LanguageRead],
             texts, whos = _block_text(line.block)
             original = []
             for raw in physical[line.number:]:
-                if raw.strip() and not raw[:1].isspace():
+                if raw.strip() and raw[:1] not in " \t":
                     break
                 if raw.strip().startswith("#"):
                     original.append(re.sub(r"^#\s?", "", raw.strip()))

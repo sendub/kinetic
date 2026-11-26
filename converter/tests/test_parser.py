@@ -115,6 +115,50 @@ def test_bom_and_cyrillic_parse_direct() -> None:
     assert parsed.reports == []
 
 
+def test_non_breaking_spaces_in_indentation_parse_as_plain() -> None:
+    # Ren'Py's lexer takes a line's indent from its leading spaces and
+    # skips the whitespace after them, U+00A0 included, as it reads the
+    # statement: each level here has more leading spaces than the one
+    # it is inside, so Ren'Py reads it as the plain script.
+    nbsp = " "
+    lines = [
+        (0, 'label start:'),
+        (1, 'scene bg'),
+        (1, 'a "Hello."'),
+        (1, 'menu:'),
+        (2, '"Left":'),
+        (3, 'a "You go left."'),
+        (2, '"Right":'),
+        (3, '"You go right."'),
+        (1, 'if seen:'),
+        (2, 'jump later'),
+        (1, '"Both roads meet."'),
+        (0, 'label later:'),
+        (1, 'a "Later."'),
+        (1, 'jump .there'),
+        (0, 'label .there:'),
+        (1, '$ seen = True'),
+        (1, 'return'),
+    ]
+    plain = "".join(f'{"    " * level}{text}\n' for level, text in lines)
+    # A line with no leading space is at the top level, whatever
+    # whitespace follows (Ren'Py's indent is 0 there).
+    mixed = "".join(
+        f'{"  " * level}{nbsp}{" " * level}{nbsp}{text}{nbsp}\r\n'
+        for level, text in lines)
+    want = parse_file(plain, "game/x.rpy")
+    got = parse_file(mixed, "game/x.rpy")
+    assert [e.text for e in want.events if e.kind == "dialogue"] == [
+        "Hello.", "You go left.", "You go right.", "Both roads meet.",
+        "Later."]
+    assert len(want.menus) == 1
+    assert got.events == want.events
+    assert got.menus == want.menus
+    assert got.reports == want.reports
+    assert ("seen", "later", "True") in want.assignments
+    assert got.assignments == want.assignments
+
+
 def test_unknown_statement_reported_not_fatal() -> None:
     parsed = parse_file("imgfl 12345\nfoo bar \"baz\" qux\n", "game/x.rpy")
     reasons = [r.reason for r in parsed.reports]
