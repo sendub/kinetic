@@ -18,11 +18,20 @@
 // `data-item`, with Space going on from there; the hash goes once read, so
 // a reload resumes the saved place; no resume notice on a URL start; an
 // unknown id gives one console warning and the usual first screen.
+// A reload or a close and reopen at an open choice (docs/plan.md Phase 60,
+// item 1), on a small folder of its own: the choice is up again, with Play
+// all routes off waiting for a pick (Space and Enter leave it, `1` picks
+// route 1), with it on counting down again and picking.
 
+import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { openGame } from "../testing/kinetic.mjs";
 import {
   branch,
   CHOICE_OPEN,
   currentItemId,
+  demoDir,
+  engine,
   HELP_CLOSED,
   HELP_OPEN,
   INSTALL_BRANCH_LOG,
@@ -163,6 +172,8 @@ export const parts = [
   urlStartDecisionSession,
   urlStartUnknownSession,
   pillCardSession,
+  reloadChoiceManualSession,
+  reloadChoicePlayAllSession,
 ];
 
 // ------------------------------------------------------------------
@@ -1424,4 +1435,207 @@ export async function pillClearOfEndCard({ check, open }, label, languages) {
 
 async function pillCardSession(scenario) {
   await pillClearOfEndCard(scenario, "en");
+}
+
+// ------------------------------------------------------------------
+// Sessions "reload-choice": a reload, and a close and reopen with the
+// saved state record, at an open choice (docs/plan.md Phase 60, item 1).
+// The story is its own nine items, so the countdown is short and the
+// demo's routes stay as every other session counts on them.
+// ------------------------------------------------------------------
+const RELOAD_PROMPT = "Which way does Ash go?";
+const RELOAD_ROUTES = { a: "Up the hill", b: "Down to the river" };
+
+/** A fresh copy of the demo folder at `dir` with the nine-item story. */
+function buildReloadFolder(dir) {
+  const at = (id, file) => ({ id, type: "image", file, text: `Line ${id}.` });
+  const manifest = {
+    schemaVersion: 1,
+    storyId: "kinetic-reloadchoice",
+    title: "Kinetic reload at a choice",
+    width: 960,
+    height: 540,
+    items: [
+      at("t1", "intro-title.jpg"),
+      at("t2", "branch-lead.jpg"),
+      at("t3", "branch-decide.jpg"),
+      at("a1", "route1-start.jpg"),
+      at("a2", "route1-start.jpg"),
+      at("b1", "route2-start.jpg"),
+      at("t4", "after-start.jpg"),
+      at("t5", "after-start.jpg"),
+      at("t6", "after-start.jpg"),
+    ],
+    branches: [
+      {
+        id: "pick",
+        after: "t3",
+        prompt: RELOAD_PROMPT,
+        routes: [
+          { id: "a", label: RELOAD_ROUTES.a, start: "a1", end: "a2" },
+          { id: "b", label: RELOAD_ROUTES.b, start: "b1", end: "b1" },
+        ],
+        continuingRoute: "b",
+        continueAt: "t4",
+      },
+    ],
+  };
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  cpSync(demoDir, dir, { recursive: true });
+  const json = JSON.stringify(manifest, null, 2);
+  writeFileSync(join(dir, "manifest.json"), json);
+  writeFileSync(
+    join(dir, "manifest.js"),
+    `window.KINETIC_MANIFEST = ${json};\n`,
+  );
+}
+
+/** The decision's choice is what current() shows over t3. */
+const onReloadChoice = (now) =>
+  now.id === "t3" &&
+  now.choice !== null &&
+  now.choice.prompt === RELOAD_PROMPT &&
+  now.choice.rows.map((row) => row.label).join("|") ===
+    `${RELOAD_ROUTES.a}|${RELOAD_ROUTES.b}`;
+
+/** Polls current() until `matches` (true) or `timeout` ms pass (false). */
+async function gameShows(game, matches, timeout) {
+  try {
+    await game.waitForItem(matches, { timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Opens `folder` with the testing library on this run's engine. */
+const openReloadGame = (folder, options) =>
+  openGame(folder, { engine, log: null, ...options });
+
+/**
+ * With Play all routes off: Space and Enter leave the open choice up, then
+ * `1` picks route 1 (a1). Returns the evidence.
+ */
+async function manualChoiceHolds(game) {
+  const shown = await gameShows(game, onReloadChoice, 2000);
+  await game.press("Space");
+  await sleep(400);
+  await game.press("Enter");
+  await sleep(400);
+  const held = await game.current();
+  const record = await game.savedState();
+  await game.press("1");
+  const picked = await gameShows(
+    game,
+    (now) => now.id === "a1" && now.choice === null,
+    3000,
+  );
+  return {
+    ok: shown && onReloadChoice(held) && picked,
+    record,
+    evidence: { shown, held: { id: held.id, choice: held.choice }, picked },
+  };
+}
+
+async function reloadChoiceManualSession({ check }) {
+  const folder = join(dirname(demoDir), "demo-reloadchoice-manual");
+  buildReloadFolder(folder);
+  const errors = [];
+  let record = null;
+  const game = await openReloadGame(folder, { playAll: false });
+  try {
+    const before = await game.spaceUntil((now) => now.choice !== null);
+    await game.reload();
+    const after = await manualChoiceHolds(game);
+    record = after.record;
+    check(
+      "a reload at an open choice, Play all routes off: the choice is up again over t3; Space and Enter leave it up, 1 picks route 1",
+      onReloadChoice(before) && after.ok,
+      { before: before.choice, ...after.evidence },
+    );
+    errors.push(...game.errors());
+  } finally {
+    await game.close();
+  }
+  const reopened = await openReloadGame(folder, { savedState: record });
+  try {
+    const after = await manualChoiceHolds(reopened);
+    check(
+      "a close and reopen at an open choice (the saved state record), Play all routes off: the choice is up again; Space and Enter leave it up, 1 picks route 1",
+      record?.ctx?.choice !== undefined && after.ok,
+      { savedChoice: record?.ctx?.choice ?? null, ...after.evidence },
+    );
+    errors.push(...reopened.errors());
+  } finally {
+    await reopened.close();
+  }
+  check(
+    "reload-choice (Play all routes off): no console errors",
+    errors.length === 0,
+    errors,
+  );
+}
+
+/**
+ * With Play all routes on: the open choice is up and its countdown picks
+ * route a (the shortest unplayed one, the continuing b going last) with no
+ * key pressed, no sooner than AUTO_PICK_MIN_MS. Returns the evidence.
+ */
+async function countdownPicks(game) {
+  const start = Date.now();
+  const shown = await gameShows(game, onReloadChoice, 2000);
+  const now = await game.current();
+  const marked = now.choice?.rows.find((row) => row.next)?.label ?? null;
+  const record = await game.savedState();
+  const picked = await gameShows(
+    game,
+    (s) => s.id === "a1" && s.choice === null,
+    20000,
+  );
+  const ms = Date.now() - start;
+  return {
+    ok: shown && marked === RELOAD_ROUTES.a && picked && ms >= 2000,
+    record,
+    evidence: { shown, marked, picked, ms },
+  };
+}
+
+async function reloadChoicePlayAllSession({ check }) {
+  const folder = join(dirname(demoDir), "demo-reloadchoice-playall");
+  buildReloadFolder(folder);
+  const errors = [];
+  let record = null;
+  const game = await openReloadGame(folder, { playAll: true });
+  try {
+    const before = await game.spaceUntil((now) => now.choice !== null);
+    await game.reload();
+    const after = await countdownPicks(game);
+    record = after.record;
+    check(
+      "a reload at an open choice, Play all routes on: the choice is up again over t3 and its countdown picks route 1",
+      onReloadChoice(before) && after.ok,
+      { before: before.choice, ...after.evidence },
+    );
+    errors.push(...game.errors());
+  } finally {
+    await game.close();
+  }
+  const reopened = await openReloadGame(folder, { savedState: record });
+  try {
+    const after = await countdownPicks(reopened);
+    check(
+      "a close and reopen at an open choice (the saved state record), Play all routes on: the choice is up again and its countdown picks route 1",
+      record?.ctx?.choice !== undefined && after.ok,
+      { savedChoice: record?.ctx?.choice ?? null, ...after.evidence },
+    );
+    errors.push(...reopened.errors());
+  } finally {
+    await reopened.close();
+  }
+  check(
+    "reload-choice (Play all routes on): no console errors",
+    errors.length === 0,
+    errors,
+  );
 }

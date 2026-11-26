@@ -75,6 +75,7 @@ import { createMachine, resolveDecisions } from "./machine/machine";
 import type {
   LanguageFile,
   MachineSettings,
+  MachineState,
   MachineWords,
 } from "./machine/types";
 import { DEFAULT_SETTINGS } from "./machine/types";
@@ -960,18 +961,23 @@ function start(): void {
       // it shows the machine's open `choice` and nothing else — every
       // state change syncs it, so it appears when a decision fires and
       // disappears the moment `choose()` / `chooseContinue()` answers it.
-      // A resume landing never re-fires a decision, so the panel is never
-      // open at load (the first-load help can never meet it).
+      // It is drawn from the state at mount too, as the stage is
+      // (render/app.ts): a reload or reopen at a live choice resumes with
+      // it open (the machine's `reopenChoice`), and subscribe reports only
+      // changes (docs/plan.md Phase 60, item 1). A saved live choice means
+      // the reader got past the first-load help, so the two never meet.
       const choice = mountChoiceOverlay({
         root,
         onPick: (routeIdx) => machine.choose(routeIdx),
         onContinue: () => machine.chooseContinue(),
         words: () => words ?? createGameWords(manifest, null),
       });
-      machine.subscribe((state) => {
+      const syncChoice = (state: MachineState): void => {
         if (state.choice !== undefined) choice.render(state.choice);
         else choice.close();
-      });
+      };
+      machine.subscribe(syncChoice);
+      syncChoice(machine.getState());
 
       // Route announcements (docs/plan.md Phase 16, Branches): the `#flash`
       // pill names the route the reader has just entered — a manual pick or
