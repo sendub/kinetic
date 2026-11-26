@@ -4846,6 +4846,13 @@ The orchestrator's choices, within those decisions:
    audio in an arm, a chain inside a route, an unreadable condition),
    each validating `--strict` clean and walking to the end; report
    tests.
+6b. The condition phrases in every interface language (item 6 split in
+    two, 2026-11-26: item 6 builds the mechanism and the English
+    phrases). Every PO file in `player/locales/` translates item 6's
+    phrases, placeholders kept; `npm run i18n` regenerates the file the
+    converter reads; a test checks that every language has every phrase
+    with the same placeholders. Tests: npm test; the item 6 tests for a
+    non-English base game and its language files pass with real words.
 7. Animation timing (format and player; the user's decision above).
    An `animation` may give `frameSeconds` (one number greater than 0 per
    frame) in place of even timing at `fps` (still required, so an older
@@ -4912,7 +4919,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 7 -> 8 -> 8b -> 8c -> 9 -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

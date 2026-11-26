@@ -6301,6 +6301,9 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Conditions become decisions (item 6). `follows` decisions,
       counter ranges and choice-named labels in every interface
       language; `--condition-names`; the report's section.
+- [ ] The condition phrases in every interface language (item 6b, item
+      6 split in two). Every PO file translates item 6's phrases; the
+      converter's file regenerated; a test that every language has them.
 - [x] Animation timing (item 7). `frameSeconds` and `holdLastFrame` in
       the format, validator, player and tools.
       (2026-11-26: types.ts's AnimationItem gains both fields;

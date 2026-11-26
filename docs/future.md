@@ -201,6 +201,51 @@ To settle:
 - Whether reduced motion changes the timing rules in
   docs/content-format.md, "Timing".
 
+## Title screen and About screen from the game's menus (requested, 2026-11-26)
+
+The user asked whether a Ren'Py game's main-menu picture or video could
+open the converted story, and whether the menu's links to the author's
+sites, with an About text and a changelog, could go on a screen of
+their own. A survey of 53 corpus games whose screens could be read
+(2026-11-26, archives and compiled scripts included):
+
+- The title picture: the template's `define gui.main_menu_background`
+  (gui.rpy), drawn by `add gui.main_menu_background` in `screen
+  main_menu`, is changed from the template's file in 50 and drawn that
+  way in 36; 26 add other images in `main_menu` (a logo over a
+  background, layered pictures, an imagemap), 11 use a `Movie(...)`
+  displayable there or in gui.rpy.
+- Links: 33 have `OpenURL("...")` buttons in `main_menu` or
+  `navigation` (author pages, support pages, community servers).
+- About: 44 set `define gui.about = _p("""...""")` (options.rpy), the
+  text Ren'Py's About screen shows, translatable through the `strings`
+  block. No Ren'Py standard exists for a changelog.
+
+Candidates:
+
+- The converter puts the main menu's background (`gui.main_menu_background`,
+  or the one picture or movie `main_menu` adds) as an image or video
+  item before the story's first item, with the game's `title` drawn on
+  it or as its line.
+- A player "About" screen reached from the Esc screen: the manifest's
+  `title` and `version`, an optional `about` text (from `gui.about`,
+  translated per language), `links` (label and URL, from the menu's
+  `OpenURL` buttons) and an optional `changelog` the author writes.
+
+To settle:
+
+- Whether the title picture is a story item (seen, bookmarked, in the
+  wheel) or a title screen of its own shown before the first item, and
+  what a layered menu (logo plus background), an imagemap or a movie
+  becomes.
+- Whether to keep a picture still showing the game's own menu buttons.
+- The About screen's place (Esc screen tab, key), how links open in a
+  browser and in the Mac and Windows apps (an external browser, a
+  confirmation), which URL schemes are allowed, and how the label of a
+  link drawn as a picture button is found.
+- The changelog's form (Markdown, plain text, per version) and whether
+  `kinetic report` and `validate` check the new fields.
+
 ## The visual at a join (maybe, 2026-11-26)
 
 A `text` item shows the nearest earlier media-bearing item in array
