@@ -299,14 +299,17 @@ docs/extracting.md, "Reuse cache".
   `--also-label NAME` or `--include-unreached` adds them after the story
   (docs/extracting.md, "The walk follows labels"). A project with no
   `label start` is read in filename order.
-- A `menu:` block becomes a decision only when it is conservatively
-  detectable (plain quoted choices whose blocks are contiguous runs of
-  recognized image/text items, flow continuing in place); its routes are
-  endings and no `continuingRoute` is guessed. Any other menu is skipped,
-  the linear flow is kept, and `branchDetection` in the ledger says
-  why.
+- A `menu:` of two or more plain quoted choices becomes a decision:
+  each choice's path is walked to where the choices meet, and each
+  route's `result` is how its path ended (docs/extracting.md, "The walk follows labels").
+  A route may hold any item: pictures, animations, videos and lines.
+  Any other menu is skipped, the linear flow is kept, and
+  `branchDetection` in the ledger says why.
 - The first dialogue line under a `scene`/`show`/`movie` attaches to the
-  media item; later lines become `text` items over the same visual.
+  media item; later lines become `text` items over the same visual. A
+  route's first line said over the visual on screen at the menu repeats
+  that visual when an earlier route showed another, since a `text` item
+  shows the nearest earlier media item in the item array.
 - Audio statements attach to the next item emitted. A video's own sound
   is used only when audible and as long as the item's range; a track
   that does not ship drops its cues (`audioTracks` in the ledger says

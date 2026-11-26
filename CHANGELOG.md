@@ -55,6 +55,13 @@ something more of an author.
   picture as a still, its transform properties reported as not applied;
   a block with other ATL stays `image without a file`, the report naming
   the statement (docs/extracting.md, "ATL frame lists").
+- The converter makes a decision of a menu whose route shows an
+  animation or plays a video, where it used to keep it linear (`choice
+  N contains a animation item`). A route after the first whose first
+  line is said over the picture, animation or video on screen at the
+  menu now shows that visual, where the player showed whatever the
+  route before it last showed: the line's item repeats the menu's
+  visual (docs/extracting.md, "The walk follows labels").
 
 ## 1.14.0 (2026-11-21)
 

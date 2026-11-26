@@ -201,6 +201,28 @@ To settle:
 - Whether reduced motion changes the timing rules in
   docs/content-format.md, "Timing".
 
+## The visual at a join (maybe, 2026-11-26)
+
+A `text` item shows the nearest earlier media-bearing item in array
+order. At a decision's `continueAt`, when the routes end on different
+pictures and the join's first item is a line, every reader sees the last
+route's picture there, while in Ren'Py the picture is whichever the
+reader's route left on screen. Phase 60 converts many more menus with
+joins, so it shows more often (most joins open with a `scene`, which is
+unaffected).
+
+Candidates:
+
+- The player shows a `text` item at a join over the visual the reader's
+  route left on screen (story order, as the wheel walks it).
+- The converter repeats a visual at the join when every route ends on
+  the same one, and reports the rest.
+
+To settle:
+
+- Whether the format's "nearest earlier in array order" rule changes at
+  joins, and what rewind, bookmarks and thumbnails show there.
+
 ## Routes that share a tail (maybe, 2026-11-26)
 
 Ren'Py games often send many choices, across nested menus, to one label

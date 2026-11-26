@@ -4892,6 +4892,16 @@ The orchestrator's choices, within those decisions:
     video, and a text item over a video started in the lead-in, each a
     decision, validate --strict silent, `kinetic check --steps all` to
     the end.
+8c. A route that opens with a nested menu (a lead from item 8b). When a
+    choice's block starts with a menu (`"B": menu "Inner?": ...`), the
+    nested decision's `after` is the item before the route (the outer
+    lead-in's for route 1, a sibling route's last item for later ones),
+    so the join's line is never shown and `kinetic validate --strict`
+    exits 3. Such a route gets its choice text as its first item (as an
+    empty choice does, translated from `strings`), and the nested
+    decision hangs off it. Tests: the shape as route 1 and as a later
+    route, nested two deep; validate --strict silent, routes counts,
+    `kinetic check --steps all` to the end.
 9. Fixtures and docs. `fixtures/renpy_demo` gains a jump menu with a
    refusal choice, a chain following its choice, a counter chain and an
    ATL animation, so package-proof's extract stage covers them (its
@@ -4902,7 +4912,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 7 -> 8 -> 8b -> 9 -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 7 -> 8 -> 8b -> 8c -> 9 -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

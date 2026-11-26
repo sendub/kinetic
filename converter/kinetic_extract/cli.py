@@ -137,7 +137,9 @@ SIMPLIFICATIONS = [
     "choice empty or a path rejoining content read elsewhere is reported "
     "and kept linear (ledger branchDetection)",
     "first dialogue line under a visual attaches to the media item; later "
-    "lines become text items over the same visual",
+    "lines become text items over the same visual; a route's first line "
+    "said over the menu's visual repeats that visual when an earlier "
+    "route showed another (routes hold any item type)",
     "assets ship at their sniffed true format (preserve or lossless-JXL "
     "for images; copy, mp4 remux or h264 transcode for video); unsupported "
     "wrapped images drop their item, recorded in the ledger",

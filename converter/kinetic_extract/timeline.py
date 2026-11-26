@@ -14,7 +14,13 @@ Phase 47 item 8): each record's ``audio`` and the result's
 Menus (docs/plan.md Phase 13; Phase 60 item 4): the walk lays each
 decision menu out between marker events (kinetic_extract.flow); the items
 between them are the routes, menus nested in a route included, and the
-first item of the join's path is the `continueAt`.
+first item of the join's path is the `continueAt`. A route may hold any
+item (Phase 60 item 8b). A `text` item shows the nearest earlier media
+item in array order, so a route after the first whose first line is said
+over the visual on screen at the menu, when an earlier route changed the
+visual, gets that line on a repeat of the menu's visual: the same picture,
+animation or video, or an animation that holds its last frame as that
+frame's picture.
 
 ATL frame lists (docs/plan.md Phase 60 item 8): a `scene`/`show` of a
 name the parser read as an `image name:` frame list (parser.AtlImage)
@@ -216,6 +222,29 @@ class _Pending:
         # and its timing fields (parser.AtlImage.timing).
         self.frames: list[tuple[str, Path, dict[str, str] | None]] = []
         self.timing: dict[str, Any] = {}
+        # The emitted visual this one repeats at a route's start (Phase
+        # 60 item 8b), else None. A repeat no line takes is dropped.
+        self.origin: _Pending | None = None
+
+    def repeat(self, menu_source: str) -> _Pending:
+        """This emitted visual again, for a route's first line: no
+        transition (no new entrance); an animation that holds its last
+        frame is that frame's picture, as Ren'Py shows it by then."""
+        held = self.kind == "animation" and bool(
+            self.timing.get("holdLastFrame"))
+        if held:
+            rel, path, ref = self.frames[-1]
+            again = _Pending("image", self.name, rel, path, self.source, ref)
+        else:
+            again = _Pending(self.kind, self.name, self.asset_rel,
+                             self.asset_abs, self.source, self.source_ref)
+            again.frames, again.timing = self.frames, self.timing
+        again.notes = list(self.notes) + [
+            f"repeats the visual on screen at the menu at {menu_source}"
+            f"{' (its held last frame)' if held else ''}: a route's first "
+            "line, which would otherwise show an earlier route's visual"]
+        again.origin = self.origin or self
+        return again
 
 
 def finish_candidates(candidates: list[dict[str, Any]]) -> None:
@@ -322,6 +351,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     # line continues; None at a menu's boundaries (a route's line never
     # continues the lead-in's) and before the first line.
     last_line: ItemRecord | None = None
+    # The visual of the last media item emitted: the one a `text` item
+    # emitted now would show (array order).
+    on_screen: _Pending | None = None
 
     def check_limit() -> None:
         if max_items is not None and len(result.items) >= max_items:
@@ -455,16 +487,31 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     def flush_bare() -> None:
         """Emit an unconsumed visual (replaced or at end of flow) bare.
         An unresolved visual was already reported at its statement; it is
-        dropped, never emitted (BUG 1)."""
+        dropped, never emitted (BUG 1), as is a route start's repeat of
+        the menu's visual that no line took."""
         nonlocal pending
         if (pending is not None and not pending.consumed
-                and not pending.unresolved):
+                and not pending.unresolved and pending.origin is None):
             emit_media(pending, speaker=None, text=None)
         pending = None
+
+    def repeat_at_route_start(ms: dict[str, Any]) -> None:
+        """A route's first line is said over the visual on screen at the
+        menu; when an earlier route emitted another visual since, that
+        line's item repeats the menu's (Phase 60 item 8b)."""
+        nonlocal pending
+        at_menu = ms["screen"]
+        if at_menu is None or on_screen is None:
+            return
+        if (on_screen.origin or on_screen) is not (at_menu.origin
+                                                   or at_menu):
+            pending = at_menu.repeat(ms["record"].source)
 
     def emit_media(pend: _Pending, speaker: str | None,
                    text: str | None,
                    line_source: str | None = None) -> ItemRecord:
+        nonlocal on_screen
+        on_screen = pend
         item_id = result._next_id(_slug(pend.name or pend.asset_rel,
                                         "scene" if pend.kind == "image"
                                         else "movie"))
@@ -485,8 +532,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     record.notes.append(
                         f"frame {k} extracted from .rpa archive ({rel})")
             # The first frame stands for the animation in the size probe,
-            # as an image item's one file does.
-            if pend.frames and pend.frames[0][1].exists():
+            # as an image item's one file does (a repeat is counted once).
+            if pend.frames and pend.frames[0][1].exists() \
+                    and pend.origin is None:
                 result.source_images.append(pend.frames[0][1])
         elif pend.from_archive:
             # Provenance for assets resolved out of an .rpa archive
@@ -501,7 +549,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             if not pend.asset_abs.exists():
                 record.notes.append(
                     f"source asset {pend.asset_rel!r} not found yet")
-            elif pend.kind == "image":
+            elif pend.kind == "image" and pend.origin is None:
                 result.source_images.append(pend.asset_abs)
         else:
             record.notes.append("no source asset resolved")
@@ -580,8 +628,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         boundaries (every boundary flushes the pending visual first), so
         adjacency is index arithmetic: each choice block must own a
         non-empty contiguous run of items (a choice with nothing of its
-        own has its text, kinetic_extract.flow), an item may only be an
-        image or text item, and an item must precede the menu. The walk's
+        own has its text, kinetic_extract.flow), of any type (Phase 60
+        item 8b), and an item must precede the menu. The walk's
         ``outcome`` gives each route's result and how it was proven, or
         why the menu stays linear (a path rejoining content read
         elsewhere, every choice empty). A failure keeps the emitted items
@@ -600,11 +648,6 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             for k, (s, e) in enumerate(zip(starts, ends)):
                 if s >= e:
                     reason = f"choice {k + 1} produced no item"
-                    break
-                types = {result.items[i].item["type"] for i in range(s, e)}
-                if not types <= {"image", "text"}:
-                    reason = (f"choice {k + 1} contains a "
-                              f"{sorted(types - {'image', 'text'})[0]} item")
                     break
         if reason is not None:
             record.skip_reason = reason
@@ -794,6 +837,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     "index": int(event.name),
                     "after": len(result.items) - 1,
                     "starts": [],
+                    # The visual on screen at the menu, which every
+                    # route's first line is said over.
+                    "screen": on_screen,
                 }
                 resolve_awaiting(state)
                 cues.menu_open()
@@ -806,6 +852,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     end_route(menu_stack[-1])
                     menu_stack[-1]["starts"].append(len(result.items))
                     cues.route_start()
+                    repeat_at_route_start(menu_stack[-1])
             elif event.kind == "menu-close":
                 if menu_stack:
                     flush_bare()

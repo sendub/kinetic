@@ -168,7 +168,16 @@ game whose story order differs from its file order read out of order.
   second menu straight after it) is a pure choice, its routes
   `"ending"`, and that second menu stays linear. A choice with nothing
   of its own (it goes straight to the join) is one line, its choice
-  text, translated from the language's `strings` block. The ledger's
+  text, translated from the language's `strings` block. A route may
+  hold any item (Phase 60 item 8b): pictures, ATL animations, videos
+  and lines. A `text` item shows the nearest earlier media item in the
+  item array, so when a route after the first starts with a line said
+  over the visual on screen at the menu and an earlier route showed
+  another, that line's item repeats the menu's visual: the same
+  picture, the animation played again, the video from its start (with
+  its own sound), or the last frame of an animation that holds it,
+  with no transition; its ledger note says `repeats the visual on
+  screen at the menu`. The ledger's
   `branchDetection` note for a decision gives each route's result and
   how the walk proved it (`reaches the join at game/script.rpy:58`,
   `jumps back to the menu`, `jumps back to the menu through its

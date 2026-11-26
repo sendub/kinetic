@@ -6389,9 +6389,47 @@ truthful: an unchecked box means nothing was accepted.
       lines reported; but 16 menus whose routes now hold an animation
       stay linear ("contains a animation item"), so decisions fell from
       35 to 19: item 8b.)
-- [ ] Routes may hold any item (item 8b, a lead from item 8). The
+- [x] Routes may hold any item (item 8b, a lead from item 8). The
       converter's menu check accepts animation and video items inside
       routes, as the format always has.
+      (2026-11-26: the rule came from Phase 13.6's conservative
+      detection (da4c5ec), caution rather than a fix; the validator
+      only requires a route's first item not be `text`. timeline.py's
+      `close_menu` type check is gone. Lifting it exposed a visual bug,
+      fixed: a later route starting with a line got a `text` item, which
+      the player (`visualIndexFor`, array order) showed over the
+      previous route's last visual, not the menu's; now, when an earlier
+      route has shown another visual since the menu, the route's first
+      line goes on a repeat of the menu's visual (a picture as itself,
+      an animation playing again, a video from its start with its
+      sound; a held animation as an image of its last frame), never with
+      a transition, dropped when the route starts with a visual of its
+      own, not counted again in the size probe, its ledger note "repeats
+      the visual on screen at the menu at <source>". Checked and fine:
+      audio cues after a route's last line attach whatever its type;
+      every video item gets its soundtrack; the converter writes no
+      `segments`; a dropped route video withdraws the decision. cli.py's
+      simplification note, converter/README.md's menu bullet,
+      extracting.md's Menus bullet, a CHANGELOG bullet. Subagent's calls:
+      the repeat follows what is on screen, not item positions; a repeat
+      with no line on it is dropped; repeats stay in a menu kept linear.
+      Tests: test_route_items.py 7 end-to-end (a route showing an ATL
+      animation; a route playing a video with `videoSound` and an sfx;
+      a route's first line over the lead-in's looping animation, over a
+      held animation, over a video with a dissolve; pictures only; a
+      dropped route video withdrawing the decision), all failing first,
+      each validate --strict silent, routes counts, `kinetic check
+      --steps all` to the end. Subagent: the branch, ATL and menu test
+      files 98; converter and tools 2208. Orchestrator: route items, jump
+      menus, branch extract, ATL, one-choice, malformed branches and
+      pipeline 113 passed; on a reporting agent's game (read-only walk)
+      decisions back to 35 (60 `"continue"`, 7 `"ending"`, 6
+      `"return"`) with its 446 animations kept, no menu refused for an
+      item type. Leads: item 8c; the join's first line showing the last
+      route's visual, docs/future.md "The visual at a join".)
+- [ ] A route that opens with a nested menu (item 8c, a lead from item
+      8b). The nested decision hangs off the item before the route, so
+      the join's line is never shown (`validate --strict` exit 3).
 - [ ] Fixtures and docs (item 9). The extract demo covers the new
       shapes; package-proof.
 - [ ] Phase-closer (Phase 60): full suites; VERSION 1.15.0, the
