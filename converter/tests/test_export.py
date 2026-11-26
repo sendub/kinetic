@@ -18,6 +18,8 @@ LANG_DEMO = REPO_ROOT / "fixtures" / "lang-demo"
 SHAPES = json.loads((REPO_ROOT / "fixtures" / "route-shapes.json")
                     .read_text(encoding="utf-8"))["cases"]
 NESTED = next(c for c in SHAPES if c["name"] == "nested decisions and rejoins")
+FOLLOWS = next(c for c in SHAPES
+               if c["name"] == "a decision that follows another")
 
 needs_demo = pytest.mark.skipif(
     not (DEMO / "manifest.json").is_file(),
@@ -171,6 +173,35 @@ def test_routes_follow_their_choice_nested_inline(
     assert sorted(ids) == sorted(NESTED["items"])
     assert ids[-3:] == ["gap0", "w0", "w1"]
     assert out.rstrip().endswith('<a id="w1"></a>\nLine w1.')
+
+
+def test_a_decision_that_follows_another(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The choice says what it follows, each route the pick it takes,
+    and where a pick no route takes goes."""
+    manifest = {"schemaVersion": 1, "title": "Follows",
+                "items": [{"id": i, "type": "text", "text": f"Line {i}."}
+                          for i in FOLLOWS["items"]],
+                "branches": FOLLOWS["branches"]}
+    folder = tmp_path / "game"
+    folder.mkdir()
+    (folder / "manifest.json").write_text(json.dumps(manifest),
+                                          encoding="utf-8")
+    code, out, _err = run_cli(["export", str(folder)], capsys)
+    assert code == 0
+    assert """\
+### Choice second: So far?
+
+1. After A (second/x, continue: joins at j0; after a at first)
+2. After C (second/y, continuing: joins at j0; after c at first)
+
+<!-- choice second follows first: with Play all routes off it shows no \
+choice and plays the route taking the pick at first; after b there: no \
+route, carries on at j0 -->
+
+<!-- choice second: carries on at j0 -->""" in out
+    assert ("1. Door A (first/a, continue: joins at m0)\n") in out
+    assert "<!-- choice first follows" not in out
 
 
 def test_lang_reads_the_language_file_marking_the_base(

@@ -26,7 +26,9 @@ them, then the line the decision carries on. Each item is:
   character for character with the shown text.
 
 A choice is a `### Choice` heading with the prompt and a numbered list of
-the route labels, each with its route's result. A route starts at a
+the route labels, each with its route's result; a decision that follows
+an earlier one (docs/content-format.md, "Branches") adds the pick each
+route takes and a comment saying what it follows. A route starts at a
 `## Route DECISION/ROUTE: label` heading and ends in a comment saying
 where it leads. Items on no line (kinetic routes lists them) close the
 export under their own heading.
@@ -325,10 +327,36 @@ class Writer:
                 f"({route_file(node, route)})" if link_files \
                 else route_name(node, route)
             rows.append(f"{route.index + 1}. {label} ({where}, "
-                        f"{route.result}: {self.leads(node, route)})")
+                        f"{route.result}: {self.leads(node, route)}"
+                        f"{self.after(node, route)})")
         return [f"### Choice {decision.id}: {prompt}",
                 "\n".join(rows),
+                *self.follows(node),
                 f"<!-- choice {decision.id}: {self.carries_on(node)} -->"]
+
+    @staticmethod
+    def after(node: DecisionNode, route: Route) -> str:
+        """On a following decision, the pick a route takes."""
+        if node.follows is None:
+            return ""
+        if route.when is None:
+            return f"; after any other pick at {node.follows}"
+        picks = " or ".join(map(str, route.when))
+        return f"; after {picks} at {node.follows}"
+
+    def follows(self, node: DecisionNode) -> list[str]:
+        """What a following decision does in place of its choice screen
+        (docs/content-format.md, "Branches")."""
+        if node.follows is None:
+            return []
+        what = (f"<!-- choice {node.decision.id} follows {node.follows}: "
+                f"with Play all routes off it shows no choice and plays the "
+                f"route taking the pick at {node.follows}")
+        if node.passes:
+            picks = " or ".join(map(str, node.passes))
+            what += (f"; after {picks} there: no route, carries on at "
+                     f"{self.iid(node.decision.continue_at)}")
+        return [what + " -->"]
 
     def route_heading(self, node: DecisionNode, route: Route) -> list[str]:
         label = text_tags.plain_text(

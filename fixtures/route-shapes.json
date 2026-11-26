@@ -95,6 +95,31 @@
       ],
       "expect": {"resolved": 1, "decisions": 1, "routes": 2, "stretches": 3,
                  "endings": 1, "joins": 1}
+    },
+    {
+      "name": "a decision that follows another",
+      "items": ["s0", "a0", "b0", "c0", "m0", "x0", "y0", "y1", "j0", "e0"],
+      "branches": [
+        {"id": "first", "after": "s0", "prompt": "Which door?",
+         "continuingRoute": "c", "continueAt": "m0",
+         "routes": [
+           {"id": "a", "label": "Door A", "start": "a0", "end": "a0",
+            "result": "continue"},
+           {"id": "b", "label": "Door B", "start": "b0", "end": "b0",
+            "result": "continue"},
+           {"id": "c", "label": "Door C", "start": "c0", "end": "c0"}
+         ]},
+        {"id": "second", "after": "m0", "prompt": "So far?",
+         "follows": "first", "continuingRoute": "y", "continueAt": "j0",
+         "routes": [
+           {"id": "x", "label": "After A", "start": "x0", "end": "x0",
+            "result": "continue", "when": ["a"]},
+           {"id": "y", "label": "After C", "start": "y0", "end": "y1",
+            "when": ["c"]}
+         ]}
+      ],
+      "expect": {"resolved": 2, "decisions": 2, "routes": 5, "stretches": 8,
+                 "endings": 1, "joins": 2}
     }
   ]
 }

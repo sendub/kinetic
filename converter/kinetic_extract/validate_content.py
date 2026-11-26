@@ -121,8 +121,8 @@ invariants:
    compared exactly; docs/content-format.md § Video segments); a fade
    `transition` has `out` or `in` above 0; the optional
    `branches` table obeys its reference, span, continuingRoute/
-   continueAt, and `"continue"` result rules (docs/content-format.md
-   § Branches); the optional audio obeys its track range, id, ambience
+   continueAt, `"continue"` result, and `follows`/`when` rules
+   (docs/content-format.md § Branches); the optional audio obeys its track range, id, ambience
    and `videoSound` length rules, and each track file and each voice's
    reference clip has its script beside it holding the file's bytes, or
    ships as that script alone (docs/content-format.md § Audio,
@@ -662,6 +662,162 @@ def branches_problems(manifest: Any) -> list[str]:
                     '"continue" needs the decision\'s continuingRoute and '
                     "continueAt: without them there is no join to continue "
                     "to"))
+    return problems
+
+
+def following_problems(manifest: Any) -> list[str]:
+    """The rules for a decision that follows an earlier one
+    (docs/content-format.md § Branches, rules 26 and 27).
+
+    `follows` names another decision of `branches`, whose `after` item
+    comes before this decision's `after` item in array order and which
+    does not enclose this decision (its `after` item in one of that
+    decision's route spans). A route's `when` is allowed only on a
+    decision with `follows`; each entry names a route of the followed
+    decision, and no route of it is named by two routes' `when`. At most
+    one route has no `when`. A route of the followed decision that no
+    `when` names, with no route lacking `when` to take it, passes the
+    decision on to `continueAt`, so the decision then needs
+    `continuingRoute` and `continueAt`. A `follows` that does not resolve
+    is reported once and its `when` entries are not compared; the shape
+    of `when` (a non-empty array of distinct ids) is the schema's.
+    """
+    if not isinstance(manifest, dict):
+        return []
+    branches = manifest.get("branches")
+    if not isinstance(branches, list):
+        return []
+    items = manifest.get("items")
+    item_index: dict[str, int] = {}
+    if isinstance(items, list):
+        for i, item in enumerate(items):
+            if isinstance(item, dict) and isinstance(item.get("id"), str):
+                item_index.setdefault(item["id"], i)
+    by_id: dict[str, int] = {}
+    for bi, branch in enumerate(branches):
+        if isinstance(branch, dict) and isinstance(branch.get("id"), str):
+            by_id.setdefault(branch["id"], bi)
+
+    def after_of(branch: dict[str, Any]) -> int | None:
+        after = branch.get("after")
+        return item_index.get(after) if isinstance(after, str) else None
+
+    def routes_of(branch: dict[str, Any]) -> list[dict[str, Any]]:
+        routes = branch.get("routes")
+        return [route for route in routes if isinstance(route, dict)] \
+            if isinstance(routes, list) else []
+
+    def span_of(route: dict[str, Any]) -> tuple[int, int] | None:
+        start, end = route.get("start"), route.get("end")
+        if not isinstance(start, str) or not isinstance(end, str):
+            return None
+        if start not in item_index or end not in item_index:
+            return None
+        return item_index[start], item_index[end]
+
+    problems: list[str] = []
+    for bi, branch in enumerate(branches):
+        if not isinstance(branch, dict):
+            continue
+        base = f"branches[{bi}]"
+        routes = branch.get("routes")
+        routes = routes if isinstance(routes, list) else []
+        if "follows" not in branch:
+            for ri, route in enumerate(routes):
+                if isinstance(route, dict) and "when" in route:
+                    problems.append(_line(
+                        f"{base}.routes[{ri}].when",
+                        "is allowed only on a decision with follows"))
+            continue
+        named = branch.get("follows")
+        if not isinstance(named, str):
+            continue  # the schema reports a non-string follows
+        followed = by_id.get(named)
+        if followed is None:
+            problems.append(_line(f"{base}.follows",
+                                  f"names no decision ({named!r})"))
+            continue
+        if followed == bi or named == branch.get("id"):
+            problems.append(_line(
+                f"{base}.follows",
+                "names its own decision; it must name another"))
+            continue
+        target = branches[followed]
+        own_after, its_after = after_of(branch), after_of(target)
+        if own_after is not None and its_after is not None:
+            if its_after >= own_after:
+                problems.append(_line(
+                    f"{base}.follows",
+                    f"must name a decision whose after item comes before "
+                    f"this decision's after item items[{own_after}] (found "
+                    f"{named!r}, after items[{its_after}])"))
+                continue
+            holder = next((route for route in routes_of(target)
+                           if (span := span_of(route)) is not None
+                           and span[0] <= own_after <= span[1]), None)
+            if holder is not None:
+                problems.append(_line(
+                    f"{base}.follows",
+                    f"names {named!r}, a decision enclosing this one (its "
+                    f"after item items[{own_after}] lies in route "
+                    f"{holder.get('id')!r})"))
+                continue
+        followed_ids = [route.get("id") for route in routes_of(target)
+                        if isinstance(route.get("id"), str)]
+        taken: dict[str, int] = {}
+        rest = -1
+        shapely = True  # every `when` a non-empty array the gap check reads
+        for ri, route in enumerate(routes):
+            if not isinstance(route, dict):
+                continue
+            rbase = f"{base}.routes[{ri}]"
+            if "when" not in route:
+                if rest >= 0:
+                    problems.append(_line(
+                        rbase,
+                        f"at most one route of a following decision may "
+                        f"have no when ({base}.routes[{rest}] has none "
+                        f"either)"))
+                else:
+                    rest = ri
+                continue
+            when = route.get("when")
+            if not isinstance(when, list) or not when:
+                shapely = False
+                continue  # the schema reports it
+            mine: set[str] = set()
+            for wi, entry in enumerate(when):
+                if not isinstance(entry, str) or entry in mine:
+                    continue  # the schema reports these
+                mine.add(entry)
+                if entry not in followed_ids:
+                    problems.append(_line(
+                        f"{rbase}.when[{wi}]",
+                        f"names no route of decision {named!r} "
+                        f"({entry!r})"))
+                elif entry in taken:
+                    problems.append(_line(
+                        f"{rbase}.when[{wi}]",
+                        f"route {entry!r} is already taken by "
+                        f"{base}.routes[{taken[entry]}]"))
+                else:
+                    taken[entry] = ri
+        if rest >= 0 or not shapely:
+            continue
+        gaps = [route_id for route_id in followed_ids
+                if route_id not in taken]
+        joins = isinstance(branch.get("continuingRoute"), str) \
+            and "continueAt" in branch
+        if gaps and not joins:
+            names = ", ".join(repr(route_id) for route_id in gaps)
+            which = (f"route {names}" if len(gaps) == 1
+                     else f"routes {names}")
+            one = "it" if len(gaps) == 1 else "one"
+            problems.append(_line(
+                f"{base}.follows",
+                f"no route takes {which} of decision {named!r}, so a "
+                f"reader who picked {one} passes this decision on to its "
+                f"continueAt: it needs continuingRoute and continueAt"))
     return problems
 
 
@@ -2054,6 +2210,7 @@ def _validate(content_dir: Path, schema_path: Path,
         problems += video_segment_problems(manifest, schema_locs)
         problems += transition_problems(manifest)
         problems += branches_problems(manifest)
+        problems += following_problems(manifest)
         problems += audio_problems(manifest)
         problems += audio_script_problems(content_dir, manifest, schema_locs)
 

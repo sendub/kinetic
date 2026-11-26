@@ -24,6 +24,10 @@ lies where no line reaches, the `branches` entries the player drops
 items on no line, and the items no reading from the opening reaches (the
 validator's reachability, folder_model.shown_by_play_all).
 
+A decision that follows an earlier one (docs/content-format.md,
+"Branches") names it, each of its routes the picks there it takes, and
+any pick no route takes, which passes the decision on to `continueAt`.
+
 Default output: an indented outline. `--dot` prints Graphviz DOT
 (stretches as boxes, decisions as diamonds, endings as double circles;
 each route's edge from its decision labelled with its number and label).
@@ -100,6 +104,10 @@ class Route:
     result: str  # "continuing", "continue", "return" or "ending"
     outcome: str  # CONTINUES, RETURNS or ENDS
     line: list[Stretch | DecisionNode] = field(default_factory=list)
+    # On a following decision: the followed decision's route ids its
+    # `when` names; None for a route without `when` (it takes the rest)
+    # and on any other decision.
+    when: list[Any] | None = None
 
 
 @dataclass
@@ -113,6 +121,11 @@ class DecisionNode:
     # for a pure choice), an item index; may be past the line's end, or
     # past the last item.
     carries_on: int
+    # The id of the decision it follows (docs/content-format.md,
+    # "Branches"), None for none; and that decision's route ids no route
+    # of this one takes, where a reader's pick passes it on to continueAt.
+    follows: Any = None
+    passes: list[Any] = field(default_factory=list)
 
     @property
     def pure(self) -> bool:
@@ -239,15 +252,25 @@ def build_model(manifest: dict[str, Any]) -> Model:
             branch.get("routes"), list) else []
         node = DecisionNode(decision, _str(branch.get("prompt")) or "", [],
                             _carries_on(decision))
+        followed_ids: list[Any] = []
+        if decision.follows >= 0:
+            followed = decisions[decision.follows]
+            node.follows = followed.id
+            followed_ids = [route.get("id") for route
+                            in branch_of(followed).get("routes", [])]
+            node.passes = [followed_ids[k] for k, taker
+                           in enumerate(decision.takes) if taker < 0]
         placed[decision.index] = node
         for ri, (start, end, result) in enumerate(decision.routes):
             route = route_defs[ri] if ri < len(route_defs) else {}
             continuing = ri == decision.continuing
             outcome = CONTINUES if continuing or result == "continue" \
                 else RETURNS if result == "return" else ENDS
+            when = route.get("when") if followed_ids else None
             node.routes.append(Route(
                 ri, route.get("id"), _str(route.get("label")) or "", start,
-                end, "continuing" if continuing else str(result), outcome))
+                end, "continuing" if continuing else str(result), outcome,
+                when=list(when) if isinstance(when, list) else None))
         # Each route's line after the route records exist, in route order,
         # as the map lays them out.
         for route in node.routes:
@@ -310,6 +333,8 @@ def model_json(model: Model, folder: Path, manifest: dict[str, Any]
                 "pureChoice": element.pure,
                 "continueAt": maybe(d.continue_at),
                 "carriesOnAt": maybe(element.carries_on),
+                "follows": element.follows,
+                "passesOn": element.passes,
                 "routes": [{
                     "id": route.id,
                     "label": text_tags.plain_text(route.label),
@@ -320,6 +345,7 @@ def model_json(model: Model, folder: Path, manifest: dict[str, Any]
                     "last": iid(route.end),
                     "joinsAt": (maybe(d.continue_at)
                                 if route.outcome == CONTINUES else None),
+                    "when": route.when,
                     "line": line_json(route.line),
                 } for route in element.routes],
             })
@@ -370,6 +396,20 @@ def route_then(route: dict[str, Any]) -> str:
     return "an ending (the choice is offered again)"
 
 
+def _picks(ids: list[Any]) -> str:
+    return " or ".join(map(str, ids))
+
+
+def route_after(route: dict[str, Any], decision: dict[str, Any]) -> str:
+    """On a following decision, the pick at the followed decision a
+    route takes, in words; "" on any other decision."""
+    if decision["follows"] is None:
+        return ""
+    if route["when"] is None:
+        return f"after any other pick at {decision['follows']}"
+    return f"after {_picks(route['when'])} at {decision['follows']}"
+
+
 def decision_then(decision: dict[str, Any]) -> str:
     if not decision["pureChoice"]:
         return f"carries on at {decision['continueAt']}"
@@ -397,13 +437,22 @@ def format_outline(data: dict[str, Any]) -> str:
                 add(f"{pad}items {_span(e['first'], e['last'])} "
                     f"({_plural(e['items'], 'item')})")
                 continue
-            add(f"{pad}decision {e['id']} after {e['after']}, "
+            follows = f"follows {e['follows']}, " \
+                if e["follows"] is not None else ""
+            add(f"{pad}decision {e['id']} after {e['after']}, {follows}"
                 f"{decision_then(e)}: {_quote(e['prompt'])}")
             for n, r in enumerate(e["routes"], 1):
+                after = route_after(r, e)
+                after = f"{after}; " if after else ""
                 add(f"{pad}  {n}. route {r['id']} {_quote(r['label'])}: "
                     f"{r['result']}, {_plural(r['items'], 'item')}, "
-                    f"{_span(r['first'], r['last'])}; {route_then(r)}")
+                    f"{_span(r['first'], r['last'])}; {after}"
+                    f"{route_then(r)}")
                 line(r["line"], depth + 2)
+            if e["passesOn"]:
+                add(f"{pad}  after {_picks(e['passesOn'])} at "
+                    f"{e['follows']}: no route, the decision passes on to "
+                    f"{e['continueAt']}")
 
     main = data["mainLine"]
     add(f"main line: {_plural(main['items'], 'item')}")
@@ -516,6 +565,8 @@ def format_dot(model: Model, manifest: dict[str, Any]) -> str:
             name = f"d{node.decision.index}"
             prompt = _cut(text_tags.plain_text(node.prompt))
             label = f"{node.decision.id}\n{prompt}"
+            if node.follows is not None:
+                label += f"\nfollows {node.follows}"
             add(f"  {name} [shape=diamond, label={_dot_str(label)}];")
             for route in node.routes:
                 route_follow: Follow
@@ -528,6 +579,9 @@ def format_dot(model: Model, manifest: dict[str, Any]) -> str:
                     route_follow = (lambda: (end_node(), ""))
                 text = f"{route.index + 1}. " \
                     f"{_cut(text_tags.plain_text(route.label))}"
+                if node.follows is not None:
+                    text += (f" (after {_picks(route.when)})"
+                             if route.when is not None else " (any other)")
                 add(f"  {name} -> {first_node(route.line[0])} "
                     f"[label={_dot_str(text)}];")
                 line(route.line, route_follow)
@@ -536,6 +590,13 @@ def format_dot(model: Model, manifest: dict[str, Any]) -> str:
                 if target is not None:
                     add(f"  {name} -> {target[0]} [style=dotted, "
                         'label="after every route"];')
+            elif node.passes:
+                target = after()
+                if target is not None:
+                    passing = _dot_str(f"after {_picks(node.passes)}: "
+                                       "passes on")
+                    add(f"  {name} -> {target[0]} [style=dotted, "
+                        f"label={passing}];")
 
     line(model.line, (lambda: (end_node(), "")) if model.story_end
          else (lambda: None))

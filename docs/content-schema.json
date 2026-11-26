@@ -349,6 +349,10 @@
         "continueAt": {
           "$ref": "#/$defs/id",
           "description": "item id where the continuing route proceeds after its end; allowed only with continuingRoute and must resolve to an item after every route end, which the validator enforces"
+        },
+        "follows": {
+          "$ref": "#/$defs/id",
+          "description": "id of an earlier decision this one follows (docs/content-format.md, Branches): another decision, whose after item comes before this one's and which does not enclose it, which the validator enforces. With Play all routes off the player takes the route whose when names the reader's last pick there, with no choice screen, or passes on to continueAt when no route takes it; with no pick known, and under Play all routes, it is an ordinary choice. An older player shows an ordinary choice"
         }
       }
     },
@@ -378,6 +382,13 @@
           "enum": ["return", "ending", "continue"],
           "default": "ending",
           "description": "what happens when the route ends: \"ending\" means its last item IS the ending (no implicit join); \"return\" needs the decision's continuingRoute and offers return-to-main via continueAt; \"continue\" proceeds to the decision's continueAt after the route, as the continuing route does (under Play all routes it re-offers the choice while a route of the decision is unplayed this pass), and needs continuingRoute/continueAt, which the validator enforces; default \"ending\""
+        },
+        "when": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" },
+          "description": "on a decision with follows: the ids of the followed decision's routes this route takes (docs/content-format.md, Branches); allowed only with follows, each naming a route of the followed decision and none named by two routes' when, at most one route without when, which takes the rest, which the validator enforces"
         }
       }
     },

@@ -6,6 +6,7 @@ player/src/render/routeshape.test.ts holds the map to)."""
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from pathlib import Path
@@ -19,6 +20,8 @@ DEMO = REPO_ROOT / "fixtures" / "demo"
 SHAPES = json.loads((REPO_ROOT / "fixtures" / "route-shapes.json")
                     .read_text(encoding="utf-8"))["cases"]
 NESTED = next(c for c in SHAPES if c["name"] == "nested decisions and rejoins")
+FOLLOWS = next(c for c in SHAPES
+               if c["name"] == "a decision that follows another")
 
 needs_demo = pytest.mark.skipif(
     not (DEMO / "manifest.json").is_file(),
@@ -102,6 +105,88 @@ items on no line: 3 items (gap0, w0, w1)
 
 never reached from the opening: 3 items (gap0, w0, w1)
 """
+
+
+def test_outline_of_a_decision_that_follows_another(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """What `second` follows, the pick each route takes, and the pick no
+    route takes, which passes the decision on (docs/content-format.md,
+    "Branches")."""
+    folder = write_folder(tmp_path, shape_manifest(FOLLOWS))
+    code, out, err = run_cli(["routes", str(folder)], capsys)
+    assert code == 0 and err == ""
+    body = out.split("\n", 1)[1]
+    assert body == """\
+a decision that follows another: 10 items, 2 decisions, 5 routes, 1 ending
+
+main line: 4 items
+  items s0 (1 item)
+  decision first after s0, carries on at m0: "Which door?"
+    1. route a "Door A": continue, 1 item, a0; joins at m0
+      items a0 (1 item)
+    2. route b "Door B": continue, 1 item, b0; joins at m0
+      items b0 (1 item)
+    3. route c "Door C": continuing, 1 item, c0; joins at m0
+      items c0 (1 item)
+  items m0 (1 item)
+  decision second after m0, follows first, carries on at j0: "So far?"
+    1. route x "After A": continue, 1 item, x0; after a at first; joins at j0
+      items x0 (1 item)
+    2. route y "After C": continuing, 2 items, y0..y1; after c at first; joins at j0
+      items y0..y1 (2 items)
+    after b at first: no route, the decision passes on to j0
+  items j0..e0 (2 items)
+  the story ends at e0
+
+every item is reached from the opening
+"""
+
+
+def test_a_route_without_when_takes_every_other_pick(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    manifest = copy.deepcopy(shape_manifest(FOLLOWS))
+    del manifest["branches"][1]["routes"][1]["when"]
+    code, out, _err = run_cli(["routes", str(write_folder(tmp_path,
+                                                          manifest))], capsys)
+    assert code == 0
+    assert ('    2. route y "After C": continuing, 2 items, y0..y1; after '
+            'any other pick at first; joins at j0') in out
+    assert "no route, the decision passes on" not in out
+
+
+def test_json_and_dot_of_a_decision_that_follows_another(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    folder = write_folder(tmp_path, shape_manifest(FOLLOWS))
+    code, out, _err = run_cli(["routes", str(folder), "--json"], capsys)
+    assert code == 0
+    first, second = (e for e in json.loads(out)["mainLine"]["line"]
+                     if e["kind"] == "decision")
+    assert (first["follows"], first["passesOn"]) == (None, [])
+    assert [r["when"] for r in first["routes"]] == [None, None, None]
+    assert (second["follows"], second["passesOn"]) == ("first", ["b"])
+    assert [r["when"] for r in second["routes"]] == [["a"], ["c"]]
+    code, out, _err = run_cli(["routes", str(folder), "--dot"], capsys)
+    assert code == 0
+    lines = out.splitlines()
+    for line in [
+        'd1 [shape=diamond, label="second\\nSo far?\\nfollows first"];',
+        'd1 -> s5 [label="1. After A (after a)"];',
+        'd1 -> s6 [label="2. After C (after c)"];',
+        'd1 -> s8 [style=dotted, label="after b: passes on"];',
+    ]:
+        assert f"  {line}" in lines, (line, out)
+
+
+def test_a_follows_the_player_ignores_is_not_printed(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A `follows` naming no decision leaves an ordinary decision, as the
+    player plays it (the validator reports it)."""
+    manifest = copy.deepcopy(shape_manifest(FOLLOWS))
+    manifest["branches"][1]["follows"] = "ghost"
+    code, out, _err = run_cli(["routes", str(write_folder(tmp_path,
+                                                          manifest))], capsys)
+    assert code == 0
+    assert ", follows" not in out and "after a at first" not in out
 
 
 def test_a_pure_choice_running_to_the_end(tmp_path: Path) -> None:

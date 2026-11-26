@@ -1566,6 +1566,218 @@ def test_branch_rules_reported_without_schema() -> None:
     assert len(problems) == 3
 
 
+# A decision that follows an earlier one (docs/content-format.md
+# § Branches, rules 26 and 27; docs/plan.md Phase 60 item 5).
+
+def follows_manifest(folder: Path) -> dict[str, Any]:
+    """The branch fixture's 11 items with two decisions: `first` off item
+    0 (routes p at 1, q at 2, r at 3, the continuing route, joining at 4),
+    and `second` off item 4 following it (x at 5 when p, y at 6..7 when
+    q, z at 8 without `when`, so on r, the continuing route, joining at
+    9)."""
+    manifest = read_manifest(folder)
+    ids = [item["id"] for item in manifest["items"]]
+    manifest["branches"] = [
+        {
+            "id": "first", "after": ids[0], "prompt": "Which?",
+            "routes": [
+                {"id": "p", "label": "P", "start": ids[1], "end": ids[1],
+                 "result": "continue"},
+                {"id": "q", "label": "Q", "start": ids[2], "end": ids[2],
+                 "result": "continue"},
+                {"id": "r", "label": "R", "start": ids[3], "end": ids[3]},
+            ],
+            "continuingRoute": "r", "continueAt": ids[4],
+        },
+        {
+            "id": "second", "after": ids[4], "prompt": "So far?",
+            "follows": "first",
+            "routes": [
+                {"id": "x", "label": "After P", "start": ids[5],
+                 "end": ids[5], "result": "continue", "when": ["p"]},
+                {"id": "y", "label": "After Q", "start": ids[6],
+                 "end": ids[7], "result": "continue", "when": ["q"]},
+                {"id": "z", "label": "After R", "start": ids[8],
+                 "end": ids[8]},
+            ],
+            "continuingRoute": "z", "continueAt": ids[9],
+        },
+    ]
+    return manifest
+
+
+def follows_problems(folder: Path, manifest: dict[str, Any]) -> list[str]:
+    write_manifest(folder, manifest)
+    return problems_of(folder)
+
+
+def test_a_following_decision_passes(branch_folder: Path) -> None:
+    manifest = follows_manifest(branch_folder)
+    assert follows_problems(branch_folder, manifest) == []
+    proc = run_cli(branch_folder, "--strict")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_every_route_may_give_when(branch_folder: Path) -> None:
+    manifest = follows_manifest(branch_folder)
+    manifest["branches"][1]["routes"][2]["when"] = ["r"]
+    manifest["branches"][1]["routes"][0]["when"] = ["p"]
+    assert follows_problems(branch_folder, manifest) == []
+
+
+def test_a_pick_no_route_takes_passes_on_at_continue_at(
+        branch_folder: Path) -> None:
+    """No route takes r: a reader who picked it passes on to
+    continueAt, which the decision has."""
+    manifest = follows_manifest(branch_folder)
+    second = manifest["branches"][1]
+    second["routes"] = second["routes"][:2]
+    second["routes"][1]["end"] = manifest["items"][8]["id"]
+    second["continuingRoute"] = "y"
+    assert follows_problems(branch_folder, manifest) == []
+
+
+def test_follows_naming_no_decision_rejected(branch_folder: Path) -> None:
+    manifest = follows_manifest(branch_folder)
+    manifest["branches"][1]["follows"] = "ghost"
+    problems = follows_problems(branch_folder, manifest)
+    assert problems == [
+        "manifest.json: branches[1].follows: names no decision ('ghost')"]
+
+
+def test_follows_naming_itself_rejected(branch_folder: Path) -> None:
+    manifest = follows_manifest(branch_folder)
+    manifest["branches"][1]["follows"] = "second"
+    problems = follows_problems(branch_folder, manifest)
+    assert problems == [
+        "manifest.json: branches[1].follows: names its own decision; it "
+        "must name another"]
+
+
+def test_follows_a_later_decision_rejected(branch_folder: Path) -> None:
+    manifest = follows_manifest(branch_folder)
+    manifest["branches"][0]["follows"] = "second"
+    for route in manifest["branches"][0]["routes"]:
+        route["when"] = [{"p": "x", "q": "y", "r": "z"}[route["id"]]]
+    problems = follows_problems(branch_folder, manifest)
+    assert problems == [
+        "manifest.json: branches[0].follows: must name a decision whose "
+        "after item comes before this decision's after item items[0] "
+        "(found 'second', after items[4])"]
+
+
+def test_follows_an_enclosing_decision_rejected(branch_folder: Path) -> None:
+    """A decision inside a route of the one it names: its routes would be
+    the reader's pick, not something to follow."""
+    manifest = read_manifest(branch_folder)
+    ids = [item["id"] for item in manifest["items"]]
+    manifest["branches"] = [
+        {
+            "id": "outer", "after": ids[0], "prompt": "Outer?",
+            "routes": [
+                {"id": "o-a", "label": "A", "start": ids[1], "end": ids[4]},
+                {"id": "o-b", "label": "B", "start": ids[5], "end": ids[5]},
+            ],
+        },
+        {
+            "id": "inner", "after": ids[1], "prompt": "Inner?",
+            "follows": "outer",
+            "routes": [
+                {"id": "i-a", "label": "IA", "start": ids[2], "end": ids[2],
+                 "when": ["o-a"]},
+                {"id": "i-b", "label": "IB", "start": ids[3], "end": ids[4]},
+            ],
+        },
+    ]
+    problems = follows_problems(branch_folder, manifest)
+    assert problems == [
+        "manifest.json: branches[1].follows: names 'outer', a decision "
+        "enclosing this one (its after item items[1] lies in route 'o-a')"]
+
+
+def test_when_without_follows_rejected(branch_folder: Path) -> None:
+    manifest = follows_manifest(branch_folder)
+    del manifest["branches"][1]["follows"]
+    problems = follows_problems(branch_folder, manifest)
+    assert problems == [
+        "manifest.json: branches[1].routes[0].when: is allowed only on a "
+        "decision with follows",
+        "manifest.json: branches[1].routes[1].when: is allowed only on a "
+        "decision with follows",
+    ]
+
+
+def test_when_naming_no_route_of_the_followed_decision_rejected(
+        branch_folder: Path) -> None:
+    manifest = follows_manifest(branch_folder)
+    manifest["branches"][1]["routes"][0]["when"] = ["p", "ghost"]
+    problems = follows_problems(branch_folder, manifest)
+    assert problems == [
+        "manifest.json: branches[1].routes[0].when[1]: names no route of "
+        "decision 'first' ('ghost')"]
+
+
+def test_a_route_id_in_two_whens_rejected(branch_folder: Path) -> None:
+    manifest = follows_manifest(branch_folder)
+    manifest["branches"][1]["routes"][1]["when"] = ["q", "p"]
+    problems = follows_problems(branch_folder, manifest)
+    assert problems == [
+        "manifest.json: branches[1].routes[1].when[1]: route 'p' is "
+        "already taken by branches[1].routes[0]"]
+
+
+def test_two_routes_without_when_rejected(branch_folder: Path) -> None:
+    manifest = follows_manifest(branch_folder)
+    del manifest["branches"][1]["routes"][1]["when"]
+    problems = follows_problems(branch_folder, manifest)
+    assert problems == [
+        "manifest.json: branches[1].routes[2]: at most one route of a "
+        "following decision may have no when (branches[1].routes[1] has "
+        "none either)"]
+
+
+def test_a_pick_no_route_takes_needs_continue_at(branch_folder: Path) -> None:
+    """No route takes r and the decision is a pure choice: there is
+    nowhere to pass on to."""
+    manifest = follows_manifest(branch_folder)
+    second = manifest["branches"][1]
+    second["routes"] = second["routes"][:2]
+    second["routes"][1]["end"] = manifest["items"][8]["id"]
+    for route in second["routes"]:
+        del route["result"]
+    del second["continuingRoute"]
+    del second["continueAt"]
+    problems = follows_problems(branch_folder, manifest)
+    assert problems == [
+        "manifest.json: branches[1].follows: no route takes route 'r' of "
+        "decision 'first', so a reader who picked it passes this decision "
+        "on to its continueAt: it needs continuingRoute and continueAt"]
+
+
+@pytest.mark.parametrize("routes_when, field", [
+    ([], "branches[1].routes[0].when"),
+    (["p", "p"], "branches[1].routes[0].when"),
+    ("p", "branches[1].routes[0].when"),
+])
+def test_when_shape_is_the_schemas(branch_folder: Path, routes_when: Any,
+                                   field: str) -> None:
+    """A non-empty array of distinct ids: the schema says so."""
+    manifest = follows_manifest(branch_folder)
+    manifest["branches"][1]["routes"][0]["when"] = routes_when
+    problems = follows_problems(branch_folder, manifest)
+    assert problems, problems
+    assert all(p.startswith(f"manifest.json: {field}") for p in problems), \
+        problems
+
+
+def test_follows_must_be_an_id(branch_folder: Path) -> None:
+    manifest = follows_manifest(branch_folder)
+    manifest["branches"][1]["follows"] = 3
+    problems = follows_problems(branch_folder, manifest)
+    assert len(problems) == 1
+    assert problems[0].startswith("manifest.json: branches[1].follows:")
+
+
 # ---------------------------------------------------------------------------
 # storyId (docs/plan.md Phase 21): optional, a lowercase slug when present
 # ---------------------------------------------------------------------------

@@ -145,6 +145,7 @@ import type {
   MachineState,
   MachineWords,
   ManifestAudio,
+  Route,
   RouteResult,
   RouteSet,
   Scheduler,
@@ -855,6 +856,19 @@ export interface ResolvedDecision {
   continueAt: number;
   /** Decision whose route span contains this one; -1 at the top level. */
   parent: number;
+  /**
+   * The decision this one follows (`follows`, docs/content-format.md,
+   * "Branches"), -1 for none: a table the validator would reject leaves
+   * an ordinary decision, as an older player reads every one.
+   */
+  follows: number;
+  /**
+   * With `follows`: for each route of the followed decision, by position,
+   * the route of this one that takes it (the one whose `when` names it,
+   * else the `when`-less route), or -1 where none does and the decision
+   * passes on to `continueAt`. Empty without `follows`.
+   */
+  takes: number[];
 }
 
 /** One open decision context: the route of it the reader is inside. */
@@ -897,6 +911,8 @@ export function resolveDecisions(
   branches: readonly Branch[],
 ): ResolvedDecision[] {
   const resolved: ResolvedDecision[] = [];
+  /** The `branches` entry of each resolved decision, by position. */
+  const sources: Branch[] = [];
   if (items.length === 0 || branches.length === 0) return resolved;
   const byId = new Map<string, number>();
   items.forEach((item, index) => {
@@ -945,7 +961,10 @@ export function resolveDecisions(
       continuingRoute,
       continueAt,
       parent: -1,
+      follows: -1,
+      takes: [],
     });
+    sources.push(branch);
   }
   // Nesting: a decision belongs to the decision whose route span contains its
   // `after` item. Spans nest or are disjoint, so the tightest containing span
@@ -966,7 +985,74 @@ export function resolveDecisions(
       }
     }
   }
+  resolveFollows(resolved, sources);
   return resolved;
+}
+
+/**
+ * Sets each decision's `follows` and `takes` from its entry's `follows` and
+ * its routes' `when` (docs/content-format.md, "Branches"), where the table
+ * is sound: the followed decision is another, earlier in array order (its
+ * `after` first) and not one enclosing this decision; every `when` names
+ * routes of it, no route twice; at most one route has no `when`; and a
+ * followed route no route takes has a `continueAt` to pass on to. Anything
+ * else leaves the decision ordinary.
+ */
+function resolveFollows(
+  resolved: ResolvedDecision[],
+  sources: readonly Branch[],
+): void {
+  const byId = new Map<string, number>();
+  for (const decision of resolved) {
+    if (!byId.has(decision.id)) byId.set(decision.id, decision.index);
+  }
+  resolved.forEach((decision, position) => {
+    const named = sources[position].follows;
+    if (typeof named !== "string") return;
+    const followedIndex = byId.get(named);
+    if (followedIndex === undefined) return;
+    const followed = resolved[followedIndex];
+    if (followed.afterIndex >= decision.afterIndex) return; // itself too
+    for (
+      let parent = decision.parent, depth = 0;
+      parent >= 0 && depth < resolved.length;
+      parent = resolved[parent].parent, depth += 1
+    ) {
+      if (parent === followed.index) return; // it encloses this decision
+    }
+    const takes = takesFor(followed, sources[position].routes);
+    if (takes === null) return;
+    if (takes.includes(-1) && decision.continueAt < 0) return;
+    decision.follows = followed.index;
+    decision.takes = takes;
+  });
+}
+
+/**
+ * For each route of `followed`, the route among `routes` that takes it; -1
+ * where none does. Null when the `when` lists are unsound.
+ */
+function takesFor(
+  followed: ResolvedDecision,
+  routes: readonly Route[],
+): number[] | null {
+  const takes = followed.routes.map(() => -1);
+  let rest = -1;
+  for (let routeIdx = 0; routeIdx < routes.length; routeIdx += 1) {
+    const when = routes[routeIdx].when;
+    if (when === undefined) {
+      if (rest >= 0) return null; // two routes without `when`
+      rest = routeIdx;
+      continue;
+    }
+    if (!Array.isArray(when) || when.length === 0) return null;
+    for (const id of when) {
+      const at = followed.routes.findIndex((route) => route.id === id);
+      if (at < 0 || takes[at] >= 0) return null;
+      takes[at] = routeIdx;
+    }
+  }
+  return takes.map((routeIdx) => (routeIdx < 0 ? rest : routeIdx));
 }
 
 type Listener = (state: MachineState) => void;
@@ -1862,7 +1948,7 @@ export function createMachine(options: MachineOptions): Machine {
       decisions[frame.decision].routes[frame.route].startIndex === index
     )
       return false;
-    if (joinsTo(index).length > 0) return false;
+    if (joinsTo(index).length > 0 || passesInto(index).length > 0) return false;
     const step = forwardOf(itemScreen(index - 1));
     return step?.kind === "item" && step.index === index;
   }
@@ -1991,12 +2077,19 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * The route the walk takes forward through a decision (docs/plan.md
-   * Phase 27): the last pick there, else the longest route (most items,
-   * manifest order on a tie) holding seen content; -1 when none does.
+   * Phase 27): the last pick there, else — a following decision — the
+   * route taking the pick at the decision it follows, else the longest
+   * route (most items, manifest order on a tie) holding seen content; -1
+   * when none does.
    */
   function pickFor(decision: ResolvedDecision): number {
     const known = lastPick.get(decision.index);
     if (known !== undefined) return known;
+    // A following decision with no pick of its own: the route taking the
+    // reader's pick at the decision it follows (docs/content-format.md,
+    // "Branches").
+    const taken = followedRoute(decision);
+    if (taken !== undefined && taken >= 0) return taken;
     let best = -1;
     decision.routes.forEach((route, routeIdx) => {
       if (!routeSeen(route)) return;
@@ -2067,7 +2160,10 @@ export function createMachine(options: MachineOptions): Machine {
     const index = screen.index;
     const fires = decisionAt(index);
     if (fires >= 0) {
-      const next = pickFor(decisions[fires]);
+      const decision = decisions[fires];
+      if (passesFollowing(decision))
+        return passOn(decision, decision.continueAt);
+      const next = pickFor(decision);
       return next < 0
         ? null
         : { kind: "choice", decision: fires, next, via: -1 };
@@ -2118,6 +2214,30 @@ export function createMachine(options: MachineOptions): Machine {
       joinsInto = map;
     }
     return joinsInto.get(index) ?? [];
+  }
+
+  /**
+   * The following decisions whose pass (no route taking the pick at the
+   * decision they follow) steps into item `index` from their `after` item:
+   * the walk's step forward (`forwardOf`), so its step back too. Static,
+   * like `joinsTo`; whether a decision passes now is `passesFollowing`.
+   */
+  let passesTo: Map<number, ResolvedDecision[]> | null = null;
+  function passesInto(index: number): readonly ResolvedDecision[] {
+    if (passesTo === null) {
+      const map = new Map<number, ResolvedDecision[]>();
+      for (const decision of decisions) {
+        if (!decision.takes.includes(-1)) continue;
+        if (decisionAt(decision.afterIndex) !== decision.index) continue;
+        const target = passOn(decision, decision.continueAt);
+        if (target?.kind !== "item") continue;
+        const list = map.get(target.index) ?? [];
+        list.push(decision);
+        map.set(target.index, list);
+      }
+      passesTo = map;
+    }
+    return passesTo.get(index) ?? [];
   }
 
   /** The item a screen stands on: a choice screen's is the item under it. */
@@ -2182,6 +2302,13 @@ export function createMachine(options: MachineOptions): Machine {
         next: frame.route,
         via,
       };
+    }
+    // A following decision passed on to here (no route takes the pick at
+    // the decision it follows) comes back to its `after` item, as the
+    // step forward from there leads here.
+    for (const passed of passesInto(index)) {
+      if (passesFollowing(passed) && read(passed.afterIndex))
+        return itemScreen(passed.afterIndex);
     }
     // A join comes back by the route last picked at its decision (a pure
     // choice's fall-through too) whenever that route holds anything read,
@@ -2563,11 +2690,17 @@ export function createMachine(options: MachineOptions): Machine {
    * `skipAll` off (docs/plan.md Phase 18): a route end joining at an unseen
    * `continueAt` (`endJoins`), or a plain step onto an unseen item. A
    * decision here opens its overlay instead (no reveal), and a re-offer
-   * reveals nothing either.
+   * reveals nothing either; a following decision that shows no choice
+   * reveals what it steps to (`followTarget`) when that is unseen.
    */
   function skipWouldReveal(): boolean {
     if (settings.skipAll) return false;
-    if (relevantDecision(cursor) >= 0) return false;
+    const fires = relevantDecision(cursor);
+    if (fires >= 0) {
+      // A following decision opens no choice: its step shows its target.
+      const target = followTarget(decisions[fires]);
+      return target >= 0 && !visited.has(target);
+    }
     if (atRouteEnd()) {
       const frame = stack[stack.length - 1];
       const decision = decisions[frame.decision];
@@ -2590,17 +2723,22 @@ export function createMachine(options: MachineOptions): Machine {
 
   /**
    * Whether the forward step off route `routeIdx`'s last item joins at the
-   * decision's `continueAt` (`handleRouteEnd`): always for the continuing
-   * route; for a `continue` route with play-all off, and under play-all
-   * once no route of the decision is left unplayed this pass (until then
-   * play-all re-offers the choice there, as at a `return` route's end, so
-   * every route still plays once, the continuing route last).
+   * decision's `continueAt` (`handleRouteEnd`): with play-all off, for the
+   * continuing route and a `continue` route; under play-all, for the
+   * continuing route when it is the one play-all plays last, and for
+   * either once no route of the decision is left unplayed this pass (until
+   * then play-all re-offers the choice there, as at a `return` route's
+   * end, so every route still plays once, the last route last).
    */
   function endJoins(decision: ResolvedDecision, routeIdx: number): boolean {
     const route = decision.routes[routeIdx];
-    if (route.continuing) return true;
-    if (route.result !== "continue") return false;
-    return !settings.playAllRoutes || nextAutoRoute(decision) < 0;
+    if (!joinsAtContinue(route)) return false;
+    if (!settings.playAllRoutes) return true;
+    // Play-all's last route joins; so does the continuing route wherever it
+    // is that last one, as for every decision but a following one whose
+    // matching route plays last in its place (`lastAutoRoute`).
+    if (route.continuing && lastAutoRoute(decision) === routeIdx) return true;
+    return nextAutoRoute(decision) < 0;
   }
 
   /** Leave skip mode; the current item restarts under its normal hold. */
@@ -2651,42 +2789,83 @@ export function createMachine(options: MachineOptions): Machine {
    * The route `playAllRoutes` picks next: the shortest route not yet
    * played THIS PASS (fewest items, manifest order on a tie), with the
    * continuing route held last so the alternates each get their play before
-   * the story leaves the decision (docs/plan.md Phase 18). -1 when every
+   * the story leaves the decision (docs/plan.md Phase 18) — or, at a
+   * following decision, the route matching the pick at the decision it
+   * follows (`lastAutoRoute`, docs/content-format.md, "Branches"). -1 when every
    * route has played this pass — which is also the all-played rule's test
    * (`closeIfPureAndComplete`). Never the return row.
    */
   function nextAutoRoute(decision: ResolvedDecision): number {
+    const last = lastAutoRoute(decision);
     let best = -1;
     decision.routes.forEach((route, index) => {
-      if (
-        index === decision.continuingRoute ||
-        isPassPlayed(decision.index, index)
-      )
-        return;
+      if (index === last || isPassPlayed(decision.index, index)) return;
       const span = route.endIndex - route.startIndex;
       const bestRoute = decision.routes[best];
       if (best < 0 || span < bestRoute.endIndex - bestRoute.startIndex)
         best = index;
     });
     if (best >= 0) return best;
-    if (
-      decision.continuingRoute >= 0 &&
-      !isPassPlayed(decision.index, decision.continuingRoute)
-    ) {
-      return decision.continuingRoute;
-    }
+    if (last >= 0 && !isPassPlayed(decision.index, last)) return last;
     return -1;
+  }
+
+  /**
+   * The route play-all holds for last at a decision: the continuing route,
+   * or — a following decision with the pick at the decision it follows
+   * known and taken by a route — that matching route (docs/content-format.md,
+   * "Branches"). -1 for a pure choice.
+   */
+  function lastAutoRoute(decision: ResolvedDecision): number {
+    const taken = followedRoute(decision);
+    return taken !== undefined && taken >= 0 ? taken : decision.continuingRoute;
+  }
+
+  /**
+   * What a following decision takes (docs/content-format.md, "Branches"):
+   * the route taking the reader's last pick at the decision it follows, -1
+   * where no route takes it (the decision passes on to `continueAt`), or
+   * undefined when it follows none or no pick is known there.
+   */
+  function followedRoute(decision: ResolvedDecision): number | undefined {
+    if (decision.follows < 0) return undefined;
+    const picked = lastPick.get(decision.follows);
+    if (picked === undefined) return undefined;
+    return decision.takes[picked] ?? -1;
+  }
+
+  /**
+   * Where a following decision's firing goes with Play all routes off: its
+   * matching route's first item, or `continueAt` where it passes; -1 where
+   * it shows its choice screen (play-all on, no pick known, or no
+   * `follows`). The forward settle takes it (`fireDecision`); skip's
+   * reveal check and `u`'s continuation read it.
+   */
+  function followTarget(decision: ResolvedDecision): number {
+    if (settings.playAllRoutes) return -1;
+    const taken = followedRoute(decision);
+    if (taken === undefined) return -1;
+    return taken >= 0 ? decision.routes[taken].startIndex : decision.continueAt;
+  }
+
+  /**
+   * Whether the walk passes a following decision straight on to its
+   * `continueAt` (docs/content-format.md, "Branches"): it has no pick of
+   * its own, and no route takes the pick at the decision it follows.
+   */
+  function passesFollowing(decision: ResolvedDecision): boolean {
+    return !lastPick.has(decision.index) && followedRoute(decision) === -1;
   }
 
   /**
    * Marks the route played and last picked, pushes its frame, and enters its
    * first item: a `read` arrival from the choice screen, a `jump` from the
-   * branch map.
+   * branch map, the flow's own from a following decision (`fireDecision`).
    */
   function enterRoute(
     decision: ResolvedDecision,
     routeIdx: number,
-    arrives: "read" | "jump",
+    arrives: ArrivalKind,
   ): void {
     markPlayed(decision.index, routeIdx);
     setLastPick(decision.index, routeIdx);
@@ -2795,12 +2974,18 @@ export function createMachine(options: MachineOptions): Machine {
    * decision did fire, so the caller does not move the cursor: the choice
    * pauses (ending any skip burst — docs/plan.md Phase 16), with
    * `playAllRoutes` counting down to its next route in play order, or —
-   * every route played — play-all resolves it at once.
+   * every route played — play-all resolves it at once. A following
+   * decision with play-all off and the pick it follows known shows no
+   * choice (`takeFollowed`).
    */
   function fireDecision(flow: Flow): boolean {
     const index = relevantDecision(cursor);
     if (index < 0) return false;
     const decision = decisions[index];
+    if (followTarget(decision) >= 0) {
+      takeFollowed(decision, flow);
+      return true;
+    }
     if (closeIfPureAndComplete(decision, flow)) return true;
     if (settings.playAllRoutes) {
       if (nextAutoRoute(decision) >= 0) openChoice(decision.index, -1, true);
@@ -2809,6 +2994,20 @@ export function createMachine(options: MachineOptions): Machine {
     }
     openChoice(decision.index, -1, false);
     return true;
+  }
+
+  /**
+   * A following decision firing with play-all off and the pick at the
+   * decision it follows known (docs/content-format.md, "Branches"): the
+   * route taking that pick is entered at once, as a pick — played, last
+   * picked, its frame open — or, no route taking it, the decision passes on
+   * to `continueAt`. No choice shows, so a skip burst carries on.
+   */
+  function takeFollowed(decision: ResolvedDecision, flow: Flow): void {
+    closeFramesFor(decision.index);
+    const taken = followedRoute(decision) ?? -1;
+    if (taken >= 0) enterRoute(decision, taken, flow);
+    else join(decision, flow);
   }
 
   /**
@@ -2933,13 +3132,20 @@ export function createMachine(options: MachineOptions): Machine {
    * Whether flow has gone past a decision's menu region: a route that joins
    * at its `continueAt` completed (the continuing route, or a `continue`
    * one), or — a pure choice — every route played (the all-played close).
+   * A following decision that passes on for the reader's pick (no route
+   * takes it) has been passed once its `continueAt` is read.
    */
   function decisionPassed(decision: ResolvedDecision): boolean {
     if (decision.continuingRoute >= 0) {
       const done = completed.get(decision.index);
-      return decision.routes.some(
-        (route, routeIdx) =>
-          joinsAtContinue(route) && done?.has(routeIdx) === true,
+      return (
+        decision.routes.some(
+          (route, routeIdx) =>
+            joinsAtContinue(route) && done?.has(routeIdx) === true,
+        ) ||
+        // A following decision no route of which takes the reader's pick
+        // passes on to `continueAt`: read there, flow has passed it.
+        (followedRoute(decision) === -1 && visited.has(decision.continueAt))
       );
     }
     // `u` reads the cumulative record (seen routes), not this pass's.
@@ -2984,6 +3190,12 @@ export function createMachine(options: MachineOptions): Machine {
       decision = pendingChoice.decision;
     } else if (relevantDecision(cursor) >= 0) {
       decision = relevantDecision(cursor);
+      // A following decision showing no choice steps on by itself.
+      const target = followTarget(decisions[decision]);
+      if (target >= 0) {
+        start = target;
+        decision = -1;
+      }
     } else if (atRouteEnd()) {
       const frame = stack[stack.length - 1];
       const owner = decisions[frame.decision];

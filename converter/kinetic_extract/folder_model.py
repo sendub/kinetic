@@ -87,7 +87,8 @@ class Decision:
     """A decision resolved to item indices, as machine.ts `ResolvedDecision`."""
 
     __slots__ = ("index", "id", "after", "routes", "continuing",
-                 "continue_at", "parent", "region_end", "branch")
+                 "continue_at", "parent", "region_end", "branch", "follows",
+                 "takes")
 
     def __init__(self, index: int, branch_id: Any, after: int,
                  routes: list[tuple[int, int, str]], continuing: int,
@@ -101,6 +102,11 @@ class Decision:
         self.continue_at = continue_at
         self.parent = -1
         self.region_end = max(end for _start, end, _result in routes)
+        # The decision this one follows (`follows`), -1 for none, and for
+        # each route of that decision the route of this one taking it, -1
+        # where none does and the decision passes on (`_resolve_follows`).
+        self.follows = -1
+        self.takes: list[int] = []
 
 
 def resolve_decisions(items: list[Any], branches: list[Any]
@@ -147,7 +153,63 @@ def resolve_decisions(items: list[Any], branches: list[Any]
         resolved.append(Decision(len(resolved), branch.get("id"), after,
                                   spans, continuing, continue_at, bi))
     _resolve_nesting(resolved)
+    _resolve_follows(resolved, branches)
     return resolved
+
+
+def _resolve_follows(decisions: list[Decision], branches: list[Any]
+                     ) -> None:
+    """Set each decision's `follows` and `takes`, as machine.ts
+    `resolveFollows`: where its `follows` names another resolved decision
+    whose `after` comes first and which does not enclose it, every `when`
+    names routes of it with none named twice, at most one route has no
+    `when`, and a route of it no route takes has a `continueAt` to pass on
+    to. Anything else leaves an ordinary decision."""
+    by_id: dict[str, Decision] = {}
+    for decision in decisions:
+        if isinstance(decision.id, str):
+            by_id.setdefault(decision.id, decision)
+    for decision in decisions:
+        branch = branches[decision.branch]
+        named = branch.get("follows")
+        followed = by_id.get(named) if isinstance(named, str) else None
+        if followed is None or followed.after >= decision.after:
+            continue
+        parent, depth = decision.parent, 0
+        while parent >= 0 and parent != followed.index \
+                and depth < len(decisions):
+            parent, depth = decisions[parent].parent, depth + 1
+        if parent == followed.index:
+            continue  # it encloses this decision
+        followed_ids = [route.get("id") for route in
+                        branches[followed.branch]["routes"]]
+        takes = [-1] * len(followed_ids)
+        rest = -1
+        sound = True
+        for ri, route in enumerate(branch["routes"]):
+            if "when" not in route:
+                sound = rest < 0
+                rest = ri
+            else:
+                when = route.get("when")
+                sound = isinstance(when, list) and bool(when)
+                for entry in when if sound else []:
+                    at = next((k for k, route_id in enumerate(followed_ids)
+                               if isinstance(entry, str)
+                               and route_id == entry), -1)
+                    if at < 0 or takes[at] >= 0:
+                        sound = False
+                        break
+                    takes[at] = ri
+            if not sound:
+                break
+        if not sound:
+            continue
+        takes = [rest if taker < 0 else taker for taker in takes]
+        if -1 in takes and decision.continue_at < 0:
+            continue
+        decision.follows = followed.index
+        decision.takes = takes
 
 
 def span_problems(decisions: list[Decision]) -> list[str]:

@@ -19,6 +19,19 @@ something more of an author.
 
 ## 1.15.0-dev
 
+- A decision that follows an earlier one: a decision's optional
+  `follows` names an earlier decision, and each of its routes may give
+  `when`, the routes of that decision it belongs to (at most one route
+  without `when` takes the rest). With Play all routes off it shows no
+  choice: the route matching the reader's last pick there starts at
+  once, its route pill shown, or, when no route takes that pick, the
+  story goes on at `continueAt`; with no pick known it is an ordinary
+  choice. With Play all routes on it is an ordinary decision whose
+  matching route plays last. The wheel follows the matching route
+  through it, and `kinetic routes` and `kinetic export` say what it
+  follows and which pick each route takes. The validator checks both
+  fields (docs/content-format.md, "Branches", rules 26 and 27). An
+  older player ignores them and shows an ordinary choice.
 - Animation timing: two new optional fields on an `animation` item.
   `frameSeconds`, one display time in seconds per frame, times the
   frames unevenly in place of `fps`, and one loop lasts their sum;

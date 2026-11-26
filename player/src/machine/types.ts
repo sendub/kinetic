@@ -297,6 +297,14 @@ export interface Route {
    * `"continue"` is the explicit one, and needs `continuingRoute`.
    */
   result?: RouteResult;
+  /**
+   * On a decision with `follows`: the routes of the followed decision this
+   * route takes (docs/content-format.md, "Branches"). With Play all routes
+   * off, the reader's last pick there enters this route with no choice
+   * screen. Absent on at most one route, which takes every followed route
+   * no other route names.
+   */
+  when?: readonly string[];
 }
 
 /**
@@ -316,6 +324,15 @@ export interface Branch {
   continuingRoute?: string;
   /** Item id where the continuing route proceeds after its end. */
   continueAt?: string;
+  /**
+   * Id of an earlier decision this one follows (docs/content-format.md,
+   * "Branches"): its routes' `when` name that decision's routes. With Play
+   * all routes off it takes the route matching the reader's last pick
+   * there, with no choice screen, or passes on to `continueAt` when no
+   * route takes it; with no pick known, and under Play all routes, it is
+   * an ordinary choice (the match played last).
+   */
+  follows?: string;
 }
 
 export interface Manifest {

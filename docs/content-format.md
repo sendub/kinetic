@@ -634,6 +634,39 @@ and items always use ids, never array positions.
   route. "return to main" exists only when `continuingRoute` does -
   and then only once that route has COMPLETED (the rule above), not
   merely entered.
+- `follows` (optional): the id of another decision this one follows,
+  for content an earlier pick chose (a Ren'Py `if` on what a menu
+  set). The followed decision's `after` item comes before this
+  decision's `after` item in array order, and it does not enclose this
+  decision (this decision's `after` item lies in none of its route
+  spans). Each route of a following decision may give `when`, a
+  non-empty array of route ids of the followed decision: the picks there
+  that this route takes. No id is in two routes' `when`, and at most one
+  route has no `when`; that route takes every followed route no other
+  route names. A followed route that no route takes passes the decision
+  (below), so a decision where one does, with no route without `when`,
+  needs `continuingRoute` and `continueAt`. `when` is allowed only on a
+  decision with `follows`.
+
+  With `Play all routes` off, a following decision that fires while the
+  reader's last pick at the followed decision is known (the timeline's
+  LAST PICK, below) shows no choice screen: the route taking that pick
+  is entered at once, as a pick (played, made the last pick, its frame
+  open, the "Route: <label>" pill shown as for any entry); a pick no
+  route takes passes the decision and flow goes on at `continueAt`, as
+  if a continuing route had joined there. A skip burst carries on
+  through it as through a join, stopping before it when what it would
+  show is unseen. With no pick known at the followed decision (the
+  reader came by a bookmark or a jump), it shows its choice screen as an
+  ordinary decision. With `Play all routes` on it is an ordinary
+  decision, except that play-all plays the route matching the pick last,
+  in the continuing route's usual last place (the continuing route's
+  end then re-offers the choice while a route is unplayed this pass, as
+  a `"continue"` route's does). Its routes are routes like any other:
+  seen marks, the return row, `u`, the end card and a reload treat them
+  as any decision's, and a route's `result` acts at its end as ever. A
+  player older than 1.15.0 ignores both fields and shows an ordinary
+  choice.
 
 Player-side notes, the format's promises (machine rules in
 docs/plan.md Phase 13):
@@ -650,9 +683,13 @@ docs/plan.md Phase 13):
 - Timeline (docs/plan.md Phase 27): the wheel walks the STORY ORDER,
   one screen per notch, back and forth - not a record of what was shown.
   The player remembers the LAST PICK at each decision (a reader's pick, a
-  play-all auto-pick or a `u` landing; saved with the progress), and the
-  walk follows the last-picked route through each decision; with no pick
-  known it takes the longest route (most items) holding seen content. A
+  play-all auto-pick, a following decision's entry or a `u` landing;
+  saved with the progress), and the walk follows the last-picked route
+  through each decision; with no pick known it takes, at a following
+  decision, the route matching the pick at the decision it follows, else
+  the longest route (most items) holding seen content. A following
+  decision passed for a pick no route takes, with no pick of its own, is
+  a step from its `after` item straight to `continueAt` and back. A
   decision's choice screen is a step of its own that the wheel passes
   through like any screen, never halting there: it shows the current seen
   marks and return-row rule with the walk's route highlighted (the look
@@ -696,7 +733,9 @@ docs/plan.md Phase 13):
   whose enclosing decision was never reached, and content past a
   decision flow has not passed yet (no route joining at its
   `continueAt` completed - its continuing route or a `"continue"`
-  route - or a pure choice with a route unplayed). Landing inside routes opens
+  route - or a pure choice with a route unplayed; a following decision
+  passed for a pick no route takes counts as passed once its
+  `continueAt` is read). Landing inside routes opens
   their frames and marks them PLAYED, exactly as picking them would, so
   Space reads on inside the route. Like a bookmark jump it is appended
   to the record.
@@ -1687,6 +1726,19 @@ The validator checks the schema plus these invariants:
     `frames`. The schema keeps it and `holdLastFrame` to animation
     items, each entry above 0; the validator reports a length that
     differs (`must have one entry per frame, N (found M)`).
+26. A decision's `follows` (Branches) names a decision of `branches`
+    other than itself, whose `after` item comes before this decision's
+    `after` item in array order and in none of whose route spans this
+    decision's `after` item lies (one enclosing it). The schema keeps
+    `follows` to an id.
+27. A route's `when` (Branches) is only on a decision with `follows`;
+    each entry names a route of the followed decision, and no route of
+    it is named by two routes' `when`; at most one route of a following
+    decision has no `when`. When a route of the followed decision is
+    named by no `when` and every route has one, the decision passes for
+    that pick, so it needs `continuingRoute` and `continueAt`. The
+    schema keeps `when` a non-empty array of distinct ids; a `follows`
+    that breaks 26 is reported alone, its `when` entries not compared.
 
 The validator also warns about three things that are not problems: an
 Ogg track file (Audio says why), a looping track in a format that is

@@ -6166,8 +6166,48 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Menus whose choices jump become decisions (item 4). Routes from
       the walk's alternatives, results proven from how each path ends;
       empty choices get their text; in-place menus get their joins.
-- [ ] A decision that follows an earlier one (item 5). `follows` and
+- [x] A decision that follows an earlier one (item 5). `follows` and
       `when` in the format, validator, player and tools.
+      (2026-11-26: types.ts `Branch.follows`, `Route.when`; machine.ts
+      resolves each following decision (`resolveFollows`, `takesFor`:
+      the route that takes each followed route, an unsound table leaving
+      an ordinary decision) and `fireDecision` enters the match as a
+      pick (pill shown) or passes on to `continueAt`; `nextAutoRoute`
+      plays the match last under play-all; `pickFor` (the wheel's walk)
+      follows the match where the decision has no pick of its own;
+      `forwardOf`/`backwardOf` step a passed decision from `after` to
+      `continueAt` and back; skip carries on through an entry or a pass
+      and stops before an unseen target; `u` reads the target as Space's
+      continuation; `decisionPassed` counts a pass once `continueAt` is
+      read. Validator `following_problems` (content-format rules 26 and
+      27), schema entries, folder_model's `_resolve_follows` mirroring
+      the player, `kinetic routes` (outline, JSON `follows`/`passesOn`/
+      `when`, DOT edges) and `kinetic export` (which pick each row
+      takes), a route-shapes case (map counts unchanged), content-format
+      Branches, player.md's Decisions, a CHANGELOG bullet. Subagent's
+      calls: a following decision with a pick no route takes needs
+      `continuingRoute`/`continueAt` (else the validator reports it and
+      the player ignores `follows`); a bad `follows` is one problem, its
+      `when`s unchecked; the match is entered even when every route was
+      played this pass (the follow check runs before the pure-choice
+      close); under play-all the continuing route's end re-offers while
+      a route is unplayed when the match is not that route; the wheel
+      still shows the decision's choice screen, highlighting the match,
+      so the other routes stay reachable with Play all routes off; the
+      branch map, check-game and the testing library unchanged (a
+      check-game walk of the scenario folder visited all 15 items).
+      Tests: follows.test.ts 24 (19 failed first, 5 guard unchanged
+      behaviour); validator 18 (14 failed first, the rest valid cases);
+      routes +4 and export +1 failing first; follows.scenario.mjs
+      (matched, passed, unknown, playall), 5 checks failing on HEAD's
+      machine and the no-pick check passing there, so an older player
+      shows an ordinary choice without errors. Subagent: npm test 1919,
+      check clean, smoke 6/6, follows 10/10 Chrome and WebKit, the six
+      decision scenario files 201/201 Chrome, Python 607. Orchestrator:
+      validator, routes, export and report 568 passed; npm test
+      1919/1919, check clean, smoke 6/6, follows 10/10 on Chrome and
+      10/10 on WebKit, branches, playall, continueroute, choicelist,
+      branchmap and menus 201/201 on Chrome, at load 31-40.)
 - [ ] Conditions become decisions (item 6). `follows` decisions,
       counter ranges and choice-named labels in every interface
       language; `--condition-names`; the report's section.

@@ -126,6 +126,19 @@ can nest. A route already played is marked "seen".
 - **↑ ↓** move a highlight over every row and **Enter** picks it, which
   reaches routes past 9.
 
+Some content depends on an earlier choice: a game can mark a decision
+as following an earlier one, each of its routes belonging to picks
+there. With Play all routes off, such a decision asks nothing: the
+route that goes with what you picked earlier starts at once, named by
+its "Route: <label>" pill, or, when nothing goes with that pick, the
+story simply reads on. If the player does not know your earlier pick
+(you came in by a bookmark), it shows its choice as any decision does.
+Walking back past it and reading on takes the same route again, or the
+one for a new earlier pick. Its other routes stay reachable from its
+choice screen with the mouse wheel, from the branch map and with `u`.
+With Play all routes on it is an ordinary choice, and the route for
+your earlier pick plays last.
+
 A list too long for the window scrolls inside the choice screen: with
 the pointer over it the mouse wheel scrolls the list; elsewhere on the
 screen the wheel moves through the story as usual.
