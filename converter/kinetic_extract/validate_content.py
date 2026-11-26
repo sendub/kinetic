@@ -112,7 +112,8 @@ invariants:
    exists, inside the folder, at a path that obeys the folder-layout rules;
    item ids are unique; the first item is not `text` and every `text` item
    has a media-bearing item (image, animation, or video) before it; an item
-   that sets `thought` true has a non-empty `text`; a video item's playback
+   that sets `thought` true has a non-empty `text`; an animation's
+   `frameSeconds` has one entry per frame; a video item's playback
    range is sound (`startSeconds` not negative, `endSeconds` greater than
    `startSeconds` and no greater than `durationSeconds`); its optional
    `segments` are sound (each inside the file, with length and a loop
@@ -764,6 +765,30 @@ def _numeric_field(item: dict[str, Any], field: str) -> int | float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return value
+
+
+def animation_timing_problems(manifest: Any) -> list[str]:
+    """An animation's `frameSeconds` has one entry per entry of `frames`
+    (docs/content-format.md § Items). Each entry above 0, the list shape
+    and `holdLastFrame` a boolean are the schema's; a non-list `frames`
+    or `frameSeconds` is passed over here.
+    """
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    if not isinstance(items, list):
+        return []
+    problems: list[str] = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict) or item.get("type") != "animation":
+            continue
+        frames = item.get("frames")
+        seconds = item.get("frameSeconds")
+        if not isinstance(frames, list) or not isinstance(seconds, list):
+            continue
+        if len(seconds) != len(frames):
+            problems.append(_line(f"items[{i}].frameSeconds",
+                                  f"must have one entry per frame, "
+                                  f"{len(frames)} (found {len(seconds)})"))
+    return problems
 
 
 def video_range_problems(manifest: Any,
@@ -2024,6 +2049,7 @@ def _validate(content_dir: Path, schema_path: Path,
         problems += media_problems(content_dir, manifest, schema_locs)
         problems += text_item_problems(manifest)
         problems += thought_problems(manifest)
+        problems += animation_timing_problems(manifest)
         problems += video_range_problems(manifest, schema_locs)
         problems += video_segment_problems(manifest, schema_locs)
         problems += transition_problems(manifest)

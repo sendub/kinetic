@@ -100,6 +100,27 @@ describe("entryThumbSrc (data URL, else the manifest still)", () => {
     );
   });
 
+  it("a text item after a held animation shows its last frame (Phase 60 item 7)", () => {
+    const held: readonly Item[] = [
+      {
+        id: "a-001",
+        type: "animation",
+        frames: ["a.f000.jpg", "a.f001.jpg", "a.f002.jpg"],
+        fps: 4,
+        loopCount: 1,
+        holdLastFrame: true,
+      },
+      { id: "t-002", type: "text", text: "Under it." },
+    ];
+    // The animation's own item keeps frames[0]; its lines, the held frame.
+    expect(entryThumbSrc(bookmark({ itemId: "a-001" }), held)).toBe(
+      "a.f000.jpg",
+    );
+    expect(entryThumbSrc(bookmark({ itemId: "t-002" }), held)).toBe(
+      "a.f002.jpg",
+    );
+  });
+
   it("a text item shows the nearest earlier media item's still", () => {
     // The same visual rule as machine.visualIndex(): line-004 (index 3)
     // played over the video, so its thumbnail is the video's poster.

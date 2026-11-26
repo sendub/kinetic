@@ -547,6 +547,99 @@ def test_frames_below_minimum(folder: Path) -> None:
     assert "at least 2 entries" in problems[0]
 
 
+# Phase 60 item 7: an animation's per-frame durations and held last frame.
+
+def animation_problems(folder: Path, **fields: Any) -> list[str]:
+    manifest = read_manifest(folder)
+    manifest["items"][ANIM].update(fields)
+    write_manifest(folder, manifest)
+    return problems_of(folder)
+
+
+def test_animation_frame_seconds_one_per_frame_pass(folder: Path) -> None:
+    count = len(read_manifest(folder)["items"][ANIM]["frames"])
+    seconds = [0.25 + 0.125 * i for i in range(count)]
+    assert animation_problems(folder, frameSeconds=seconds,
+                              holdLastFrame=True) == []
+
+
+def test_animation_hold_last_frame_false_passes(folder: Path) -> None:
+    assert animation_problems(folder, holdLastFrame=False) == []
+
+
+def test_animation_frame_seconds_too_few_is_rejected(folder: Path) -> None:
+    count = len(read_manifest(folder)["items"][ANIM]["frames"])
+    problems = animation_problems(folder, frameSeconds=[0.5] * (count - 1))
+    assert problems == [
+        f"manifest.json: items[{ANIM}].frameSeconds: must have one entry "
+        f"per frame, {count} (found {count - 1})"]
+
+
+def test_animation_frame_seconds_too_many_is_rejected(folder: Path) -> None:
+    count = len(read_manifest(folder)["items"][ANIM]["frames"])
+    problems = animation_problems(folder, frameSeconds=[0.5] * (count + 1))
+    assert problems == [
+        f"manifest.json: items[{ANIM}].frameSeconds: must have one entry "
+        f"per frame, {count} (found {count + 1})"]
+
+
+@pytest.mark.parametrize("bad", [0, -0.25])
+def test_animation_frame_seconds_not_above_zero_is_rejected(
+        folder: Path, bad: float) -> None:
+    count = len(read_manifest(folder)["items"][ANIM]["frames"])
+    seconds = [0.5] * count
+    seconds[1] = bad
+    problems = animation_problems(folder, frameSeconds=seconds)
+    assert len(problems) == 1
+    assert problems[0].startswith(
+        f"manifest.json: items[{ANIM}].frameSeconds[1]:")
+
+
+def test_animation_frame_seconds_not_a_list_is_rejected(folder: Path) -> None:
+    problems = animation_problems(folder, frameSeconds=0.5)
+    assert len(problems) == 1
+    assert problems[0].startswith(
+        f"manifest.json: items[{ANIM}].frameSeconds:")
+
+
+def test_animation_frame_seconds_non_number_is_rejected(folder: Path) -> None:
+    count = len(read_manifest(folder)["items"][ANIM]["frames"])
+    problems = animation_problems(folder, frameSeconds=["0.5"] * count)
+    assert problems and all(
+        p.startswith(f"manifest.json: items[{ANIM}].frameSeconds[")
+        for p in problems)
+
+
+def test_animation_hold_last_frame_must_be_boolean(folder: Path) -> None:
+    problems = animation_problems(folder, holdLastFrame="yes")
+    assert len(problems) == 1
+    assert problems[0].startswith(
+        f"manifest.json: items[{ANIM}].holdLastFrame:")
+
+
+@pytest.mark.parametrize("field,value", [("frameSeconds", [1.0]),
+                                         ("holdLastFrame", True)])
+def test_animation_timing_fields_only_on_animations(
+        folder: Path, field: str, value: Any) -> None:
+    manifest = read_manifest(folder)
+    manifest["items"][IMAGE][field] = value
+    write_manifest(folder, manifest)
+    problems = problems_of(folder)
+    assert len(problems) == 1
+    assert problems[0].startswith(f"manifest.json: items[{IMAGE}]")
+    assert field in problems[0]
+
+
+def test_animation_frame_seconds_length_reported_without_schema() -> None:
+    """The validator's own rule: the schema cannot count frames."""
+    manifest = {"items": [{"id": "a", "type": "animation", "fps": 4,
+                           "loopCount": 1, "frames": ["a.jpg", "b.jpg"],
+                           "frameSeconds": [1.0]}]}
+    assert validate_content.animation_timing_problems(manifest) == [
+        "manifest.json: items[0].frameSeconds: must have one entry per "
+        "frame, 2 (found 1)"]
+
+
 def test_unknown_item_type(folder: Path) -> None:
     manifest = read_manifest(folder)
     manifest["items"][2]["type"] = "banana"

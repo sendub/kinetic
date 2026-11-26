@@ -19,7 +19,7 @@
 // manifest being played, and a bookmark whose item is no longer in it is
 // simply not drawn — there is nothing left to show or restore.
 
-import { visualIndexFor } from "../machine/machine";
+import { animationStillFrame, visualIndexFor } from "../machine/machine";
 import type { Item, MachineContext } from "../machine/types";
 import type { Bookmark, BookmarkSummary, SavedContext } from "../storage/types";
 import { thumbSize } from "./capture";
@@ -152,10 +152,13 @@ export function entryThumbSrc(
   const dataUrl = bookmark.thumbDataUrl;
   if (typeof dataUrl === "string" && dataUrl !== "") return dataUrl;
   if (index < 0) return null;
-  const item: Item | undefined = items[visualIndexFor(items, index)];
+  const visual = visualIndexFor(items, index);
+  const item: Item | undefined = items[visual];
   if (item === undefined) return null;
   if (item.type === "image") return item.file;
-  if (item.type === "animation") return item.frames[0] ?? null;
+  if (item.type === "animation") {
+    return animationStillFrame(item, visual !== index) ?? null;
+  }
   if (item.type === "video") return item.poster;
   return null;
 }

@@ -1018,7 +1018,12 @@ Kinetic). Each item has a unique
   `.webp`, `.gif`, and `.jxl` are allowed; `.jxl` needs Chrome/Edge
   117+, Safari 17+, or Firefox 133+.
 - `animation`: `frames` (at least two, at display resolution, in play
-  order), `fps` greater than 0, `loopCount` of at least 1.
+  order), `fps` greater than 0, `loopCount` of at least 1. Optionally
+  set `frameSeconds`, one display time in seconds (greater than 0) per
+  frame, to time the frames unevenly; keep an `fps` near their average,
+  which a player older than 1.15.0 plays them at. Set `holdLastFrame:
+  true` to stop on the last frame after the loops, under the lines
+  after it too, instead of looping on.
 - `video`: `file` (any video file, any extension; playability is
   the browser's call, so pick a format Safari and Chrome both play:
   H.264 in `.mp4`/`.mov`/`.m4v`/`.3gp`, HEVC tagged `hvc1` in
@@ -1039,7 +1044,8 @@ Kinetic). Each item has a unique
 - `text`: no media fields; only `id`, `type`, and the optional
   `speaker`, `text`, and `thought`. It shows the visual of the nearest
   earlier media item, and that video or animation keeps looping
-  underneath it.
+  underneath it (an animation with `holdLastFrame` plays its loops and
+  then holds its last frame).
   A `text` chain advances on text holds alone, never gated on media
   end. The first item may not be `text`, and a `text` item needs a
   media item before it.

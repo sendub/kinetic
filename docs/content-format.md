@@ -206,6 +206,15 @@ Per type:
 - `animation` with `frames` (ordered display-resolution frames, at least
   two), `fps` (frames per second, greater than 0), and `loopCount` (how
   many times the sequence plays before auto-advance, at least 1).
+  Optional `frameSeconds` (an array of numbers greater than 0, exactly
+  one per entry of `frames`) gives each frame its own display time in
+  seconds, in place of even timing at `fps`; `fps` stays required, and
+  a player older than 1.15.0 ignores `frameSeconds` and plays the frames
+  evenly at `fps`, so a converter writes an `fps` near their average.
+  Optional `holdLastFrame` (boolean, default false), when true, holds
+  the last frame once `loopCount` loops have played, under the `text`
+  items after the animation too, instead of looping on (Text items); an
+  older player loops it on there.
 - `video` with `file` (a video file with any extension: there is no
   video extension list, and playability is the browser's call; the
   converter ships `.mp4`, `.mov`, `.m4v`, `.3gp`, `.webm` or `.mkv`),
@@ -301,10 +310,16 @@ shows the visual of the nearest earlier item that bears media: an image
 file, an animation, or a video. That visual keeps playing while the
 current item is `text` or the next item is `text`: a video loops, an
 animation keeps looping, and an advance within such a chain is never
-gated on media end. Rewind, skip, and an `e` landing on a `text` item
-show that visual as a still: a video's `poster` or an animation's
-`frames[0]`. The first item may not be `text`, and a `text` item only
-makes sense after some media-bearing item.
+gated on media end. An animation with `holdLastFrame` is the exception:
+from its own item it plays its `loopCount` loops on beneath its lines
+and then holds its last frame there, and a line reached while no run of
+it is under way (after a still, a reload, a route entry) shows that last
+frame and plays nothing. Rewind, skip, and an `e` landing on a `text`
+item show that visual as a still: a video's `poster`, an animation's
+`frames[0]`, or the last frame of an animation with `holdLastFrame`. The
+animation's own item shows `frames[0]` as its still either way. The
+first item may not be `text`, and a `text` item only makes sense after
+some media-bearing item.
 
 ### Video playback ranges
 
@@ -894,10 +909,13 @@ content:
   and Windows apps at launch. Every hold above then lasts at least as
   long as the line, the track's `durationSeconds` less its
   `startSeconds`. Manual advance and skip never wait for a voice.
-- An animation's loop time, in milliseconds, is `len(frames) *
-  loopCount * 1000 / fps`. Auto-advance fires at the later of loop
-  time and text hold time, so the loops complete before the item
-  advances on its own.
+- An animation's loop time, in milliseconds, is one loop times
+  `loopCount`, one loop being `sum(frameSeconds) * 1000` when
+  `frameSeconds` is given, else `len(frames) * 1000 / fps`. Each frame
+  shows for its `frameSeconds` entry, else `1000 / fps` ms. Auto-advance
+  fires at the later of loop time and text hold time, so the loops
+  complete before the item advances on its own. `holdLastFrame` changes
+  no hold.
 - A video's media gate is `holdSeconds` when present: the hold is
   time driven only, its pass ends are ignored, and the video plays as
   background. Otherwise auto-advance fires at the later of the end of
@@ -944,8 +962,9 @@ content:
   `min(skipDwell, gate)`, the media gate above standing in for the
   file's duration. With "skip plays videos" on, a video plays its
   whole gate instead and its chain's lines still take zero time.
-- Rewind and skip show `frames[0]` and the poster too, with the one
-  exception stated next. A `nav` arrival below the seen edge - a wheel
+- Rewind and skip show `frames[0]` and the poster too (on the lines
+  after an animation with `holdLastFrame`, its last frame: Text items),
+  with the one exception stated next. A `nav` arrival below the seen edge - a wheel
   step, a bookmark jump, an `e` landing - shows a `text` item as the
   still of the visual it displays.
 - Media plays again on a forward advance. The player records how the
@@ -1566,7 +1585,8 @@ The validator checks the schema plus these invariants:
    `items` is an array (an empty one is valid — an
    honestly-empty folder, see Manifest); `frames` has at least two
    entries; `loopCount` is at least 1; `fps` and `durationSeconds` are
-   greater than 0; `minPlaySeconds`, when present, is greater than 0;
+   greater than 0; each `frameSeconds` entry is greater than 0, and
+   `holdLastFrame` is a boolean; `minPlaySeconds`, when present, is greater than 0;
    `width` and `height` are at least 1; a track's `startSeconds` and
    `loopStartSeconds` are at least 0; `volume` and `duck` are in
    [0, 1]; `fadeMs` and `delayMs` are at least 0. The schema enforces
@@ -1663,6 +1683,10 @@ The validator checks the schema plus these invariants:
     `hold` and `in`, each from 0 to 5, and no other keys. The schema
     enforces these. A fade's `out` or `in` is above 0, which the
     validator reports.
+25. An animation's `frameSeconds` has exactly one entry per entry of
+    `frames`. The schema keeps it and `holdLastFrame` to animation
+    items, each entry above 0; the validator reports a length that
+    differs (`must have one entry per frame, N (found M)`).
 
 The validator also warns about three things that are not problems: an
 Ogg track file (Audio says why), a looping track in a format that is

@@ -19,6 +19,18 @@ something more of an author.
 
 ## 1.15.0-dev
 
+- Animation timing: two new optional fields on an `animation` item.
+  `frameSeconds`, one display time in seconds per frame, times the
+  frames unevenly in place of `fps`, and one loop lasts their sum;
+  `holdLastFrame: true` stops on the last frame after `loopCount` loops,
+  under the lines after the animation too, instead of looping on, and
+  rewinding, skipping or jumping onto those lines shows that last frame
+  (docs/content-format.md, "Items" and "Text items"). `fps` stays
+  required: an older player ignores both fields and plays the frames
+  evenly at `fps`, looping under the lines as before. The validator
+  checks that `frameSeconds` has one entry per frame, each above 0, and
+  `kinetic report`'s reading time counts the loops by `frameSeconds`.
+
 ## 1.14.0 (2026-11-21)
 
 - `kinetic upgrade <folder> --to NEW --link-media` hard-links every

@@ -161,6 +161,31 @@ describe("hold computation (docs/content-format.md Timing)", () => {
     expect(itemHoldMs(animation(3, 12, 3), SETTINGS)).toBe(1500);
   });
 
+  it("an animation's frameSeconds set its loop time (Phase 60 item 7)", () => {
+    // sum(0.5, 1.25, 0.25) = 2 s a loop, * 2 loops = 4 s; fps (here 12,
+    // which alone would give 3 * 2 / 12 = 0.5 s) plays no part.
+    const timed = {
+      ...animation(3, 12, 2),
+      frameSeconds: [0.5, 1.25, 0.25],
+    } as Item;
+    expect(itemHoldMs(timed, SETTINGS)).toBe(4000);
+    // The text hold still floors it.
+    const short = { ...animation(2, 1, 1), frameSeconds: [0.1, 0.2] } as Item;
+    expect(itemHoldMs(short, SETTINGS)).toBe(1500);
+    // Held or not, the hold is the loops'.
+    expect(
+      itemHoldMs({ ...timed, holdLastFrame: true } as Item, SETTINGS),
+    ).toBe(4000);
+    // Followed by a line, the loops drop out as ever.
+    expect(itemHoldMs(timed, SETTINGS, true)).toBe(1500);
+    // frameSeconds that do not fit the frames (a folder the validator
+    // refuses) are ignored: even timing at fps.
+    const bad = { ...animation(4, 8, 4), frameSeconds: [1, 1] } as Item;
+    expect(itemHoldMs(bad, SETTINGS)).toBe(2000);
+    const zero = { ...animation(2, 1, 1), frameSeconds: [0, 3] } as Item;
+    expect(itemHoldMs(zero, SETTINGS)).toBe(2000);
+  });
+
   it("standalone video hold is the later of its media gate and the text hold", () => {
     // durationSeconds 10 * loopCount 1 = 10 s, above minHold.
     expect(itemHoldMs(video(10), SETTINGS)).toBe(10_000);

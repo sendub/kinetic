@@ -16,7 +16,8 @@ the `--json` object:
   the code points counted after the text tags are read (text_tags), the
   factor the player's for the manifest's `language` (2.85 Simplified and
   2.82 Traditional Chinese, 2.17 Japanese, 1.96 Korean, else 1). An
-  animation, or a video, holds at least its loops or passes unless a
+  animation, or a video, holds at least its loops (a loop its
+  `frameSeconds` summed, else its frames over `fps`) or passes unless a
   `text` item follows it (a chain, which advances on text holds alone);
   the last line of a video's chain waits out its `minPlaySeconds`; an
   item's recorded voice line (`audio.voice`) holds it while it plays.
@@ -81,6 +82,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -247,11 +249,24 @@ def text_hold_ms(text: Any, factor: float = 1.0) -> float:
 
 
 def animation_loop_ms(item: dict[str, Any]) -> float:
+    """An animation's loops in ms: the sum of its `frameSeconds` when
+    they fit its frames (one number above 0 each, as the player reads
+    them), else len(frames) / fps, times `loopCount`
+    (docs/content-format.md, "Timing")."""
     frames = item.get("frames")
     fps = _num(item, "fps", 0) or 0
     loops = _num(item, "loopCount", 1) or 1
     count = len(frames) if isinstance(frames, list) else 0
+    seconds = item.get("frameSeconds")
+    if isinstance(seconds, list) and seconds and len(seconds) == count \
+            and all(_positive(s) for s in seconds):
+        return sum(seconds) * 1000 * loops
     return count * loops * 1000 / fps if fps > 0 else 0
+
+
+def _positive(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) \
+        and math.isfinite(value) and value > 0
 
 
 def video_gate_ms(item: dict[str, Any]) -> float:

@@ -3,13 +3,19 @@
 // reused <video>, playback ranges measured frame by frame, the contain fit,
 // the minPlaySeconds chain-exit floor in auto and skip, a loopCount video and
 // a holdSeconds WebM, and the "Play videos in full" skip option (a burst plays the
-// floor clip out; Space cuts it short and the burst goes on). Each part
-// starts from its own fresh browser.
+// floor clip out; Space cuts it short and the burst goes on), and an
+// animation timed per frame that holds its last frame under its lines
+// (docs/plan.md Phase 60 item 7). Each part starts from its own fresh
+// browser.
+
+import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   CHAIN_PROBE,
   clickCenter,
   closeSettings,
+  demoDir,
   FIT_STATE,
   item,
   judgeFit,
@@ -21,6 +27,7 @@ import {
   pressH,
   pressSpace,
   pressTab,
+  scenarioRoot,
   sleep,
   spaceTo,
   TALL_ASSET,
@@ -33,7 +40,7 @@ import {
 } from "./harness.mjs";
 
 export const title =
-  "animation, video chain, ranges, fit, minPlay floor, loopCount, holdSeconds";
+  "animation, video chain, ranges, fit, minPlay floor, loopCount, holdSeconds, held frames";
 
 const MS_PER_CHAR = 60; // DEFAULT_SETTINGS reading speed 1.00x
 const MIN_HOLD_MS = 1500; // DEFAULT_SETTINGS minHoldMs
@@ -1109,6 +1116,171 @@ async function hold({ check, open }) {
   );
 }
 
+// A story of its own (Phase 60 item 7): a picture, then the demo's orbit
+// frames as an animation timed per frame (`frameSeconds`, unlike its 4 fps)
+// that holds its last frame (`holdLastFrame`) under the two lines after it.
+const HELD_FRAME_SECONDS = [0.3, 0.6, 0.3, 0.9];
+const HELD_LINES = ["Held line one.", "Held line two."];
+
+function heldFolder() {
+  const orbit = item("anim-orbit");
+  const dir = join(scenarioRoot, "held-animation");
+  const story = {
+    schemaVersion: 1,
+    storyId: "held-animation",
+    title: "Held animation",
+    width: manifest.width,
+    height: manifest.height,
+    items: [
+      { id: "held-before", type: "image", file: item("text-bare").file },
+      {
+        id: "held-anim",
+        type: "animation",
+        frames: orbit.frames,
+        fps: 4,
+        frameSeconds: HELD_FRAME_SECONDS,
+        loopCount: 1,
+        holdLastFrame: true,
+        text: "A held animation.",
+      },
+      { id: "held-line-1", type: "text", text: HELD_LINES[0] },
+      { id: "held-line-2", type: "text", text: HELD_LINES[1] },
+      {
+        id: "held-after",
+        type: "image",
+        file: item("chain-still").file,
+        text: "After it.",
+      },
+    ],
+  };
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  cpSync(demoDir, dir, { recursive: true });
+  const json = JSON.stringify(story, null, 2);
+  writeFileSync(join(dir, "manifest.json"), json);
+  writeFileSync(
+    join(dir, "manifest.js"),
+    `window.KINETIC_MANIFEST = ${json};\n`,
+  );
+  return { dir, frames: orbit.frames };
+}
+
+// Records, in the page, each src the shown picture takes and when
+// (performance.now()), whatever the rendering cadence: a MutationObserver
+// on the stage's <img> src.
+const INSTALL_SRC_LOG = () => {
+  window.__kineticSrcLog = [];
+  const log = (img) =>
+    window.__kineticSrcLog.push([performance.now(), img.getAttribute("src")]);
+  const first = document.getElementById("visual-image");
+  if (first !== null) log(first);
+  new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.target.id === "visual-image") log(record.target);
+    }
+  }).observe(document.body, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["src"],
+  });
+};
+
+const shownItem = () =>
+  document.querySelector("[data-item]")?.getAttribute("data-item") ?? null;
+const shownSrc = () =>
+  document.getElementById("visual-image")?.getAttribute("src") ?? "";
+
+async function heldFrames({ check, open }) {
+  const { dir, frames } = heldFolder();
+  const { page, cdp } = await open("held", { closeHelp: true, folder: dir });
+  await page.evaluate(INSTALL_SRC_LOG);
+  const t0 = await page.evaluate(() => performance.now());
+  await pressSpace(cdp); // onto the animation: its run starts
+  await sleep(450);
+  await pressSpace(cdp); // a line, mid-run: the run goes on beneath it
+  const onLine = await page.evaluate(shownItem);
+  // The loop is 2.1 s; wait it out and well past, as a looping one would
+  // have started over twice by then.
+  await sleep(3600);
+  const log = await page.evaluate(() => window.__kineticSrcLog);
+  const changes = [];
+  for (const [at, src] of log) {
+    if (at < t0) continue;
+    if (frames.includes(src) && changes.at(-1)?.[1] !== src) {
+      changes.push([at, src]);
+    }
+  }
+  const order = changes.map(([, src]) => frames.indexOf(src));
+  // Each change after the first, from the first, against the sums of the
+  // durations before it: 300, 900 and 1200 ms.
+  const offsets = changes.map(([at]) => Math.round(at - changes[0][0]));
+  const expected = [0];
+  for (const s of HELD_FRAME_SECONDS.slice(0, -1)) {
+    expected.push(expected.at(-1) + s * 1000);
+  }
+  // A frame swap rides one renderer timer: 100 ms covers a late timer
+  // on a loaded machine, a 4 fps step (250 ms) does not fit inside it.
+  const TOLERANCE_MS = 100;
+  const onTime =
+    offsets.length === expected.length &&
+    offsets.every((at, i) => Math.abs(at - expected[i]) <= TOLERANCE_MS);
+  const now = await page.evaluate(() => performance.now());
+  const restMs = changes.length > 0 ? Math.round(now - changes.at(-1)[0]) : 0;
+  check(
+    "an animation shows each frame for its frameSeconds, then holds its last frame under the line after it",
+    JSON.stringify(order) === "[0,1,2,3]" &&
+      onTime &&
+      onLine === "held-line-1" &&
+      (await page.evaluate(shownSrc)) === frames.at(-1) &&
+      restMs >= 1800,
+    { order, offsets, expected, onLine, restMs },
+  );
+
+  // The next line: still the held frame, nothing replayed.
+  const logged = log.length;
+  await pressSpace(cdp);
+  await sleep(600);
+  const next = {
+    item: await page.evaluate(shownItem),
+    src: await page.evaluate(shownSrc),
+    swaps: (await page.evaluate(() => window.__kineticSrcLog)).slice(logged)
+      .length,
+  };
+  // A wheel step back onto the first line (below the seen edge): a still,
+  // the held frame; and back onto the animation itself, its first frame.
+  const back = await wheelUntil(page, cdp, true, ON_TEXT, HELD_LINES[0]);
+  await sleep(300);
+  const rewound = {
+    item: await page.evaluate(shownItem),
+    src: await page.evaluate(shownSrc),
+  };
+  const toItem = await wheelUntil(
+    page,
+    cdp,
+    true,
+    ON_TEXT,
+    "A held animation.",
+  );
+  await sleep(300);
+  const own = {
+    item: await page.evaluate(shownItem),
+    src: await page.evaluate(shownSrc),
+  };
+  check(
+    "a held animation shows its last frame on the next line and on a rewind to its lines, its first on its own item",
+    next.item === "held-line-2" &&
+      next.src === frames.at(-1) &&
+      next.swaps === 0 &&
+      back &&
+      rewound.item === "held-line-1" &&
+      rewound.src === frames.at(-1) &&
+      toItem &&
+      own.item === "held-anim" &&
+      own.src === frames[0],
+    { next, back, rewound, toItem, own },
+  );
+}
+
 // Independent parts (each opens its own browsers); the runner runs them
 // side by side and prints their checks in this order.
 export const parts = [
@@ -1119,4 +1291,5 @@ export const parts = [
   skipVideos,
   loops,
   hold,
+  heldFrames,
 ];

@@ -299,6 +299,24 @@ def test_animation_and_video_hold_for_their_loops_unless_a_line_follows(
     assert holds([animation, _text("t", "x")]) == [1500, 1500]
 
 
+def test_animation_frame_seconds_set_its_loop_time() -> None:
+    """Phase 60 item 7: a loop is the sum of `frameSeconds`, not
+    len(frames) / fps (docs/content-format.md, "Timing")."""
+    animation = {"id": "a", "type": "animation", "fps": 8, "loopCount": 3,
+                 "frames": ["f0.jpg", "f1.jpg", "f2.jpg"],
+                 "frameSeconds": [0.5, 1.25, 0.25], "holdLastFrame": True}
+    # (0.5 + 1.25 + 0.25) s * 3 loops = 6 s; fps alone would give 1.125 s.
+    assert holds([animation]) == [6000]
+    assert report.animation_loop_ms(animation) == 6000
+    # Followed by a line, the line's hold alone, held frame or not.
+    assert holds([animation, _text("t", "x")]) == [1500, 1500]
+    # frameSeconds that do not fit the frames are ignored, as the player
+    # ignores them: 3 frames * 3 loops / 8 fps = 1.125 s, floored.
+    assert holds([{**animation, "frameSeconds": [9.0]}]) == [1500]
+    long = {**animation, "fps": 1, "frameSeconds": [9.0]}
+    assert holds([long]) == [9000]
+
+
 def test_chain_exit_floor_and_voice_lines() -> None:
     video = {"id": "v", "type": "video", "file": "v.mp4",
              "poster": "v.jpg", "durationSeconds": 1, "minPlaySeconds": 10}

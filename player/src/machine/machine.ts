@@ -128,6 +128,7 @@ import {
 } from "./sound";
 import { shownLength } from "./texttags";
 import type {
+  AnimationItem,
   Arrival,
   ArrivalKind,
   AudioTrack,
@@ -728,6 +729,52 @@ function videoGateMs(item: VideoItem): number {
 }
 
 /**
+ * An animation's `frameSeconds` when they fit its frames, one finite number
+ * above 0 per frame (docs/content-format.md, "Items"), else null: even
+ * timing at `fps`. A folder the validator refuses plays at `fps`.
+ */
+export function animationFrameSeconds(
+  item: Pick<AnimationItem, "frames" | "frameSeconds">,
+): readonly number[] | null {
+  const seconds = item.frameSeconds;
+  if (!Array.isArray(seconds) || seconds.length !== item.frames.length) {
+    return null;
+  }
+  return seconds.every(
+    (s) => typeof s === "number" && Number.isFinite(s) && s > 0,
+  )
+    ? seconds
+    : null;
+}
+
+/**
+ * One loop of an animation, in ms (docs/content-format.md, "Timing"): the
+ * sum of its `frameSeconds`, else `len(frames) / fps`.
+ */
+export function animationLoopMs(
+  item: Pick<AnimationItem, "frames" | "fps" | "frameSeconds">,
+): number {
+  const seconds = animationFrameSeconds(item);
+  if (seconds === null) return (item.frames.length * 1000) / item.fps;
+  return seconds.reduce((sum, s) => sum + s * 1000, 0);
+}
+
+/**
+ * The frame an animation shows as a still (rewind, skip, a `nav` arrival
+ * below the seen edge): `frames[0]` on its own item, and on a `text` item
+ * after it the last frame when it holds that (`holdLastFrame`,
+ * docs/content-format.md "Text items"), else `frames[0]` too.
+ */
+export function animationStillFrame(
+  item: Pick<AnimationItem, "frames" | "holdLastFrame">,
+  onText: boolean,
+): string {
+  return onText && item.holdLastFrame === true
+    ? item.frames[item.frames.length - 1]
+    : item.frames[0];
+}
+
+/**
  * Auto-advance delay for an item, in ms: the time the item must be on screen
  * before it may complete. `nextIsText` marks a media item whose following
  * item is `text`: the chain advances on text holds alone, so an animation's
@@ -749,8 +796,7 @@ export function itemHoldMs(
       : textHoldMs(shown.text, settings, shown.factor);
   if (nextIsText) return hold;
   if (item.type === "animation") {
-    const loopMs = (item.frames.length * item.loopCount * 1000) / item.fps;
-    return Math.max(hold, loopMs);
+    return Math.max(hold, animationLoopMs(item) * item.loopCount);
   }
   if (item.type === "video") return Math.max(hold, videoGateMs(item));
   return hold;

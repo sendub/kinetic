@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Item, Manifest, VideoItem } from "../machine/types";
+import type { Item, MachineState, Manifest, VideoItem } from "../machine/types";
 import {
   animationFrameAt,
+  animationStepAt,
   createVisualLayer,
   emptyStateNoticeText,
   playbackModeFor,
@@ -432,6 +433,200 @@ describe("animationFrameAt", () => {
     expect(animationFrameAt(0, fps, loops, 500)).toBe(0);
     expect(animationFrameAt(frames, 0, loops, 500)).toBe(0);
     expect(animationFrameAt(frames, fps, loops, -1)).toBe(0);
+  });
+});
+
+describe("animationStepAt: per-frame durations (Phase 60 item 7)", () => {
+  // Frames of 0.5, 0.25 and 1 s: boundaries at 500, 750 and 1750 ms a loop.
+  const timed = {
+    frames: ["a", "b", "c"],
+    fps: 12,
+    frameSeconds: [0.5, 0.25, 1],
+  };
+
+  it("shows each frame for its own duration, not 1000/fps", () => {
+    expect(animationStepAt(timed, 2, 0)).toEqual({ frame: 0, nextMs: 500 });
+    expect(animationStepAt(timed, 2, 499)).toEqual({ frame: 0, nextMs: 500 });
+    expect(animationStepAt(timed, 2, 500)).toEqual({ frame: 1, nextMs: 750 });
+    expect(animationStepAt(timed, 2, 749)).toEqual({ frame: 1, nextMs: 750 });
+    expect(animationStepAt(timed, 2, 750)).toEqual({ frame: 2, nextMs: 1750 });
+  });
+
+  it("loops at the sum of its durations and stops on the last frame", () => {
+    expect(animationStepAt(timed, 2, 1750)).toEqual({ frame: 0, nextMs: 2250 });
+    expect(animationStepAt(timed, 2, 2600)).toEqual({ frame: 2, nextMs: 3500 });
+    // Two loops are 3.5 s: then the last frame, no next change.
+    expect(animationStepAt(timed, 2, 3500)).toEqual({ frame: 2, nextMs: null });
+    expect(animationStepAt(timed, 2, 60_000)).toEqual({
+      frame: 2,
+      nextMs: null,
+    });
+  });
+
+  it("cycles forever with loopCount Infinity", () => {
+    // 10 loops in (17.5 s), 0.6 s into the eleventh: frame 1.
+    expect(animationStepAt(timed, Infinity, 18_100)).toEqual({
+      frame: 1,
+      nextMs: 18_250,
+    });
+  });
+
+  it("times evenly at fps without frameSeconds, as before", () => {
+    const even = { frames: ["a", "b", "c", "d"], fps: 8 };
+    expect(animationStepAt(even, 2, 124)).toEqual({ frame: 0, nextMs: 125 });
+    expect(animationStepAt(even, 2, 625)).toEqual({ frame: 1, nextMs: 750 });
+    expect(animationStepAt(even, 2, 1000)).toEqual({ frame: 3, nextMs: null });
+  });
+
+  it("ignores frameSeconds that do not fit its frames", () => {
+    const short = { frames: ["a", "b", "c", "d"], fps: 8, frameSeconds: [1] };
+    expect(animationStepAt(short, 1, 125)).toEqual({ frame: 1, nextMs: 250 });
+    const zero = { frames: ["a", "b"], fps: 8, frameSeconds: [0, 1] };
+    expect(animationStepAt(zero, 1, 125)).toEqual({ frame: 1, nextMs: 250 });
+  });
+});
+
+// A fake stage for the animation runs: the visible picture's src, with
+// timers and the clock faked so frame changes land at exact times.
+function animationHarness(items: Item[]) {
+  const doc = {
+    createElement() {
+      return new FakeImage();
+    },
+  };
+  const stage = { ownerDocument: doc, append() {} } as unknown as HTMLElement;
+  const manifest = { schemaVersion: 1, items } as unknown as Manifest;
+  const layer = createVisualLayer(stage, manifest, { onVideoEnded() {} });
+  let frontier = 0;
+  const go = (
+    cursor: number,
+    transition: "advance" | "nav" = "advance",
+    skipping = false,
+  ): void => {
+    frontier = Math.max(frontier, cursor + 1);
+    let visual = cursor;
+    while (items[visual].type === "text") visual -= 1;
+    layer.update(items[visual], {
+      cursor,
+      frontier,
+      settled: false,
+      skipping,
+      transition,
+    } as MachineState);
+  };
+  const shown = (): string =>
+    (layer.currentVisual() as unknown as FakeImage | null)?.src ?? "";
+  return { go, shown };
+}
+
+describe("an animation that holds its last frame (Phase 60 item 7)", () => {
+  const frames = ["h.f000.jpg", "h.f001.jpg", "h.f002.jpg"];
+  const anim = (fields: Partial<Item> = {}): Item =>
+    item({
+      id: "h-001",
+      type: "animation",
+      frames,
+      fps: 4,
+      loopCount: 2,
+      frameSeconds: [0.1, 0.2, 0.3],
+      ...fields,
+    });
+  const lines: Item[] = [
+    item({ id: "t-002", type: "text", text: "First line." }),
+    item({ id: "t-003", type: "text", text: "Second line." }),
+  ];
+
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "performance"],
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("plays its loops at frameSeconds, then holds under the lines after it", () => {
+    const { go, shown } = animationHarness([
+      anim({ holdLastFrame: true }),
+      ...lines,
+    ]);
+    go(0);
+    expect(shown()).toBe(frames[0]);
+    vi.advanceTimersByTime(100);
+    expect(shown()).toBe(frames[1]);
+    vi.advanceTimersByTime(200); // 300 ms
+    expect(shown()).toBe(frames[2]);
+    vi.advanceTimersByTime(300); // 600 ms: the second loop
+    expect(shown()).toBe(frames[0]);
+    go(1); // a line: the run goes on beneath it
+    vi.advanceTimersByTime(100); // 700 ms
+    expect(shown()).toBe(frames[1]);
+    vi.advanceTimersByTime(500); // 1200 ms: both loops done
+    expect(shown()).toBe(frames[2]);
+    vi.advanceTimersByTime(5000);
+    expect(shown()).toBe(frames[2]); // held, not looping on
+    go(2);
+    vi.advanceTimersByTime(5000);
+    expect(shown()).toBe(frames[2]);
+  });
+
+  it("without holdLastFrame it loops on under the lines, as before", () => {
+    const { go, shown } = animationHarness([anim(), ...lines]);
+    go(0);
+    go(1);
+    vi.advanceTimersByTime(1200); // two loops: the third begins
+    expect(shown()).toBe(frames[0]);
+    vi.advanceTimersByTime(100);
+    expect(shown()).toBe(frames[1]);
+  });
+
+  it("rewind, skip and a landing on its lines show the last frame", () => {
+    const { go, shown } = animationHarness([
+      anim({ holdLastFrame: true }),
+      ...lines,
+    ]);
+    go(0);
+    go(1);
+    go(2);
+    go(1, "nav"); // a wheel step back below the seen edge: a still
+    expect(shown()).toBe(frames[2]);
+    vi.advanceTimersByTime(5000);
+    expect(shown()).toBe(frames[2]);
+    go(2, "nav", true); // skip
+    expect(shown()).toBe(frames[2]);
+    // Its own item's still is frames[0], as every animation's.
+    go(0, "nav");
+    expect(shown()).toBe(frames[0]);
+    // An `e` landing on a line below the edge.
+    go(1, "nav");
+    expect(shown()).toBe(frames[2]);
+  });
+
+  it("a line reached without its run under way shows the held frame, never replaying", () => {
+    const { go, shown } = animationHarness([
+      anim({ holdLastFrame: true }),
+      ...lines,
+    ]);
+    go(2); // opened at the last line (a reload there): at the edge
+    expect(shown()).toBe(frames[2]);
+    vi.advanceTimersByTime(5000);
+    expect(shown()).toBe(frames[2]);
+    // Read on from a still of its own item: the line shows the held frame.
+    go(0, "nav");
+    go(1);
+    expect(shown()).toBe(frames[2]);
+  });
+
+  it("a standalone held animation stops on its last frame, as every one does", () => {
+    const { go, shown } = animationHarness([
+      anim({ holdLastFrame: true }),
+      item({ id: "i-002", type: "image", file: "i.jpg" }),
+    ]);
+    go(0);
+    vi.advanceTimersByTime(1200);
+    expect(shown()).toBe(frames[2]);
+    vi.advanceTimersByTime(5000);
+    expect(shown()).toBe(frames[2]);
   });
 });
 

@@ -6171,8 +6171,47 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Conditions become decisions (item 6). `follows` decisions,
       counter ranges and choice-named labels in every interface
       language; `--condition-names`; the report's section.
-- [ ] Animation timing (item 7). `frameSeconds` and `holdLastFrame` in
+- [x] Animation timing (item 7). `frameSeconds` and `holdLastFrame` in
       the format, validator, player and tools.
+      (2026-11-26: types.ts's AnimationItem gains both fields;
+      machine.ts's `animationFrameSeconds` (the list only when it fits:
+      one finite number above 0 per frame, else null and even timing),
+      `animationLoopMs` (their sum, else frames over `fps`) and
+      `animationStillFrame` (the last frame on a text item after a held
+      animation, else `frames[0]`); `itemHoldMs` loops by
+      `animationLoopMs`. visual.ts times the run per frame
+      (`animationStepAt`, `animationFrameAt` a wrapper keeping the even
+      step math), and a held animation runs as fixed loops even in a
+      chain, so the run carries on under its lines and stops on the
+      last frame; stills on those lines show it, and bookmarks.ts's
+      fallback thumbnail there too. Schema: `frameSeconds` an array of
+      numbers above 0, `holdLastFrame` a boolean; the validator's
+      `animation_timing_problems` checks the length (content-format
+      rule 25); report.py's loop time sums `frameSeconds` when they fit.
+      folder_model, export, apps, posters and the testing library read
+      frames only: unchanged. content-format.md (Items, Text items,
+      Timing, rules 4 and 25), CREATE.md's manifest reference,
+      verify-player.md's media row, a CHANGELOG bullet. Subagent's
+      calls: a line reached with no run under way (a forward advance
+      after a still, a reload at a line, a route entry) shows the last
+      frame and plays nothing; the animation's own item still shows
+      `frames[0]`; ill-fitting `frameSeconds` fall back to `fps` in the
+      player and report; the scenario's tolerance is 100 ms per change,
+      under one 4 fps step. Tests: 12 vitest (frame steps, the layer on
+      fake timers: timing, the held frame under the next line, looping
+      without the field, stills on rewind, skip and `e`, a line with no
+      run, a standalone held animation; hold times; the thumbnail), all
+      failing first; 12 validator tests (10 failed first, the 2 on a
+      non-animation item already refused by the schema); a report test
+      failing first; media's `heldFrames` part (frames at 0/300/900/1200
+      ms within 100 ms, the run going on under a line pressed mid-run,
+      the last frame held 1.8 s on; no swaps on the next line, the last
+      frame on a rewound line, `frames[0]` on the item), failing on a
+      HEAD build. Subagent: npm test 1894, check clean, smoke 6/6, media
+      25/25 Chrome and WebKit twice (the second at load 61), validator
+      485, report 35. Orchestrator: validator, report and schema-copy
+      529 passed; npm test 1894/1894, check clean, smoke 6/6, media
+      25/25 on Chrome and 25/25 on WebKit at load 9-25.)
 - [ ] ATL frame lists become animations (item 8). Frames, pauses and
       `repeat` read; one-frame blocks as stills; lines kept.
 - [ ] Fixtures and docs (item 9). The extract demo covers the new

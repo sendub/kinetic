@@ -7,15 +7,20 @@
 //   playing = !skipping && (cursor >= frontier - 1 || the step that arrived
 //   was a forward advance). Skip and a NAV arrival below the seen edge — the
 //   wheel scrub, a bookmark, an `e` landing, a route entry — show stills
-//   (animation `frames[0]`, video poster); an ADVANCE (space or the auto
-//   timer) replays its media wherever the cursor sits, so content read once
-//   plays again when the reader advances back over it. The `skipPlaysVideos`
+//   (animation `frames[0]`, or its last frame on the lines after an
+//   animation that holds it, `holdLastFrame`; video poster); an ADVANCE
+//   (space or the auto timer) replays its media wherever the cursor sits,
+//   so content read once plays again when the reader advances back over
+//   it. The `skipPlaysVideos`
 //   setting's `skipVideo` state flag overrides skip's still: the video (and
 //   its chain) plays as an advance would (docs/plan.md Phase 18).
 //   In a chain — the cursor item is `text`, or the next manifest item is
-//   `text` — the visual loops continuously and media end gates nothing.
-//   A standalone animation cycles its frames at `fps` for `loopCount` loops
-//   and stops on the final frame. A standalone video plays its passes
+//   `text` — the visual loops continuously and media end gates nothing,
+//   except an animation that holds its last frame: it plays its loops from
+//   its own item on beneath its lines and stops there.
+//   A standalone animation cycles its frames, each for its `frameSeconds`
+//   or evenly at `fps`, for `loopCount` loops and stops on the final frame.
+//   A standalone video plays its passes
 //   manually: the renderer reports every pass complete to the machine and
 //   seeks back to the loop restart point (`loopStartSeconds`, defaulting to
 //   the range start) until `loopCount` passes have been reported; a
@@ -66,6 +71,7 @@
 // width/height are used for nothing at render time (docs/plan.md Phase 7b).
 
 import { t } from "../i18n/catalogue.ts";
+import { animationFrameSeconds, animationStillFrame } from "../machine/machine";
 import type {
   AnimationItem,
   Arrival,
@@ -217,11 +223,56 @@ export function animationFrameAt(
   loopCount: number,
   elapsedMs: number,
 ): number {
-  if (frameCount <= 0 || fps <= 0 || elapsedMs < 0) return 0;
-  const step = Math.floor(elapsedMs / (1000 / fps));
-  const total = loopCount === Infinity ? Infinity : frameCount * loopCount;
-  if (step >= total) return frameCount - 1;
-  return step % frameCount;
+  const frames = Array.from({ length: Math.max(0, frameCount) }, () => "");
+  return animationStepAt({ frames, fps }, loopCount, elapsedMs).frame;
+}
+
+/** Where an animation run stands: its frame and when that frame ends. */
+export interface AnimationStep {
+  frame: number;
+  /** Elapsed ms at which the next frame shows; null once it has stopped. */
+  nextMs: number | null;
+}
+
+/**
+ * Pure frame-sequence math (docs/content-format.md, "Timing"): the frame
+ * index `elapsedMs` after the run started, and when it changes next. Each
+ * frame shows for its `frameSeconds` when they fit the frames
+ * (`animationFrameSeconds`), else `1000 / fps` ms. With `loopCount ===
+ * Infinity` (a chain's looping visual) it cycles forever; otherwise, once
+ * `loopCount` loops have elapsed, it stops on the final frame.
+ */
+export function animationStepAt(
+  item: Pick<AnimationItem, "frames" | "fps" | "frameSeconds">,
+  loopCount: number,
+  elapsedMs: number,
+): AnimationStep {
+  const count = item.frames.length;
+  const stopped = { frame: Math.max(0, count - 1), nextMs: null };
+  const seconds = animationFrameSeconds(item);
+  if (count <= 0 || elapsedMs < 0 || (seconds === null && !(item.fps > 0))) {
+    return { frame: 0, nextMs: null };
+  }
+  if (seconds === null) {
+    // Even timing: the original step math, exact at every boundary.
+    const frameMs = 1000 / item.fps;
+    const step = Math.floor(elapsedMs / frameMs);
+    const total = loopCount === Infinity ? Infinity : count * loopCount;
+    if (step >= total) return stopped;
+    return { frame: step % count, nextMs: (step + 1) * frameMs };
+  }
+  const ends: number[] = [];
+  let sum = 0;
+  for (const s of seconds) {
+    sum += s * 1000;
+    ends.push(sum);
+  }
+  const loop = Math.floor(elapsedMs / sum);
+  if (loop >= loopCount) return stopped;
+  const into = elapsedMs - loop * sum;
+  let frame = 0;
+  while (frame < count - 1 && into >= ends[frame]) frame += 1;
+  return { frame, nextMs: loop * sum + ends[frame] };
 }
 
 /**
@@ -363,9 +414,9 @@ export interface VisualLayerOptions {
 interface AnimationRun {
   id: string;
   mode: PlaybackMode;
-  frames: readonly string[];
-  fps: number;
-  loopCount: number;
+  item: AnimationItem;
+  /** Loops it plays: Infinity for a chain's looping visual. */
+  loops: number;
   startedAt: number;
 }
 
@@ -569,48 +620,57 @@ export function createVisualLayer(
 
   /**
    * Per-callback self-rescheduling timer: each tick computes the frame from
-   * elapsed time via the pure `animationFrameAt` (not from a tick count), so
+   * elapsed time via the pure `animationStepAt` (not from a tick count), so
    * timing never drifts with callback delay, and schedules the next tick for
-   * the exact frame boundary. `loop-once` stops the timer on the final frame.
+   * the exact frame boundary. A run of fixed loops stops the timer on the
+   * final frame.
    */
   function animationTick(): void {
     animationTimer = null;
     const run = animation;
     if (run === null) return;
-    const forever = run.mode === "loop-forever";
-    const loopCount = forever ? Infinity : run.loopCount;
-    const frameMs = 1000 / run.fps;
-    const elapsed = now() - run.startedAt;
-    setFrame(
-      run.frames[
-        animationFrameAt(run.frames.length, run.fps, loopCount, elapsed)
-      ],
-    );
-    if (!forever && elapsed >= run.frames.length * run.loopCount * frameMs) {
-      return; // stopped: the pure function pins the final frame
-    }
-    const step = Math.floor(elapsed / frameMs);
-    const due = run.startedAt + (step + 1) * frameMs;
+    const step = animationStepAt(run.item, run.loops, now() - run.startedAt);
+    setFrame(run.item.frames[step.frame]);
+    if (step.nextMs === null) return; // stopped on the final frame
+    const due = run.startedAt + step.nextMs;
     animationTimer = setTimeout(animationTick, Math.max(0, due - now()));
   }
 
-  function showAnimation(item: AnimationItem, mode: PlaybackMode): void {
+  /**
+   * `onText`: the cursor is on a `text` item after the animation. A chain
+   * (`loop-forever`) loops it on beneath its lines, unless it holds its last
+   * frame (`holdLastFrame`): then it plays its `loopCount` loops and stops
+   * there, and a line reached with no run of it under way (a still before,
+   * a reload, a route entry) shows that last frame and plays nothing, as
+   * the loops have long played out (docs/content-format.md, "Text items").
+   */
+  function showAnimation(
+    item: AnimationItem,
+    mode: PlaybackMode,
+    onText: boolean,
+  ): void {
     hideVideo();
     dropNotice();
-    const key = `${item.id}\u0000${mode}`;
+    const held = item.holdLastFrame === true;
+    // A held animation's run goes on from its own item onto its lines.
+    const runMode = held && mode === "loop-forever" ? "loop-once" : mode;
+    const key = `${item.id}\u0000${runMode}`;
     if (animation !== null && animationKey() === key) return; // same run
     stopAnimation();
-    setFrame(item.frames[0]); // first paint is frame 0 either way
-    if (mode === "still") return; // rewind/skip: frames[0], never play
+    const still = animationStillFrame(item, onText);
+    if (mode === "still" || (held && onText)) {
+      setFrame(still); // rewind/skip: a still, never play
+      return;
+    }
+    setFrame(item.frames[0]); // a run's first paint is frame 0
     // Warm the decode cache so looped swaps never wait on the file (the
     // same LRU the Phase 12 preload uses).
     for (const frame of item.frames) warmFile(frame);
     animation = {
       id: item.id,
-      mode,
-      frames: item.frames,
-      fps: item.fps,
-      loopCount: item.loopCount,
+      mode: runMode,
+      item,
+      loops: runMode === "loop-forever" ? Infinity : item.loopCount,
       startedAt: now(),
     };
     animationTick();
@@ -1369,7 +1429,11 @@ export function createVisualLayer(
         showImage(item.file);
         return;
       case "animation":
-        showAnimation(item, mode);
+        showAnimation(
+          item,
+          mode,
+          manifest.items[state.cursor]?.type === "text",
+        );
         return;
       case "video":
         showVideo(item, mode, state.segment?.index ?? null);

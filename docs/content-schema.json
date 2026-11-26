@@ -437,11 +437,21 @@
         },
         "fps": {
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "frames per second: the even pace without frameSeconds, and the pace an older player plays at with it"
+        },
+        "frameSeconds": {
+          "type": "array",
+          "items": { "type": "number", "exclusiveMinimum": 0 },
+          "description": "each frame's display time in seconds, one per entry of frames (a cross-field rule the validator enforces), in place of even timing at fps; one loop is their sum (docs/content-format.md, Timing)"
         },
         "loopCount": {
           "type": "integer",
           "minimum": 1
+        },
+        "holdLastFrame": {
+          "type": "boolean",
+          "description": "true: after loopCount loops the last frame stays, under the text items after it too, instead of looping on; their stills show it (docs/content-format.md, Text items)"
         },
         "speaker": { "type": "string" },
         "text": { "type": "string", "description": "the line; Ren'Py text tags apply (docs/content-format.md, Text tags)" },

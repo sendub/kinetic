@@ -143,9 +143,25 @@ export interface AnimationItem extends OverlayFields {
   transition?: Transition;
   /** Ordered frames, at least two. */
   frames: readonly string[];
+  /**
+   * Frames per second, greater than 0: the even pace without
+   * `frameSeconds`, and an older player's pace with it.
+   */
   fps: number;
+  /**
+   * Each frame's display time in seconds, one per frame, each greater than
+   * 0, in place of even timing at `fps` (docs/content-format.md, "Items").
+   * Ignored when it does not fit `frames` (the validator refuses it).
+   */
+  frameSeconds?: readonly number[];
   /** Times the sequence plays before auto-advance, at least 1. */
   loopCount: number;
+  /**
+   * After `loopCount` loops the last frame stays, under the `text` items
+   * after it too, instead of looping on; their stills show it
+   * (docs/content-format.md, "Text items").
+   */
+  holdLastFrame?: boolean;
 }
 
 export interface VideoItem extends OverlayFields {
