@@ -225,6 +225,172 @@ def test_refusal_to_a_named_menu(tmp_path: Path) -> None:
     check_folder(tmp_path, out, manifest)
 
 
+def ogg(path: Path, hz: int) -> None:
+    """A real one-second Vorbis tone at ``path``."""
+    from kinetic_extract import media_tools
+
+    proc = subprocess.run(
+        [*media_tools.ffmpeg_cmd(), "-y", "-f", "lavfi", "-i",
+         f"sine=frequency={hz}:sample_rate=22050:duration=1",
+         "-c:a", "libvorbis", str(path)],
+        capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stderr
+
+
+def line_of(script: str, text: str) -> int:
+    """The 1-based line of ``script`` holding ``text``."""
+    return next(n for n, line in enumerate(script.splitlines(), 1)
+                if text in line)
+
+
+def test_refusal_through_a_lead_in_line_returns(tmp_path: Path) -> None:
+    """Item 4b: the refusal jumps back to the label above the question,
+    so it re-reads only the decision's lead-in: a "return" route, the
+    lead-in not laid out again."""
+    script = LEAD + (
+        'label ask:\n'
+        '    "Will you come with me?"\n'
+        '    menu:\n'
+        '        "Yes":\n'
+        '            jump go\n'
+        '        "No":\n'
+        '            "I can\'t."\n'
+        '            jump ask\n'
+        'label go:\n    "We go."\n    return\n')
+    out, manifest, ledger = extract(tmp_path, script)
+    assert texts(manifest) == ["Lead.", "Will you come with me?", "Yes",
+                               "I can't.", "We go."]
+    assert shape(manifest) == [{
+        "after": "Will you come with me?",
+        "routes": [("Yes", "Yes", "Yes", "continue"),
+                   ("No", "I can't.", "I can't.", "return")],
+        "continuing": "Yes", "continueAt": "We go."}]
+    assert menu_reports(ledger) == []
+    (note,) = detection(ledger)
+    assert note["result"] == "detected"
+    at = line_of(script, "Will you come with me?")
+    assert ("jumps back to the menu through its lead-in at "
+            f"game/script.rpy:{at}") in note["note"]
+    check_folder(tmp_path, out, manifest)
+
+
+def test_refusal_through_a_longer_lead_in_returns(tmp_path: Path) -> None:
+    """Several lead-in lines, a `show` and a `play` between the label and
+    the menu are still straight-line story: the refusal is "return"."""
+    game = tmp_path / "proj" / "game"
+    game.mkdir(parents=True)
+    ogg(game / "theme.ogg", 440)
+    script = LEAD + (
+        'label ask:\n'
+        '    show bg\n'
+        '    play music "theme.ogg"\n'
+        '    "The night is cold."\n'
+        '    "She turns to you."\n'
+        '    "Will you come with me?"\n'
+        '    menu:\n'
+        '        "No":\n'
+        '            "I can\'t."\n'
+        '            "Not yet."\n'
+        '            jump ask\n'
+        '        "Yes":\n'
+        '            "Then let us go."\n'
+        '    "We leave."\n'
+        '    return\n')
+    out, manifest, ledger = extract(tmp_path, script)
+    assert [t for t in texts(manifest) if t is not None] == [
+        "Lead.", "The night is cold.", "She turns to you.",
+        "Will you come with me?", "I can't.", "Not yet.",
+        "Then let us go.", "We leave."]
+    assert shape(manifest) == [{
+        "after": "Will you come with me?",
+        "routes": [("No", "I can't.", "Not yet.", "return"),
+                   ("Yes", "Then let us go.", "Then let us go.",
+                    "continue")],
+        "continuing": "Yes", "continueAt": "We leave."}]
+    assert menu_reports(ledger) == []
+    (note,) = detection(ledger)
+    # The lead-in starts at its first story event, the `show`.
+    at = line_of(script, "show bg")
+    assert ("jumps back to the menu through its lead-in at "
+            f"game/script.rpy:{at}") in note["note"]
+    check_folder(tmp_path, out, manifest)
+
+
+@pytest.mark.parametrize("between", [
+    # A fork on the way from the label to the menu.
+    '    if tired:\n        jump rest\n',
+    # Another jump on the way.
+    '    jump ask_menu\nlabel ask_menu:\n',
+])
+def test_refusal_whose_way_back_branches_stays_a_rejoin(
+        tmp_path: Path, between: str) -> None:
+    """A jump back to a label whose way to the menu passes a fork or
+    another jump is no straight-line lead-in: the menu stays linear,
+    reported as a rejoin."""
+    out, manifest, ledger = extract(tmp_path, LEAD + (
+        'label ask:\n'
+        '    "Will you come with me?"\n' + between +
+        '    menu:\n'
+        '        "Yes":\n'
+        '            jump go\n'
+        '        "No":\n'
+        '            "I can\'t."\n'
+        '            jump ask\n'
+        'label rest:\n    "You rest first."\n    jump go\n'
+        'label go:\n    "We go."\n    return\n'))
+    assert manifest.get("branches", []) == []
+    (reason,) = menu_reports(ledger)
+    assert "choice 2 (No) rejoins content read at game/script.rpy:" \
+        in reason
+    assert detection(ledger)[0]["result"] == "skipped"
+
+
+def test_nested_menu_refusal_through_its_lead_in(tmp_path: Path) -> None:
+    """A menu inside a route of another menu: its refusal jumps back to
+    the route's label, through the lead-in, and is "return" for the inner
+    decision alone; the outer route goes on to the join."""
+    script = LEAD + (
+        '    menu:\n'
+        '        "Forest":\n'
+        '            jump forest\n'
+        '        "River":\n'
+        '            "To the river."\n'
+        '            jump camp\n'
+        'label forest:\n'
+        '    "Into the forest."\n'
+        '    "The path forks."\n'
+        '    menu:\n'
+        '        "Climb":\n'
+        '            "You climb."\n'
+        '            jump camp\n'
+        '        "Wait":\n'
+        '            "You wait."\n'
+        '            jump forest\n'
+        'label camp:\n    "At camp."\n    return\n')
+    out, manifest, ledger = extract(tmp_path, script)
+    assert texts(manifest) == ["Lead.", "Into the forest.", "The path forks.",
+                               "You climb.", "You wait.", "To the river.",
+                               "At camp."]
+    assert sorted(shape(manifest), key=lambda d: d["after"]) == sorted([
+        {"after": "Lead.",
+         "routes": [("Forest", "Into the forest.", "You wait.", "continue"),
+                    ("River", "To the river.", "To the river.",
+                     "continue")],
+         "continuing": "River", "continueAt": "At camp."},
+        {"after": "The path forks.",
+         "routes": [("Climb", "You climb.", "You climb.", "continue"),
+                    ("Wait", "You wait.", "You wait.", "return")],
+         "continuing": "Climb", "continueAt": "At camp."},
+    ], key=lambda d: d["after"])
+    assert menu_reports(ledger) == []
+    assert [n["result"] for n in detection(ledger)] == ["detected"] * 2
+    at = line_of(script, "Into the forest.")
+    assert any(("jumps back to the menu through its lead-in at "
+                f"game/script.rpy:{at}") in n["note"]
+               for n in detection(ledger))
+    check_folder(tmp_path, out, manifest)
+
+
 def test_menus_nested_several_deep_inside_routes(tmp_path: Path) -> None:
     out, manifest, ledger = extract(tmp_path, LEAD + (
         '    menu:\n'

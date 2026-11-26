@@ -33,6 +33,9 @@ story events in that order, each statement once:
   `choice-open` and `menu-close` markers, then the join once. The
   `menu-close` marker's ``outcome`` says how each path ended (at the
   join, back at the menu, at the story's end) or why the menu stays
+  linear. Back at the menu includes a jump to content already read from
+  which straight-line code reaches the menu (item 4b): it re-reads only
+  the decision's lead-in, which is not laid out again. The menu stays
   linear (a path rejoining content read elsewhere, every choice empty); a
   choice with nothing of its own gets its text as a line
   (kinetic_extract.timeline makes the decision).
@@ -181,6 +184,9 @@ def _program(parses: list[tuple[str, FileParse]]
 # How far a choice's post-dominator chain is read when the choices do not
 # all meet (one ends the story): they meet within a scene, not a chapter.
 _CHAIN_MAX = 5000
+# How many ops a jump back to a menu may pass on its way there (a lead-in
+# of story lines, or a run of labels and jumps).
+_LEAD_IN_MAX = 5000
 
 
 def _menu_join(ops: list[_Op], n: int, ipdom: list[int]) -> int:
@@ -478,27 +484,35 @@ def follow_labels(parses: list[tuple[str, FileParse]],
     dynamic_ops = [n for n, op in enumerate(ops)
                    if op.kind in ("jump", "call") and op.target is None]
 
-    def leads_to(n: int, menu: int) -> bool:
-        """Whether the walk from op ``n`` reaches the menu fork ``menu``
-        with no story event between: its own label, a named menu, or a
-        label that jumps or runs straight to it."""
+    def way_to_menu(n: int, menu: int) -> str | None:
+        """How the walk from op ``n`` reaches the menu fork ``menu``, None
+        when it does not: ``""`` with no story event between (its own
+        label, a named menu, or a label that jumps or runs straight to
+        it); else through the decision's lead-in (docs/plan.md Phase 60
+        item 4b), the source of its first story event. Past a story
+        event only straight-line code may follow (story events, labels
+        falling through, the end of a block): a jump, call, return or
+        fork there makes the way no lead-in."""
+        lead: str | None = None
         steps = 0
-        while 0 <= n < exit_ and steps < 64:
+        while 0 <= n < exit_ and steps < _LEAD_IN_MAX:
             if n == menu:
-                return True
+                return lead or ""
             op = ops[n]
-            if op.kind == "label" or (
-                    op.kind == "emit" and op.event is not None
-                    and op.event.kind not in _STORY_KINDS):
+            if op.kind == "label" or op.kind == "emit":
+                if lead is None and op.event is not None \
+                        and op.event.kind in _STORY_KINDS:
+                    lead = op.source
                 n += 1
             elif op.kind == "goto":
                 n = op.to
-            elif op.kind == "jump" and op.target in labels:
+            elif op.kind == "jump" and op.target in labels \
+                    and lead is None:
                 n = labels[op.target or ""]
             else:
-                return False
+                return None
             steps += 1
-        return False
+        return None
 
     def run(entries: list[tuple[int, frozenset[int], int]],
             cands: dict[int, list[int]], ipdom: list[int],
@@ -558,10 +572,13 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 if kind == "stop":
                     if n == info["join"]:
                         got = "join"
-                    elif leads_to(n, fork):
+                    elif (way := way_to_menu(n, fork)) is not None:
                         got = "menu"
+                        if way and info["lead"][k] is None:
+                            info["lead"][k] = way
                     elif (n in stops and n not in frame_stops) or any(
-                            n == menus[inner]["join"] or leads_to(n, inner)
+                            n == menus[inner]["join"]
+                            or way_to_menu(n, inner) is not None
                             for inner, _k, _s in ctx[depth + 1:]):
                         continue   # a fork inside the choice goes on there
                     else:
@@ -604,13 +621,14 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             join = info["join"]
             join_source = ops[join].source if 0 <= join < exit_ else None
             results, how = [], []
-            for ends in info["endings"]:
+            for ends, lead in zip(info["endings"], info["lead"]):
                 if "join" in ends:
                     results.append("continue")
                     how.append(f"reaches the join at {join_source}")
                 elif "menu" in ends:
                     results.append("return")
-                    how.append("jumps back to the menu")
+                    how.append("jumps back to the menu" + (
+                        f" through its lead-in at {lead}" if lead else ""))
                 else:
                     results.append("ending")
                     how.append("reaches the story's end"
@@ -739,6 +757,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 "link": link,
                                 "endings": [set() for _ in range(count)],
                                 "where": [None] * count,
+                                "lead": [None] * count,
                                 "story": [False] * count, "texts": []}
                             awaiting[0] = False
                             events.append((parsed_of[op.file], Event(
