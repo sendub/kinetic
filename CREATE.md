@@ -360,9 +360,21 @@ Ren'Py runs the story in and what Ren'Py draws:
   with no picture change 9; cut: None x31, hpunch x4`.
 - **Text tags.** `{i}`, `{b}` and the rest stay in the text as written,
   and the player reads them (Text tags, below).
+- **Frame-by-frame animations.** An `image name:` ATL block listing
+  frames (quoted files or image names) with `pause N` between them,
+  and perhaps a last `repeat` or `repeat N`, becomes an `animation`
+  item that `show name` shows, its lines kept: even pauses set `fps`,
+  uneven ones `frameSeconds`; a bare `repeat` loops, `repeat N` plays N
+  loops and holds the last frame, no `repeat` plays once and holds. A
+  frame's `with` plays as a cut and a `function` is dropped, both
+  reported. A block of one frame is that picture, its transform
+  properties reported as not applied; a block with other ATL (motion
+  such as `linear`, `parallel`, `block`, properties over several
+  frames) stays `image without a file`, the report naming the
+  statement.
 
-docs/extracting.md, "The walk follows labels" and "Colours and
-transitions", has every rule. A folder converted before Kinetic 1.12.0
+docs/extracting.md, "The walk follows labels", "ATL frame lists" and
+"Colours and transitions", has every rule. A folder converted before Kinetic 1.12.0
 gains colours and transitions only by converting it again (Upgrading
 to a newer Kinetic).
 

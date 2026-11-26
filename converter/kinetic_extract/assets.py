@@ -16,6 +16,9 @@ file extensions - corpus extensions lie. Policies:
   libjxl binding takes no frame durations). ``.jxl`` sources that libjxl
   decodes ship unchanged. A kept original's ``preserve`` step carries the
   ``reason`` no JXL replaced it.
+- An animation's frames (``ItemRecord.frames``, docs/plan.md Phase 60
+  item 8) ship one by one by the image rule, as image items' files do;
+  the item's ``frames`` are their shipped paths.
 - Other image formats (bmp, tiff, ...) are decoded with Pillow; the smallest
   of (PNG, JPEG q92, JXL) ships, lossless-first when the image
   has alpha (PNG or JXL only).
@@ -1827,6 +1830,8 @@ def _ship_record(record: ItemRecord, run: _Pass,
                  decoded_sizes: list[tuple[int, int]] | None) -> int:
     """Place one record's media (in record order); 1 when skipped."""
     kind = record.item.get("type")
+    if kind == "animation":
+        return _ship_animation(record, run, decoded_sizes)
     if kind not in MEDIA_TYPES:
         return 0
     found = run.input(record)
@@ -1844,6 +1849,48 @@ def _ship_record(record: ItemRecord, run: _Pass,
     if found.steps and decoded_sizes is not None and not record.skipped:
         _add_size(found.path, decoded_sizes)
     return skipped
+
+
+def _ship_animation(record: ItemRecord, run: _Pass,
+                    decoded_sizes: list[tuple[int, int]] | None) -> int:
+    """Ship an animation's frames (``record.frames``), each as an image
+    item's file is shipped, so a frame several animations or images
+    share ships once; the item's `frames` are their shipped paths. A
+    frame that does not ship drops the animation. The first frame alone
+    counts in the display-size probe, as an image item's one file does.
+    1 when skipped."""
+    meta = record.asset_meta
+    for k, frame in enumerate(record.frames):
+        skipped = _ship_record(frame, run,
+                               decoded_sizes if k == 0 else None)
+        record.notes.extend(
+            f"frame {k}: {note}" for note in frame.notes
+            if not note.startswith("shares shipped file"))
+        if skipped:
+            meta["decision"] = "skipped"
+            record.notes.append(f"frame {k} ({frame.asset}) did not "
+                                "ship: item dropped from manifest")
+            record.skipped = True
+            return 1
+    shipped = [frame.item["file"] for frame in record.frames]
+    rest = {k: v for k, v in record.item.items()
+            if k not in ("id", "type", "frames")}
+    head = {"id": record.item["id"], "type": "animation", "frames": shipped}
+    record.item.clear()
+    record.item.update(head | rest)
+    meta["decision"] = "frames"
+    meta["frames"] = [{"asset": frame.asset, **frame.asset_meta}
+                      for frame in record.frames]
+    return 0
+
+
+def _media_records(records: list[ItemRecord]) -> list[ItemRecord]:
+    """The records whose sources ship: an animation's frames in its
+    place."""
+    return [frame for record in records
+            for frame in (record.frames
+                          if record.item.get("type") == "animation"
+                          else [record])]
 
 
 class _Ahead:
@@ -1957,7 +2004,7 @@ def _plan_ahead(records: list[ItemRecord], run: _Pass) -> None:
     planned_posters: set[str] = set()
     planned_videos: set[str] = set()
     planned_audio: set[tuple[str, bool]] = set()
-    for record in records:
+    for record in _media_records(records):
         kind = record.item.get("type")
         if kind not in MEDIA_TYPES:
             continue

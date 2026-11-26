@@ -16,6 +16,12 @@ decision menu out between marker events (kinetic_extract.flow); the items
 between them are the routes, menus nested in a route included, and the
 first item of the join's path is the `continueAt`.
 
+ATL frame lists (docs/plan.md Phase 60 item 8): a `scene`/`show` of a
+name the parser read as an `image name:` frame list (parser.AtlImage)
+is an ``animation`` item whose frames resolve as ``show`` names do; its
+record's ``frames`` are one image record per frame, which the asset pass
+ships. One frame, or one picture throughout, is a still image item.
+
 Transitions (docs/plan.md Phase 57 item 4): a scene/show's `with` clause
 gives its visual's item the transition; a bare `with` gives it to the
 visual still waiting to be emitted when that visual changed since the
@@ -120,6 +126,10 @@ class ItemRecord:
     # is not the item's text now (a translation of English that has
     # changed since, kept so the validator reports it stale).
     translation_bases: dict[str, str] = field(default_factory=dict)
+    # An animation's frames, one image record each (``item`` holds only an
+    # id and the type): the asset pass ships each as an image item's file
+    # and gives the animation their shipped paths as its `frames`.
+    frames: list["ItemRecord"] = field(default_factory=list)
 
 
 def set_video_duration(record: ItemRecord,
@@ -182,7 +192,7 @@ class _Pending:
     def __init__(self, kind: str, name: str | None, asset_rel: str | None,
                  asset_abs: Path | None, source: str,
                  source_ref: dict[str, str] | None = None):
-        self.kind = kind          # image | video
+        self.kind = kind          # image | video | animation
         self.name = name
         self.asset_rel = asset_rel   # project-root-relative, for the ledger
         self.asset_abs = asset_abs   # on-disk path (may not exist)
@@ -202,6 +212,10 @@ class _Pending:
         # The item `transition` its `with` gave (docs/content-format.md,
         # "Transitions"); None: a cut.
         self.transition: dict[str, Any] | None = None
+        # An animation's frames, (ledger rel, file path, source ref) each,
+        # and its timing fields (parser.AtlImage.timing).
+        self.frames: list[tuple[str, Path, dict[str, str] | None]] = []
+        self.timing: dict[str, Any] = {}
 
 
 def finish_candidates(candidates: list[dict[str, Any]]) -> None:
@@ -243,7 +257,7 @@ class _SliceDone(Exception):
 
 
 def build_timeline(parses: list[tuple[str, FileParse]],
-                   image_defs: dict[str, tuple[str, str]],
+                   image_defs: dict[str, tuple[str, Any]],
                    characters: dict[str, str],
                    game_dir: Path,
                    start_label: str | None = None,
@@ -352,6 +366,92 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     return hit
         return ledger_rel, target, {"path": ledger_rel}
 
+    def resolve_name(name: str) -> tuple[str, str | None, Any]:
+        """``(kind, defined file, resolved)`` for a scene/show name, with
+        ``resolved`` ``(kind, ledger_rel, abs, src_ref, n)`` or None.
+        Resolution order (docs/extracting.md BUG 5): the explicit
+        definition first — a `Movie(play=…)` def answers as a video
+        (BUG 2) — then its file on disk or in the archives, then the
+        implicit name index."""
+        defined = image_defs.get(name)
+        kind, ref = def_value_target(defined) \
+            if defined and defined[0] != "atl" else ("image", None)
+        resolved = None
+        if ref is not None:
+            ledger_rel, abs_path, src_ref = asset_paths(ref, kind)
+            if (src_ref is not None and "archive" in src_ref) \
+                    or (abs_path is not None and abs_path.exists()):
+                resolved = (kind, ledger_rel, abs_path, src_ref, 1)
+        if resolved is None and implicit_lookup is not None:
+            hit = implicit_lookup(
+                name, "video" if kind == "video" else "image")
+            if hit is not None:
+                ledger_rel, abs_path, src_ref, n = hit
+                resolved = (kind, ledger_rel, abs_path, src_ref, n)
+        return kind, ref, resolved
+
+    def resolve_frame(ref: str, depth: int = 0) -> Any:
+        """An ATL frame's picture as ``resolve_name`` resolves one, or
+        None: a quoted file (it has a dot) on disk, under images/ or in
+        the archives; else an image name, a one-frame ATL image's frame
+        included. A video, a solid colour or an animation is no frame."""
+        if "." in ref:
+            ledger_rel, abs_path, src_ref = asset_paths(ref, "image")
+            if (src_ref is not None and "archive" in src_ref) \
+                    or (abs_path is not None and abs_path.is_file()):
+                return ("image", ledger_rel, abs_path, src_ref, 1)
+            return None
+        defined = image_defs.get(ref)
+        if defined is not None and defined[0] == "atl":
+            atl = defined[1]
+            return resolve_frame(atl.frames[0].ref, depth + 1) \
+                if atl.still and depth < 8 else None
+        if ref in _SOLID_COLORS and defined is None:
+            return None
+        kind, _file, resolved = resolve_name(ref)
+        return resolved if kind == "image" else None
+
+    def atl_pending(parsed: FileParse, source: str, name: str,
+                    atl: Any) -> _Pending:
+        """The visual an ATL frame list shows (parser.AtlImage): an
+        animation of its frames; a still when it has one frame or every
+        frame is one picture; dropped with its lines, reported, when a
+        frame resolves nowhere (BUG 1)."""
+        hits = []
+        for frame in atl.frames:
+            hit = resolve_frame(frame.ref)
+            if hit is None:
+                parsed.reports.append(Report(source, name, (
+                    f"droppedUnresolved: ATL frame {frame.ref!r} of image "
+                    f"{name!r} ({frame.source}): no image definition or "
+                    "asset answers it")))
+                pend = _Pending("image", name, None, None, source)
+                pend.unresolved = True
+                return pend
+            hits.append(hit)
+        if atl.still or len({hit[1] for hit in hits}) == 1:
+            _kind, ledger_rel, abs_path, src_ref, n = hits[0]
+            pend = _Pending("image", name, ledger_rel, abs_path, source,
+                            src_ref)
+            pend.notes.append(
+                f"ATL image ({atl.source}) with one frame: a still"
+                if atl.still else
+                f"ATL frames ({atl.source}) all show one picture: a still")
+        else:
+            pend = _Pending("animation", name, None, None, source)
+            pend.frames = [(hit[1], hit[2], hit[3]) for hit in hits]
+            pend.timing = atl.timing()
+            pend.notes.append(
+                f"ATL frame list ({atl.source}): {len(hits)} frames")
+        for hit in hits:
+            if hit[4] > 1:
+                chosen = hit[1].rsplit("!", 1)[-1]
+                pend.notes.append(
+                    f"ATL frame of {name!r} is ambiguous: {hit[4]} assets "
+                    f"answer it; using the first in sorted order "
+                    f"({chosen})")
+        return pend
+
     def flush_bare() -> None:
         """Emit an unconsumed visual (replaced or at end of flow) bare.
         An unresolved visual was already reported at its statement; it is
@@ -374,14 +474,30 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                             source_ref=pend.source_ref,
                             text_source=line_source)
         record.notes.extend(pend.notes)
-        if pend.from_archive:
+        if pend.kind == "animation":
+            item.update(pend.timing)
+            for k, (rel, path, ref) in enumerate(pend.frames):
+                record.frames.append(ItemRecord(
+                    item={"id": f"{item_id}.f{k:03d}", "type": "image"},
+                    source=pend.source, asset=rel, asset_abs=path,
+                    source_ref=ref))
+                if ref is not None and "archive" in ref:
+                    record.notes.append(
+                        f"frame {k} extracted from .rpa archive ({rel})")
+            # The first frame stands for the animation in the size probe,
+            # as an image item's one file does.
+            if pend.frames and pend.frames[0][1].exists():
+                result.source_images.append(pend.frames[0][1])
+        elif pend.from_archive:
             # Provenance for assets resolved out of an .rpa archive
             # (kinetic_extract.rpa.AssetArchives): the ledger asset reads
             # "game/<archive>!<key>"; the `media` entry's source names the
             # archive and member with the member's sha256 and size.
             record.notes.append(
                 f"asset extracted from .rpa archive ({pend.asset_rel})")
-        if pend.asset_abs is not None:
+        if pend.kind == "animation":
+            pass
+        elif pend.asset_abs is not None:
             if not pend.asset_abs.exists():
                 record.notes.append(
                     f"source asset {pend.asset_rel!r} not found yet")
@@ -566,29 +682,16 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         event.source, f"scene {name}",
                         "solid color screen: no media item"))
                     continue
-                # Resolution order (docs/extracting.md BUG 5): the
-                # explicit definition first — a `Movie(play=…)` def
-                # answers as a video (BUG 2) — then its file on disk
-                # or in the archives, then the implicit name index.
                 defined = image_defs.get(name)
-                kind, ref = def_value_target(defined) if defined \
-                    else ("image", None)
-                resolved = None  # (kind, ledger_rel, abs, src_ref, n)
-                if ref is not None:
-                    ledger_rel, abs_path, src_ref = asset_paths(
-                        ref, kind)
-                    if (src_ref is not None and "archive" in src_ref) \
-                            or (abs_path is not None
-                                and abs_path.exists()):
-                        resolved = (kind, ledger_rel, abs_path,
-                                    src_ref, 1)
-                if resolved is None and implicit_lookup is not None:
-                    hit = implicit_lookup(
-                        name, "video" if kind == "video" else "image")
-                    if hit is not None:
-                        ledger_rel, abs_path, src_ref, n = hit
-                        resolved = (kind, ledger_rel, abs_path,
-                                    src_ref, n)
+                if defined is not None and defined[0] == "atl":
+                    # An ATL frame list (docs/plan.md Phase 60 item 8).
+                    flush_bare()
+                    pending = atl_pending(parsed, event.source, name,
+                                          defined[1])
+                    if clause is not None:
+                        pending.transition = clause.transition
+                    continue
+                kind, ref, resolved = resolve_name(name)
                 flush_bare()
                 if resolved is None:
                     # BUG 1: an item whose visual never resolves is

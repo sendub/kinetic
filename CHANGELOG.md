@@ -43,6 +43,18 @@ something more of an author.
   evenly at `fps`, looping under the lines as before. The validator
   checks that `frameSeconds` has one entry per frame, each above 0, and
   `kinetic report`'s reading time counts the loops by `frameSeconds`.
+- The converter turns an `image name:` ATL frame list (quoted frames,
+  `pause N` between them, perhaps a last `repeat` or `repeat N`) into an
+  `animation` item that `show name` shows, where it used to report
+  `image without a file` and drop every line said over it. Even pauses
+  set `fps`, uneven ones `frameSeconds`; a bare `repeat` loops, `repeat
+  N` plays N loops and holds the last frame, no `repeat` plays once and
+  holds. The frames ship as images, a shared one once, and `kinetic
+  media rebuild` checks them. A frame's `with` plays as a cut and a
+  `function` is dropped, both reported; a one-frame block is that
+  picture as a still, its transform properties reported as not applied;
+  a block with other ATL stays `image without a file`, the report naming
+  the statement (docs/extracting.md, "ATL frame lists").
 
 ## 1.14.0 (2026-11-21)
 

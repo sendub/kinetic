@@ -611,7 +611,10 @@ def print_summary(result: TimelineResult, reports: list[Report],
         item_type = record.item["type"]
         counts[item_type] = counts.get(item_type, 0) + 1
     type_summary = ", ".join(f"{t} {counts[t]}" for t in sorted(counts))
-    shipped = sum(1 for r in result.items if r.asset_meta.get("file"))
+    shipped = sum(1 if r.asset_meta.get("file") else len(r.frames)
+                  for r in result.items
+                  if r.asset_meta.get("file")
+                  or r.asset_meta.get("decision") == "frames")
     print(f"items: {sum(counts.values())} ({type_summary}); "
           f"media shipped: {shipped}; items skipped: {skipped}")
     print(f"resolution: {resolution_note}")
@@ -989,8 +992,9 @@ def _mark_episode(n: int, episode: _Episode) -> None:
         if record.audio:
             record.audio = rename_tracks(record.audio, new_id)
         record.source = f"{tag}:{record.source}"
-        if record.source_ref is not None:
-            record.source_ref = {**record.source_ref, "project": n}
+        for media in [record, *record.frames]:
+            if media.source_ref is not None:
+                media.source_ref = {**media.source_ref, "project": n}
     walk = episode.result.walk
     for entry in (walk.get("labelsUnreached", []) + walk.get(
             "callsNotRepeated", []) + walk.get("notFollowed", [])

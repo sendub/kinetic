@@ -4880,6 +4880,18 @@ The orchestrator's choices, within those decisions:
    animation keeps its lines and the folder validates `--strict` and
    walks; mixed pauses give `frameSeconds`; `kinetic media rebuild`
    reproduces the frames.
+8b. Routes may hold any item (a lead from item 8). timeline.py's
+    `close_menu` (Phase 13's conservative rule) refuses a route holding
+    anything but image and text items, so a menu whose route shows an
+    ATL animation, or a video, stays linear ("contains a animation
+    item"); on a converted corpus game item 8 cost 16 decisions this
+    way. The format puts no type limit on a route's items. The check
+    accepts every item type; the route-end audio, video segment and
+    chain rules (a route's first item after the lead-in's media) are
+    checked to hold. Tests: menus whose routes hold an ATL animation, a
+    video, and a text item over a video started in the lead-in, each a
+    decision, validate --strict silent, `kinetic check --steps all` to
+    the end.
 9. Fixtures and docs. `fixtures/renpy_demo` gains a jump menu with a
    refusal choice, a chain following its choice, a counter chain and an
    ATL animation, so package-proof's extract stage covers them (its
@@ -4890,7 +4902,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 7 -> 8 -> 9 -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 7 -> 8 -> 8b -> 9 -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

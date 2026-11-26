@@ -155,9 +155,11 @@ game whose story order differs from its file order read out of order.
   loop back to the menu, read past each choice's own block, or, when one
   choice ends the story, where the others meet. What a choice's path
   reads is its route, and its `result` is how the path ended: at the
-  join `"continue"`, back at the menu (its label, a named menu, or a
-  label that reaches it with no line between) `"return"`, at the
-  story's end `"ending"`. The last choice reaching the join is the
+  join `"continue"`, back at the menu (its label, a named menu, a
+  label that reaches it with no line between, or content already read
+  from which straight-line code reaches it: the question before a
+  refusal, re-read but not laid out again) `"return"`, at the story's
+  end `"ending"`. The last choice reaching the join is the
   `continuingRoute`, and the join's first item the `continueAt`; a menu
   nested in a route whose choices meet where the enclosing menu's do
   takes the enclosing `continueAt`, past its route's end. A menu whose
@@ -169,14 +171,16 @@ game whose story order differs from its file order read out of order.
   text, translated from the language's `strings` block. The ledger's
   `branchDetection` note for a decision gives each route's result and
   how the walk proved it (`reaches the join at game/script.rpy:58`,
-  `jumps back to the menu`, `reaches the story's end`), and its
+  `jumps back to the menu`, `jumps back to the menu through its
+  lead-in at game/script.rpy:40`, `reaches the story's end`), and its
   `continuingRoute` and `continueAt` or that it is a pure choice. A
   `return` in a choice is read as the story's end, even in a label
   reached by `call`. Linear and reported (`menu unsupported (...)`,
   `skipped` in `branchDetection`): a menu every choice of which is
   empty, one where a choice's path rejoins content read somewhere other
-  than the join or the menu (a jump back to a label with a line before
-  the menu is such a rejoin), a conditional choice (`"x" if cond:`), a
+  than the join or the menu (a jump back to a label whose way to the
+  menu, after a line, passes an `if` with a jump, another menu, a call
+  or another jump is such a rejoin), a conditional choice (`"x" if cond:`), a
   `label` inside a choice block, and any line between choices other
   than a caption. Such a menu's blocks are skipped as for an `if`, their
   jumps and calls followed.
@@ -462,7 +466,10 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
 Each item entry names its outputs with `file` and `poster` (keys into
 `media`), its `asset` as a display string (`game/images/a.png`, or
 `game/images.rpa!images/a.png` for an archive member), plus
-`sniffedFormat`, `decision` and, for video, `codec`. Every dict in
+`sniffedFormat`, `decision` and, for video, `codec`. An animation's
+entry has `asset: null`, `decision: "frames"` and `frames`, one
+`{asset, sniffedFormat, decision, file}` per frame (ATL frame lists,
+above). Every dict in
 `mediaTools` and `media` has sorted keys (step and argument lists keep
 their order), so the same input gives the same ledger bytes. A shortened
 example:
@@ -501,6 +508,60 @@ archives (their member with that key or a near match, then
 `game/images/day1/first shot.jpg` (docs/plan.md Phase 57 item 4d); the
 item's ledger `asset` names the file found. A name found nowhere drops
 its item (`droppedUnresolved`), as before.
+
+### ATL frame lists
+
+An `image name:` block of ATL (docs/plan.md Phase 60 item 8) is read
+as a frame list when it holds only these statements, one per line or
+joined by commas as Ren'Py allows:
+
+- a frame: a quoted string, a file when it has a dot (as Ren'Py reads
+  one), else an image name, resolved as `show` resolves a name (its
+  `image` definition, a one-frame ATL image included, then the implicit
+  index); a frame may end in `with <transition>`;
+- `pause N` or a bare number `N`, the time the frame before it shows
+  (several in a row add up);
+- `pass`, `animation`, and `function name`;
+- a last `repeat` or `repeat N`.
+
+Such a block becomes an `animation` item wherever `scene` or `show`
+names it (a name with attributes, `image door 2:`, included), and the
+lines said over it are kept:
+
+- `fps` alone when every frame shows as long (`1 / pause`), else
+  `frameSeconds`, one per frame, with `fps` the frames over their sum
+  (the even pace an older player plays);
+- a bare `repeat` loops under the lines (`loopCount: 1`); `repeat N` is
+  `loopCount: N` with `holdLastFrame: true`; no `repeat` is
+  `loopCount: 1` held;
+- a frame with no pause after it shows for no time in Ren'Py and is left
+  out (reported), except the last frame of a block with no `repeat`,
+  which Ren'Py shows from then on: it is the held frame and takes the
+  block's shortest pause;
+- a frame's `with` plays as a cut and a `function` is dropped, each
+  reported.
+
+Its frames ship as images through the usual image rule, so a picture
+several animations or images use ships once; the item's ledger entry
+has `decision: "frames"` and, under `frames`, each frame's `asset` and
+image decision, and each frame has its own `media` entry, which
+`kinetic media rebuild` checks as any other. An animated GIF or WebP
+frame ships as it is (the image rule never re-encodes an animated
+image), so the browser plays it inside its frame time. A block of one
+frame, or whose frames are all one picture, is that picture as a still
+`image` item; a one-frame block's transform properties (`zoom 1.5`,
+`xalign 0.5`) are reported as not applied. A frame that resolves
+nowhere drops the item and its lines, its `droppedUnresolved` reason
+naming the frame.
+
+Any other ATL keeps the block `image without a file`, reported at its
+`image` line with the statement and its line named: ``image without a
+file: ATL statement `linear 1.0 xalign 1.0` (game/script.rpy:4) not
+converted``. That is motion (`linear`, `ease`, a
+warper), `block`, `parallel`, `choice`, `on`, `contains`, `time`,
+`event`, a pause before the first frame or not a number, a statement
+after `repeat`, an expression frame (`Image("x.png")`), and a transform
+property in a block of several frames.
 
 ## Image policy
 

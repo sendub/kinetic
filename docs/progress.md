@@ -6228,11 +6228,34 @@ truthful: an unchecked box means nothing was accepted.
       to (docs/future.md, "Routes that share a tail"), and choices
       jumping back to a label that reaches the menu through lines or a
       screen (item 4b).)
-- [ ] A jump back through the menu's lead-in is a return (item 4b, a
+- [x] A jump back through the menu's lead-in is a return (item 4b, a
       lead from item 4). A choice whose path jumps to a label that
       reaches its menu by straight-line story (lines, shows, audio, no
       fork or other flow), re-reading the decision's lead-in, is a
       `"return"` route, not a rejoin.
+      (2026-11-26: flow.py's `leads_to` is now `way_to_menu`: None when
+      the op does not reach the menu fork, "" with no story on the way
+      (item 4's case), else the source of the first story event passed,
+      the lead-in's start; after a story event only straight-line ops
+      may follow (story and other emits, labels falling through, the
+      `goto` ending a block), and a jump, call, return, fork or file end
+      gives None. The route's note reads "jumps back to the menu
+      through its lead-in at <source>"; the nested-menu check uses the
+      same function; the step cap is 5000. extracting.md's jump-menu
+      paragraph updated. Subagent's calls: the source named is the
+      lead-in's first story event (a `show` may come first); a jump
+      chain with no lines is "return" as before, a jump after a lead-in
+      line a rejoin. Tests (test_jump_menus.py): the refusal through one
+      lead-in line (the lead-in not laid out again, the note), through a
+      `show`, `play music` and three lines, a nested menu's refusal, all
+      failing first; an `if ...: jump` and a `jump` on the way back stay
+      rejoins (guards, passing before too); each decision case checked
+      by validate --strict, routes counts and `kinetic check --steps
+      all`. Subagent: jump menus, flow and branch extract 59; full run
+      2201 with item 8's unfinished test file deselected (a
+      test_decision_scale timing failure at load 41 passed alone).
+      Orchestrator: converter and tools 2201 passed with item 8 in the
+      tree.)
 - [x] A decision that follows an earlier one (item 5). `follows` and
       `when` in the format, validator, player and tools.
       (2026-11-26: types.ts `Branch.follows`, `Route.when`; machine.ts
@@ -6319,8 +6342,56 @@ truthful: an unchecked box means nothing was accepted.
       485, report 35. Orchestrator: validator, report and schema-copy
       529 passed; npm test 1894/1894, check clean, smoke 6/6, media
       25/25 on Chrome and 25/25 on WebKit at load 9-25.)
-- [ ] ATL frame lists become animations (item 8). Frames, pauses and
+- [x] ATL frame lists become animations (item 8). Frames, pauses and
       `repeat` read; one-frame blocks as stills; lines kept.
+      (2026-11-26: parser.py reads an `image name:` block (names with
+      attributes too) as a frame list, `image_defs[name] = ("atl",
+      AtlImage)`, its `timing()` giving `fps`, `frameSeconds`,
+      `loopCount` and `holdLastFrame`: quoted frames, `pause N` or a
+      bare number (consecutive ones adding up), `pass`, `animation`,
+      `function` (dropped, reported), a frame's `with` (a cut,
+      reported), a last `repeat`/`repeat N`, comma-joined statements;
+      anything else (motion, `block`, `parallel`, `choice`, `on`,
+      `contains`, `time`, `event`, an expression frame, properties over
+      several frames, a statement after `repeat`) gives "image without
+      a file: ATL statement `...` (<source>) not converted".
+      timeline.py's name resolution is `resolve_name` (unchanged), plus
+      `resolve_frame` and `atl_pending`: a `show`/`scene` of an ATL name
+      is an `animation` item with one image record per frame; a frame
+      resolving nowhere drops the item with a reason naming it.
+      assets.py's `_ship_animation` ships each frame through the image
+      path (shared frames once by digest, a ledger media entry each;
+      the item's ledger entry `decision: "frames"` with its frames); a
+      frame not shipped drops the animation; cli.py gives frame records
+      their project and counts them as media shipped. extracting.md
+      "ATL frame lists" and the build ledger paragraph, CREATE.md's
+      "Frame-by-frame animations", a CHANGELOG bullet. Subagent's calls:
+      a frame with no pause after it shows for no time and is left out,
+      reported, except a non-repeating block's last frame, kept as the
+      held frame with the block's shortest pause; one picture repeated
+      is a still; a one-frame block with motion stays unconverted, with
+      plain properties a still ("not applied" reported); animated GIF or
+      WebP frames ship as they are; a quoted frame with a dot is a file
+      (game/, game/images/, the archives), without one an image name;
+      `repeat 0` is not converted. Tests: test_atl_animation.py 17
+      (each shape, 12 other-ATL rejections named, a one-frame `zoom`
+      still, frames by image name; an extract with the right timing
+      fields and the lines kept, shared frames shipped once, validate
+      --strict silent, `kinetic check --steps all` to the end, `kinetic
+      media rebuild --out` matching every entry; an unresolved frame
+      dropping its item), 16 failing first. Subagent: 17 passed; full
+      run 2201. Orchestrator: atl, parser and pipeline 51 passed;
+      converter and tools 2201 passed. On a reporting agent's game
+      (read-only parse-only walk): 445 animations (175 with
+      `frameSeconds`, 14 held), 1,315 lines more kept (text items 15,934
+      to 16,804 with the animations' own lines), no `droppedUnresolved`
+      left in the top reports; 41 frame dissolves and 3 `function`
+      lines reported; but 16 menus whose routes now hold an animation
+      stay linear ("contains a animation item"), so decisions fell from
+      35 to 19: item 8b.)
+- [ ] Routes may hold any item (item 8b, a lead from item 8). The
+      converter's menu check accepts animation and video items inside
+      routes, as the format always has.
 - [ ] Fixtures and docs (item 9). The extract demo covers the new
       shapes; package-proof.
 - [ ] Phase-closer (Phase 60): full suites; VERSION 1.15.0, the

@@ -450,8 +450,9 @@ class FileParse:
     # file's menu marker events (docs/plan.md Phase 13).
     menus: list[MenuRecord] = field(default_factory=list)
     # name -> ("file", quoted path) | ("expr", verbatim non-quoted value,
-    # e.g. `Movie(play="x.webm")` — kinetic_extract.timeline classifies it).
-    image_defs: dict[str, tuple[str, str]] = field(default_factory=dict)
+    # e.g. `Movie(play="x.webm")` — kinetic_extract.timeline classifies it)
+    # | ("atl", AtlImage), an `image name:` block read as a frame list.
+    image_defs: dict[str, tuple[str, Any]] = field(default_factory=dict)
     characters: dict[str, str] = field(default_factory=dict)   # var -> display
     # var -> (source, statement) of each Character define, the call
     # joined onto one line (kinetic_extract.presentation reads colours).
@@ -559,6 +560,165 @@ def _split_image_def(rest: str) -> tuple[str, tuple[str, str] | None]:
     name = rest[:quote_at]
     parsed = _parse_quoted(rest, quote_at)
     return " ".join(name.split()), ("file", parsed[0]) if parsed else None
+
+
+@dataclass
+class AtlFrame:
+    """One frame of an ATL frame list: the quoted string (a file when it
+    has a dot, as Ren'Py's ``renpy.easy.displayable`` reads it, else an
+    image name resolved as `show` resolves one) and how long it shows."""
+
+    ref: str
+    seconds: float
+    source: str
+
+    @property
+    def is_file(self) -> bool:
+        return "." in self.ref
+
+
+@dataclass
+class AtlImage:
+    """An `image name:` ATL block read as a frame list (docs/plan.md
+    Phase 60 item 8): an animation, or one frame shown as a still
+    (``still``). ``loop_count`` and ``hold`` come from its `repeat`: a
+    bare `repeat` loops (1, False), `repeat N` is (N, True), none (1,
+    True)."""
+
+    source: str
+    frames: list[AtlFrame]
+    loop_count: int = 1
+    hold: bool = True
+    still: bool = False
+
+    def timing(self) -> dict[str, Any]:
+        """The animation item's timing fields (docs/content-format.md,
+        Items): `fps` alone when every frame shows as long, else
+        `frameSeconds` with `fps` their average; `loopCount`;
+        `holdLastFrame` when it holds."""
+        seconds = [f.seconds for f in self.frames]
+        out: dict[str, Any] = {"fps": len(seconds) / sum(seconds)}
+        if len(set(seconds)) == 1:
+            out["fps"] = 1 / seconds[0]
+        else:
+            out["frameSeconds"] = seconds
+        out["loopCount"] = self.loop_count
+        if self.hold:
+            out["holdLastFrame"] = True
+        return out
+
+
+_ATL_NUMBER_RE = re.compile(r"(?:\d+(?:\.\d*)?|\.\d+)")
+_ATL_WORD_RE = re.compile(r"([A-Za-z_]\w*)(?:\s+(\S.*))?")
+# ATL keywords that are motion or structure, never a frame list's part.
+_ATL_OTHER = frozenset({"block", "parallel", "choice", "on", "contains",
+                        "time", "event", "linear", "warp", "circles",
+                        "clockwise", "counterclockwise", "knot"})
+NOT_CONVERTED = "image without a file: ATL statement `{}` ({}) not converted"
+
+
+def _is_motion(word: str) -> bool:
+    """A warper (`linear`, `ease`, `easein_quad`, ...) or a structure
+    keyword: ATL a frame list does not hold."""
+    return word in _ATL_OTHER or word.startswith("ease")
+
+
+def read_atl_image(block: list[tuple[int, str, int]], relname: str,
+                   source: str) -> tuple[AtlImage | None, list[Report]]:
+    """Read an `image name:` ATL block (``(lineno, text, indent)`` lines)
+    as a frame list, or None with the report naming the first statement
+    that is not one (docs/plan.md Phase 60 item 8). Frames are quoted
+    strings, each followed by `pause N` or a bare number (summed when
+    several); a last `repeat` or `repeat N` sets the loops. A frame's
+    `with` is a cut and a `function` is dropped, each reported; a frame
+    with no time after it shows for none and is left out, except the
+    last frame of a block with no `repeat`, which Ren'Py shows from then
+    on: it takes the block's shortest pause and is the held frame. One
+    frame is a still, its transform properties reported as not applied;
+    over several frames a property is not converted."""
+    reports: list[Report] = []
+    frames: list[AtlFrame] = []
+    props: list[tuple[str, str]] = []   # (source, clause)
+    repeat: int | None = None
+    repeated = False
+
+    def reject(clause: str, at: str) -> tuple[None, list[Report]]:
+        """The block stays `image without a file`, reported at its
+        `image` statement, the statement that is not converted named."""
+        return None, [Report(source, "", NOT_CONVERTED.format(clause, at))]
+
+    if not block:
+        return None, [Report(source, "", "image without a file")]
+    top = block[0][2]
+    for lineno, text, depth in block:
+        at = f"{relname}:{lineno}"
+        if depth != top or text.endswith(":"):
+            return reject(text, at)
+        for clause in _call_arguments(text + ")", 0) or [text]:
+            if repeated:
+                return reject(clause, at)
+            word_m = _ATL_WORD_RE.fullmatch(clause)
+            word, value = (word_m.group(1), word_m.group(2) or "") \
+                if word_m else ("", "")
+            if clause.startswith("\""):
+                parsed = _parse_quoted(clause, 0)
+                tail = clause[parsed[1]:].strip()
+                if tail.startswith("with ") or tail == "with":
+                    reports.append(Report(at, clause, (
+                        f"ATL frame transition `{tail}` not converted: "
+                        "a cut")))
+                elif tail:
+                    props.append((at, tail))
+                frames.append(AtlFrame(parsed[0], 0.0, at))
+            elif _ATL_NUMBER_RE.fullmatch(clause) or (
+                    word == "pause" and _ATL_NUMBER_RE.fullmatch(value)):
+                if not frames:
+                    return reject(clause, at)
+                frames[-1].seconds += float(value or clause)
+            elif word == "repeat" and (not value or value.isdigit()):
+                repeated, repeat = True, int(value) if value else None
+                if repeat == 0:
+                    return reject(clause, at)
+            elif word in ("pass", "animation") and not value:
+                continue
+            elif word == "function" and value:
+                reports.append(Report(at, clause, (
+                    f"ATL `{clause}` not converted: dropped")))
+            elif word and value and not _is_motion(word) \
+                    and word not in ("pause", "repeat"):
+                props.append((at, clause))
+            else:
+                return reject(clause, at)
+    if not frames:
+        return None, [Report(source, "", "image without a file")]
+    if len(frames) == 1:
+        if props:
+            reports.append(Report(source, "", (
+                "ATL image with one frame: a still; "
+                + ", ".join(f"`{p}`" for _s, p in props)
+                + " not applied")))
+        frames[0].seconds = frames[0].seconds or 1.0
+        return AtlImage(source, frames, still=True), reports
+    if props:
+        return reject(props[0][1], props[0][0])
+    timed = [f.seconds for f in frames if f.seconds > 0]
+    held = frames[-1] if repeated is False and not frames[-1].seconds \
+        and timed else None
+    if held is not None:
+        held.seconds = min(timed)
+    for frame in frames:
+        if frame.seconds <= 0:
+            reports.append(Report(frame.source, f"\"{frame.ref}\"", (
+                "ATL frame with no pause after it shows for no time: "
+                "left out")))
+    frames = [f for f in frames if f.seconds > 0]
+    if not frames:
+        return reject(block[-1][1], f"{relname}:{block[-1][0]}")
+    image = AtlImage(source, frames,
+                     loop_count=repeat or 1,
+                     hold=not repeated or repeat is not None,
+                     still=len(frames) == 1)
+    return image, reports
 
 
 def _is_creator_statement(line: str, names: set[str]) -> bool:
@@ -1283,6 +1443,19 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
             continue
         if keyword == "image":
             head, defined = _split_image_def(rest)
+            if defined is None and rest.endswith(":"):
+                # `image name:` opens an ATL block: a frame list is an
+                # animation (docs/plan.md Phase 60 item 8), other ATL is
+                # reported with the statement named.
+                head = _name_tokens(rest[:-1])
+                block, i = _gather_block(raw_lines, i, indent)
+                image, notes = read_atl_image(block, relname, source)
+                for note in notes:
+                    note.statement = note.statement or line
+                result.reports.extend(notes)
+                if image is not None:
+                    result.image_defs[head] = ("atl", image)
+                continue
             if defined is None:
                 result.reports.append(
                     Report(source, line, "image without a file"))
@@ -1683,7 +1856,7 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     # A statement is often registered in another file than its uses.
     creator = set().union(*(creator_statement_names(t) for _r, t in texts))
     parses: list[tuple[str, FileParse]] = []
-    image_defs: dict[str, str] = {}
+    image_defs: dict[str, tuple[str, Any]] = {}
     characters: dict[str, str] = {}
     kinds: dict[str, str] = {}
     for rel, text in texts:
