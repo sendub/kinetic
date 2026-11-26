@@ -6075,8 +6075,8 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] A decision that follows an earlier one (item 5). `follows` and
       `when` in the format, validator, player and tools.
 - [ ] Conditions become decisions (item 6). `follows` decisions,
-      counter ranges and choice-named labels; `--condition-names`; the
-      report's section.
+      counter ranges and choice-named labels in every interface
+      language; `--condition-names`; the report's section.
 - [ ] Animation timing (item 7). `frameSeconds` and `holdLastFrame` in
       the format, validator, player and tools.
 - [ ] ATL frame lists become animations (item 8). Frames, pauses and

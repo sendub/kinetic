@@ -4674,11 +4674,16 @@ The orchestrator's choices, within those decisions:
   own, `holdLastFrame: true`, so it reads correctly with `loopCount`
   (ATL `repeat 3` is `loopCount: 3` held; no `repeat` is `loopCount: 1`
   held; a bare `repeat` loops as today).
-- **Generated words are English.** The prompt and labels the converter
-  writes for a condition ("Which fits your story so far?", "If you
-  chose: ...", "love 3 or more") are English in the base text; a
-  choice's own text inside them takes its translation from the `strings`
-  block in each language file. The names file sets a variable's words.
+- **Generated words in every interface language** (the user,
+  2026-11-26). The prompt and labels the converter writes for a
+  condition ("Which fits your story so far?", "If you chose: ...",
+  "love 3 or more") are phrases of the player's catalogue, translated
+  into every language its controls have: the base text in the game's
+  base `language`, each `lang/<tag>.json` entry in that tag's words, a
+  choice's own text inside them from that language's `strings` block.
+  A game language the catalogue lacks gets English, and `kinetic
+  report` says so. The names file sets a variable's words, for every
+  language or per language.
 - **A one-frame ATL image is a still.** `image x:` with one frame and
   transform properties (`zoom`, `xalign`) becomes that picture, its
   properties reported as not applied, so its lines stay.
@@ -4791,8 +4796,20 @@ The orchestrator's choices, within those decisions:
      is set", "met_x is not set").
    An ordinary decision's absent `else` is a route whose one text item
    is its label in parentheses. The prompt is "Which fits your story
-   so far?". `kinetic extract --condition-names FILE` reads a JSON
-   object mapping a variable to reader words, used in every label that
+   so far?". These phrases (the prompt, "If you chose: {choice}", the
+   range wordings "{name} {n} or more", "{name} {low} to {high}",
+   "{name} under {n}", "Otherwise", "{name} is set", "{name} is not
+   set") join the player's English catalogue and every PO file in
+   `player/locales/`, translated; `npm run i18n` writes them to a file
+   the converter reads (as it writes `apps/host-words.json`), and `npm
+   test` fails while it is stale. The base text uses the game's base
+   `language`, each language file its tag's words (English where the
+   catalogue lacks the tag, which `kinetic report` names), a choice's
+   text inside a label that language's `strings` translation. `kinetic
+   extract --condition-names FILE` reads a JSON object mapping a
+   variable to reader words, one string for every language or an object
+   of tag to words (a language without its own takes the base
+   language's, else the variable's name), used in every label that
    names it (an unknown key a warning). Chains this cannot read stay as
    today, reported. `kinetic report` gains a section listing each
    decision made from a condition (its id, the condition, its labels)
@@ -4801,6 +4818,8 @@ The orchestrator's choices, within those decisions:
    projects for each kind (a chain following a menu's choice with and
    without `else`, `!=` and `in`, a counter chain with three ranges, a
    flag set in two menus, a chain whose arms jump before rejoining,
+   labels in a non-English base game and its language files, per-language
+   names, a language the catalogue lacks,
    audio in an arm, a chain inside a route, an unreadable condition),
    each validating `--strict` clean and walking to the end; report
    tests.
