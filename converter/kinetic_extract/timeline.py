@@ -55,6 +55,15 @@ picture, noted; on a `scene`, or with no picture before it, it shows
 over the black of Ren'Py's empty scene. A colour replaced before any
 line, pause, menu or transition showed it is no item.
 
+Item 9n5: a bare `scene` (no image named) clears the layer, so it shows
+the black still whatever the game's own `image black` is. A frame list's
+solid-colour frames are generated stills too, a translucent one laid
+over black, and an animation with one is held to item 9n3's rule for a
+translucent colour. A solid colour's `scene x:` or `show x:` ATL block
+that sets `alpha` (parser.atl_end_alpha: the value it ends at) gives the
+colour that alpha, under the same rule; a block whose `alpha` the
+converter cannot follow leaves the colour as it is, noted.
+
 Transitions (docs/plan.md Phase 57 item 4): a scene/show's `with` clause
 gives its visual's item the transition; a bare `with` gives it to the
 visual still waiting to be emitted when that visual changed since the
@@ -77,8 +86,9 @@ from .audio_cues import AudioFiles, AudioTrack, CueWalker
 from .flow import follow_labels
 from .media import probe_duration_seconds
 from .parser import (_KEYWORD_ARG_RE, Event, FileParse, Report,
-                     _call_arguments, character_images, nameless_characters,
-                     say_key, slug as _slug, string_literal)
+                     _call_arguments, atl_end_alpha, character_images,
+                     nameless_characters, say_key, slug as _slug,
+                     string_literal)
 from .presentation import (CharacterColors, Resolved, TransitionCounts,
                            character_colors, resolve_transition,
                            transition_defines)
@@ -459,9 +469,15 @@ class _Pending:
         # The item `transition` its `with` gave (docs/content-format.md,
         # "Transitions"); None: a cut.
         self.transition: dict[str, Any] | None = None
-        # An animation's frames, (ledger rel, file path, source ref) each,
-        # and its timing fields (parser.AtlImage.timing).
-        self.frames: list[tuple[str, Path, dict[str, str] | None]] = []
+        # An animation's frames, (ledger rel, file path, source ref,
+        # generated) each, a generated frame (a solid colour's still, item
+        # 9n5) with no file but its ItemRecord.generated name, and its
+        # timing fields (parser.AtlImage.timing).
+        self.frames: list[tuple[str | None, Path | None,
+                                dict[str, str] | None, str | None]] = []
+        # The translucent solid-colour frames of a frame list (item 9n5),
+        # laid over black: a `show` over a picture cannot show them.
+        self.translucent: list[str] = []
         self.timing: dict[str, Any] = {}
         # The emitted visual this one repeats at a route's start (Phase
         # 60 item 8b), else None. A repeat no line takes is dropped.
@@ -492,8 +508,9 @@ class _Pending:
         held = self.kind == "animation" and bool(
             self.timing.get("holdLastFrame"))
         if held:
-            rel, path, ref = self.frames[-1]
+            rel, path, ref, generated = self.frames[-1]
             again = _Pending("image", self.name, rel, path, self.source, ref)
+            again.generated = generated
         else:
             again = _Pending(self.kind, self.name, self.asset_rel,
                              self.asset_abs, self.source, self.source_ref)
@@ -887,8 +904,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         """An ATL frame's picture, resolved as a displayable string is
         (``displayable``), or None: a file on disk, under images/ or in
         the archives, or an image name, a one-frame ATL image's frame
-        included. A video, a solid colour or an animation is no
-        frame."""
+        included; a solid colour the converter shows is ``("solid", (r,
+        g, b, a))`` (item 9n5). A video, a colour it cannot show or an
+        animation is no frame."""
         got = displayable(ref, depth)
         if got.kind == "atl":
             atl = got.found
@@ -896,6 +914,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 if atl.still and depth < _MAX_DEPTH else None
         if got.kind == "picture" and got.found[0] == "image":
             return got.found
+        if got.kind == "solid" and got.found is not None:
+            return "solid", got.found
         return None
 
     def atl_pending(parsed: FileParse, source: str, name: str,
@@ -904,8 +924,12 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         animation of its frames; a still when it has one frame or every
         frame is one picture; unresolved, its ``reason`` naming the
         frame, when a frame resolves nowhere (item 9n: its lines are kept
-        over the last visual)."""
+        over the last visual). A solid-colour frame is a generated still
+        of its colour (item 9n5), a translucent one laid over black and
+        named in ``translucent``."""
         hits = []
+        frames = []
+        translucent = []
         for frame in atl.frames:
             hit = resolve_frame(frame.ref)
             if hit is None:
@@ -915,21 +939,40 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                                f"({frame.source}): no image definition or "
                                "asset answers it")
                 return pend
-            hits.append(hit)
-        if atl.still or len({hit[1] for hit in hits}) == 1:
-            _kind, ledger_rel, abs_path, src_ref, n = hits[0]
+            if hit[0] == "solid":
+                colour = hit[1]
+                if colour[3] < 255:
+                    translucent.append(frame.ref)
+                frames.append((None, None, None,
+                               solid_key(over_black(colour))))
+            else:
+                hits.append(hit)
+                frames.append((hit[1], hit[2], hit[3], None))
+        if atl.still or len({(f[0], f[3]) for f in frames}) == 1:
+            ledger_rel, abs_path, src_ref, generated = frames[0]
             pend = _Pending("image", name, ledger_rel, abs_path, source,
                             src_ref)
+            pend.generated = generated
             pend.notes.append(
                 f"ATL image ({atl.source}) with one frame: a still"
                 if atl.still else
                 f"ATL frames ({atl.source}) all show one picture: a still")
         else:
             pend = _Pending("animation", name, None, None, source)
-            pend.frames = [(hit[1], hit[2], hit[3]) for hit in hits]
+            pend.frames = frames
             pend.timing = atl.timing()
             pend.notes.append(
-                f"ATL frame list ({atl.source}): {len(hits)} frames")
+                f"ATL frame list ({atl.source}): {len(frames)} frames")
+        colours = sorted({f[3] for f in frames if f[3] is not None})
+        if colours:
+            pend.notes.append(
+                "ATL solid-colour frames: a still of each colour at the "
+                f"game's size ({', '.join(colours)})")
+        if translucent:
+            pend.translucent = translucent
+            pend.notes.append(
+                "ATL frames " + ", ".join(repr(r) for r in translucent)
+                + " are translucent: laid over black")
         for hit in hits:
             if hit[4] > 1:
                 chosen = hit[1].rsplit("!", 1)[-1]
@@ -980,6 +1023,39 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                if colour[3] < 255 else "")
             + ": a still of that colour at the game's size")
         return pend
+
+    def bare_scene(event: Event) -> _Target:
+        """What a `scene` naming no image shows (item 9n5): black, as
+        Ren'Py clears the layer, noted when the game's own `image black`
+        is not the built-in solid black."""
+        got = _Target("solid", _SOLID_COLORS[BLACK])
+        own = lookup(BLACK)
+        if own.kind != "solid" or own.found != _SOLID_COLORS[BLACK]:
+            got.extra.append(
+                "a bare `scene` clears the layer: black, as Ren'Py shows "
+                "it, not the game's own image 'black'")
+        return got
+
+    def atl_alpha(parsed: FileParse, event: Event, name: str,
+                  got: _Target) -> tuple[_Target, float | None]:
+        """A solid colour with the `alpha` its `scene x:`/`show x:` ATL
+        block ends at (item 9n5), and that alpha; the colour as it is,
+        and None, when the block sets none, or sets one the converter
+        cannot follow (noted and reported)."""
+        alpha, why = atl_end_alpha(event.atl)
+        if why is not None:
+            note = (f"ATL `alpha` of {name!r} at {event.source} not read "
+                    f"({why}): the colour shows as without the block")
+            parsed.reports.append(Report(event.source, name, note))
+            return _Target("solid", got.found, notes=got.notes,
+                           extra=got.extra + [note]), None
+        if alpha is None:
+            return got, None
+        r, g, b, a = got.found
+        faded = (r, g, b, round(a * max(0.0, alpha)))
+        return _Target("solid", faded, notes=got.notes, extra=got.extra + [
+            f"ATL block at {event.source} ends at alpha {alpha:g}: the "
+            "colour shown with that alpha"]), alpha
 
     def play_video(parsed: FileParse, source: str, asset: str | None,
                    name: str) -> _Pending | None:
@@ -1193,18 +1269,18 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         record.notes.extend(pend.notes)
         if pend.kind == "animation":
             item.update(pend.timing)
-            for k, (rel, path, ref) in enumerate(pend.frames):
+            for k, (rel, path, ref, generated) in enumerate(pend.frames):
                 record.frames.append(ItemRecord(
                     item={"id": f"{item_id}.f{k:03d}", "type": "image"},
                     source=pend.source, asset=rel, asset_abs=path,
-                    source_ref=ref))
+                    source_ref=ref, generated=generated))
                 if ref is not None and "archive" in ref:
                     record.notes.append(
                         f"frame {k} extracted from .rpa archive ({rel})")
             # The first frame stands for the animation in the size probe,
             # as an image item's one file does (a repeat is counted once).
-            if pend.frames and pend.frames[0][1].exists() \
-                    and pend.origin is None:
+            if pend.frames and pend.frames[0][1] is not None \
+                    and pend.frames[0][1].exists() and pend.origin is None:
                 result.source_images.append(pend.frames[0][1])
         elif pend.from_archive:
             # Provenance for assets resolved out of an .rpa archive
@@ -1531,6 +1607,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 # reads a displayable (item 9n); a name, the image
                 # Ren'Py's attribute choice picks (item 9n2).
                 got = (displayable(event.asset, 0) if event.asset is not None
+                       else bare_scene(event) if event.bare
                        else lookup(name))
                 chosen = name
                 if event.asset is None and got.kind == "none":
@@ -1571,6 +1648,10 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         pending.transition = clause.transition
                     continue
                 movie_shown = None
+                faded = None
+                if got.kind == "solid" and got.found is not None \
+                        and event.atl is not None:
+                    got, faded = atl_alpha(parsed, event, name, got)
                 if got.kind == "solid" and (
                         got.found is None
                         or (got.found[3] < 255 and not event.scene
@@ -1586,6 +1667,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                            f"({got.reason})" if got.found is None else
                            "is a translucent solid colour (#"
                            + "".join(f"{c:02x}" for c in got.found)
+                           + (f", its ATL `alpha` ending at {faded:g}"
+                              if faded is not None else "")
                            + "), which a still cannot lay over the "
                            "picture")
                     stale = (name, event.source, False, why)
@@ -1608,6 +1691,22 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         f"picture {chosen!r} chosen by the attributes of "
                         f"`{'scene' if event.scene else 'show'} {name}`, "
                         "as Ren'Py chooses an image")
+                if pend is not None and pend.translucent \
+                        and not event.scene \
+                        and (pending is not None or on_screen is not None):
+                    # A frame list with a translucent colour frame shown
+                    # over a picture (item 9n5), as a translucent colour
+                    # is (item 9n3): the picture stays.
+                    fresh = False
+                    why = ("is a frame list whose solid-colour frames "
+                           + ", ".join(repr(r) for r in pend.translucent)
+                           + " are translucent, which a still cannot lay "
+                           "over the picture")
+                    stale = (name, event.source, False, why)
+                    parsed.reports.append(Report(
+                        event.source, name, f"solid colour: {name!r} {why}; "
+                        f"its lines {KEPT}"))
+                    continue
                 if pend is None or pend.unresolved:
                     # Item 9n: a visual that resolves nowhere leaves the
                     # picture on screen as it was, and its lines are kept

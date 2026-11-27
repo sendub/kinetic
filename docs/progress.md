@@ -7121,7 +7121,35 @@ truthful: an unchecked box means nothing was accepted.
       `follow_labels`). Orchestrator: converter/ 1474 passed,
       test_validate_content.py 545 passed, the guard fails against
       HEAD's cli.py, one episode walked in 124 s at load 7.)
-- [ ] Solid colours in the last places (item 9n5).
+- [x] Solid colours in the last places (item 9n5).
+      (A bare `scene` (`scene`, `scene with fade`, `scene #000`) shows
+      the generated black still whatever the game's own `image black`
+      is, noted when that differs, `scene black` still the game's;
+      solid-colour frames of an ATL frame list are generated stills at
+      the game's size, one per colour, each frame `decision:
+      "generated"` with its own `solid` media entry, rebuilt by
+      `kinetic media rebuild`; a solid colour's `scene x:`/`show x:`
+      block takes its last `alpha` (bare or a warper's end value) into
+      item 9n3's translucent rule. Choices: a translucent frame is laid
+      over black, and over a picture the whole animation keeps its
+      lines over that picture; an `alpha` the converter cannot follow
+      (not a number, nested blocks, `repeat`, `choice` and the like)
+      leaves the colour as it was, reported. Tests: 21 cases, 19 failed
+      first (the other two guard existing behaviour). Recount, all 79
+      entries on both sides, before an ebf1f96 copy: 75 walked on each
+      side, the same 4 fail on both (3 entries with no game folder, 1
+      with no items), longest walk 281 s; total lines unchanged at
+      1,317,879; lines kept over the last visual 74,841 -> 74,830; 7
+      bare scenes now black; 7 frame lists with solid frames, 6 now
+      animations; 12 frames unresolved for being a colour -> 0; 11
+      solids with ATL `alpha` (2 stills, 9 kept over the picture, the
+      7 in one game white flashes fading to 0 that showed opaque
+      before). Leads, sensible answer taken: ATL `alpha` on images,
+      pictures and named transforms, and one translucent frame losing
+      a whole animation, affect a few dozen lines in two games, so they
+      go to docs/future.md's cosmetic gaps, not items. Orchestrator:
+      converter/ 1495 passed, test_validate_content.py 545 passed,
+      recount status logs checked.)
 - [ ] Held videos repeated and checked (item 9n6).
 - [ ] Menus no longer kept linear (item 9o).
 - [ ] More `if` chains become decisions (item 9p).

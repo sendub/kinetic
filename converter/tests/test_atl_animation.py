@@ -10,6 +10,11 @@ a `function` is dropped, each reported; any other ATL keeps the block
 `image without a file`, the statement named (a show of it shows its
 first picture, Phase 60 item 9n). A one-frame block is that
 frame as a still, its properties reported as not applied.
+
+Item 9n5: a frame that is a solid colour (`"#000"`, an image name of
+one) is a still of that colour at the game's size, which `kinetic media
+rebuild` makes again; a translucent one is laid over black, and a
+`show` of the animation over a picture keeps its lines over it.
 """
 
 from __future__ import annotations
@@ -379,3 +384,154 @@ def test_an_unresolved_frame_leaves_the_visual_naming_it(
     (reason,) = [r["reason"] for r in ledger["report"]
                  if r["statement"] == "ani"]
     assert reason.startswith("unresolvedVisual") and "nowhere.png" in reason
+
+
+# --- solid-colour frames (docs/plan.md Phase 60 item 9n5) --------------------
+
+def extract_script(tmp_path: Path, script: str) -> tuple[Path, Path, dict,
+                                                          dict]:
+    """Extract ``script`` beside a 32x18 `bg.png` and `red.png`: the
+    project, the folder, its manifest and its ledger."""
+    game = tmp_path / "proj" / "game"
+    (game / "images").mkdir(parents=True)
+    Image.new("RGB", (32, 18), (40, 60, 80)).save(game / "images" / "bg.png")
+    Image.new("RGB", (32, 18), (200, 0, 0)).save(game / "images" / "red.png")
+    (game / "script.rpy").write_text(script, encoding="utf-8")
+    out = tmp_path / "out"
+    with redirect_stdout(StringIO()):
+        assert cli_main([str(game.parent), str(out)]) == 0
+    manifest = json.loads((out / "manifest.json").read_text("utf-8"))
+    ledger = json.loads((out / "build-ledger.json").read_text("utf-8"))
+    return game.parent, out, manifest, ledger
+
+
+def one_colour(path: Path) -> str:
+    """The one colour of a PNG at the game's size (32x18), `#rrggbb`."""
+    with Image.open(path) as img:
+        assert img.format == "PNG" and img.size == (32, 18)
+        extrema = img.convert("RGB").getextrema()
+    assert all(lo == hi for lo, hi in extrema), extrema
+    return "#" + "".join(f"{lo:02x}" for lo, _hi in extrema)
+
+
+def test_solid_colour_frames_animate_with_generated_frames(
+        tmp_path: Path) -> None:
+    """`"#fff"` then `pause`, an image name of a colour (`black`) and a
+    `Solid` image are frames, each a still of its colour at the game's
+    size, the one file each colour has."""
+    _proj, out, manifest, ledger = extract_script(tmp_path, (
+        'image sky = Solid((40, 120, 200))\n'
+        'image flash:\n'
+        '    "#fff"\n    pause 0.1\n'
+        '    "black"\n    pause 0.1\n'
+        '    "sky"\n    pause 0.2\n'
+        '    repeat\n'
+        'label start:\n'
+        '    scene bg\n    "Before."\n'
+        '    scene flash\n    "Flashing."\n'
+        '    scene black\n    "Dark."\n'
+        '    return\n'))
+    items = manifest["items"]
+    assert [(i["type"], i.get("text")) for i in items] == [
+        ("image", "Before."), ("animation", "Flashing."), ("image", "Dark.")]
+    flash = items[1]
+    assert flash["frameSeconds"] == [0.1, 0.1, 0.2]
+    assert flash["loopCount"] == 1 and "holdLastFrame" not in flash
+    assert [one_colour(out / f) for f in flash["frames"]] == [
+        "#ffffff", "#000000", "#2878c8"]
+    assert all(is_content_addressed(out, f) for f in flash["frames"])
+    # The black frame is the black still `scene black` shows.
+    assert flash["frames"][1] == items[2]["file"]
+    assert [ledger["media"][f]["source"] for f in flash["frames"]] == [
+        {"generated": "#ffffff"}, {"generated": "black"},
+        {"generated": "#2878c8"}]
+    entry = ledger["items"][flash["id"]]
+    assert entry["decision"] == "frames"
+    assert [f["file"] for f in entry["frames"]] == flash["frames"]
+    assert all(f["decision"] == "generated" for f in entry["frames"])
+
+
+def test_picture_and_colour_frames_mix(tmp_path: Path) -> None:
+    _proj, out, manifest, ledger = extract_script(tmp_path, (
+        'image blink:\n'
+        '    "bg.png"\n    pause 1.0\n'
+        '    "#000"\n    pause 0.25\n'
+        '    "red"\n    pause 1.0\n'
+        'label start:\n'
+        '    scene blink\n    "Blinking."\n'
+        '    return\n'))
+    (item,) = manifest["items"]
+    assert item["type"] == "animation" and item["holdLastFrame"] is True
+    assert item["frameSeconds"] == [1.0, 0.25, 1.0]
+    assert [ledger["media"][f]["source"].get("path",
+                                             ledger["media"][f]["source"])
+            for f in item["frames"]] == [
+        "game/images/bg.png", {"generated": "black"}, "game/images/red.png"]
+    assert one_colour(out / item["frames"][1]) == "#000000"
+
+
+def test_frames_all_one_colour_are_a_still(tmp_path: Path) -> None:
+    _proj, out, manifest, ledger = extract_script(tmp_path, (
+        'image dark:\n'
+        '    "#000"\n    pause 0.5\n'
+        '    "black"\n    pause 0.5\n'
+        '    repeat\n'
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene dark\n    "Dark."\n'
+        '    return\n'))
+    item = manifest["items"][1]
+    assert item["type"] == "image" and one_colour(out / item["file"]) == \
+        "#000000"
+    assert ledger["media"][item["file"]]["source"] == {"generated": "black"}
+
+
+def test_a_translucent_colour_frame(tmp_path: Path) -> None:
+    """Item 9n3's rule: on a `scene`, or with no picture before it, a
+    translucent frame is laid over black; a `show` of the animation over
+    a picture keeps its lines over the picture, reported."""
+    _proj, out, manifest, ledger = extract_script(tmp_path, (
+        'image pulse:\n'
+        '    "#ff000080"\n    pause 0.5\n'
+        '    "#fff"\n    pause 0.5\n'
+        '    repeat\n'
+        'label start:\n'
+        '    scene pulse\n    "Pulsing."\n'
+        '    scene bg\n    "Room."\n'
+        '    show pulse\n    "Over the room."\n'
+        '    return\n'))
+    items = manifest["items"]
+    assert [(i["type"], i.get("text")) for i in items] == [
+        ("animation", "Pulsing."), ("image", "Room."),
+        ("text", "Over the room.")]
+    assert [one_colour(out / f) for f in items[0]["frames"]] == [
+        "#800000", "#ffffff"]
+    notes = ledger["items"][items[2]["id"]]["notes"]
+    assert any("kept over the last visual" in n and "translucent" in n
+               for n in notes)
+    assert any(r["statement"] == "pulse" and "translucent" in r["reason"]
+               for r in ledger["report"])
+
+
+def test_colour_frames_rebuild_from_the_ledger(tmp_path: Path) -> None:
+    proj, out, manifest, ledger = extract_script(tmp_path, (
+        'image flash:\n'
+        '    "#fff"\n    pause 0.1\n'
+        '    "bg.png"\n    pause 0.1\n'
+        '    "#28c"\n    pause 0.1\n'
+        '    repeat\n'
+        'label start:\n'
+        '    scene flash\n    "Flashing."\n'
+        '    return\n'))
+    (item,) = manifest["items"]
+    rebuilt = tmp_path / "rebuilt"
+    with redirect_stdout(StringIO()) as said:
+        assert media_main(["rebuild", str(proj), str(out),
+                           "--out", str(rebuilt)]) == 0
+    assert f"{len(ledger['media'])} matched, 0 failed" in said.getvalue()
+    for ref in item["frames"]:
+        assert (rebuilt / ref).read_bytes() == (out / ref).read_bytes()
+    # A changed colour frame is a failure, as any other output's is.
+    (out / item["frames"][2]).write_bytes(b"not blue")
+    with redirect_stdout(StringIO()):
+        assert media_main(["rebuild", str(proj), str(out)]) == 1

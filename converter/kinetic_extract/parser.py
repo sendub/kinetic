@@ -567,6 +567,13 @@ class Event:
     # attributes choose with none kept from a picture shown before it
     # (docs/plan.md Phase 60 item 9n2); False for a `show`.
     scene: bool = False
+    # A `scene` that names no image (`scene`, `scene with fade`), which
+    # clears the layer to black whatever the game's own `image black` is
+    # (docs/plan.md Phase 60 item 9n5); its name is still `black`.
+    bare: bool = False
+    # The ATL block of a `scene x:` or `show x:`, ``(lineno, text,
+    # indent)`` per line (item 9n5 reads a solid colour's `alpha` in it).
+    atl: list[tuple[int, str, int]] | None = None
 
 
 @dataclass
@@ -1008,6 +1015,43 @@ def read_atl_image(block: list[tuple[int, str, int]], relname: str,
                      hold=not repeated or repeat is not None,
                      still=len(frames) == 1)
     return image, reports
+
+
+# ATL statements whose end the converter cannot tell (docs/plan.md Phase
+# 60 item 9n5): structure, a loop, an event or a function.
+_ATL_UNREAD = frozenset({"block", "parallel", "choice", "on", "contains",
+                         "time", "event", "function", "repeat"})
+_ATL_ALPHA_RE = re.compile(r"(?<![\w.])alpha\s+(\S+)")
+
+
+def atl_end_alpha(block: list[tuple[int, str, int]] | None
+                  ) -> tuple[float | None, str | None]:
+    """The `alpha` a `scene x:` or `show x:` block ends at (docs/plan.md
+    Phase 60 item 9n5): the last `alpha N` it sets, bare or after a
+    warper and its time (`linear 1.0 alpha 0.5`: the end value), as
+    ``(alpha, None)``; ``(None, None)`` when it sets no `alpha`; ``(None,
+    why)`` when it does in a way the converter cannot follow: a value
+    that is not a number, a nested block, or `block`, `parallel`,
+    `choice`, `on`, `contains`, `time`, `event`, `function` or
+    `repeat`."""
+    if not block or not any(_ATL_ALPHA_RE.search(text)
+                            for _n, text, _d in block):
+        return None, None
+    top = block[0][2]
+    alpha: float | None = None
+    for _lineno, text, depth in block:
+        if depth != top or text.endswith(":"):
+            return None, f"`{text}` opens a block"
+        for clause in _call_arguments(text + ")", 0) or [text]:
+            word = clause.split()[0] if clause.split() else ""
+            if word in _ATL_UNREAD:
+                return None, f"`{clause}`"
+            for m in _ATL_ALPHA_RE.finditer(clause):
+                value = m.group(1)
+                if not _ATL_NUMBER_RE.fullmatch(value):
+                    return None, f"`alpha {value}` is not a number"
+                alpha = min(1.0, float(value))
+    return alpha, None
 
 
 def _is_creator_statement(line: str, names: set[str]) -> bool:
@@ -2130,11 +2174,14 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
                 open_block()
             continue
         if keyword == "scene":
-            visual = _visual_event(source, rest, "black")
+            visual = _visual_event(source, rest, None)
             visual.scene = True
+            if visual.name is None:
+                visual.name, visual.bare = "black", True
             events.append(visual)
             if line.endswith(":"):
                 # `scene x:`: an ATL block, whose lines are no statements.
+                visual.atl = _gather_block(raw_lines, i, indent)[0]
                 open_block()
             continue
         if keyword == "show":
@@ -2159,6 +2206,7 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
             if line.endswith(":"):
                 # `show x:` with an ATL block names x (docs/plan.md Phase
                 # 60 item 9n); the block's lines are no statements.
+                visual.atl = _gather_block(raw_lines, i, indent)[0]
                 open_block()
             continue
         if keyword == "hide":

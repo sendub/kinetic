@@ -167,8 +167,10 @@ SIMPLIFICATIONS = [
     "line before any picture, or a menu, shows over one black still at "
     "the game's size, and a shown solid colour is one still of that "
     "colour (ledger media source {\"generated\": \"black\"} or "
-    "{\"generated\": \"#rrggbb\"}); a translucent one shown over a "
-    "picture keeps its lines over that picture",
+    "{\"generated\": \"#rrggbb\"}), an ATL frame list's colour frames "
+    "too; a translucent one (its ATL `alpha` included) shown over a "
+    "picture keeps its lines over that picture; a bare `scene` is black "
+    "whatever the game's own `image black` is",
     "audio statements attach to the next item emitted (a dropped item's "
     "pass to the next item kept); every file a kept item's cue names "
     "ships by the audio policy, and a track that ships nothing or starts "

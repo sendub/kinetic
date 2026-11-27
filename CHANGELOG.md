@@ -286,6 +286,16 @@ something more of an author.
   end cut to make room, where the cut used to drop the suffix and the
   search for a free id never ended. A game with thousands of decisions
   also finishes its decisions faster.
+- A bare `scene` shows black, as Ren'Py clears the layer, even where a
+  game defines its own `image black` (which `scene black` still
+  shows); an ATL frame list whose frames are solid colours (`"#000"`
+  then `pause 1`, alone or among pictures) animates, each colour a
+  still at the game's size that `kinetic media rebuild` makes again;
+  and a solid colour shown with an ATL block that sets `alpha` (`show
+  black:` then `alpha 0.5`, or the end of a `linear` to it) takes that
+  alpha, so over a picture it keeps its lines over that picture and on
+  a `scene` blends onto black (docs/extracting.md, "Finding a script's
+  files").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

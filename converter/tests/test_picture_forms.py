@@ -43,12 +43,23 @@ Item 9n3:
 - A menu before any picture hangs off a black still.
 - A say statement's attributes try the exact image name first, as
   Ren'Py's `apply_attributes` does.
+
+Item 9n5:
+
+- A bare `scene` shows black whatever the game's own `image black` is,
+  as Ren'Py clears the layer; `scene black` still shows the game's.
+- A solid colour's `scene x:`/`show x:` ATL block that sets `alpha`
+  gives the colour the alpha it ends at, under item 9n3's translucent
+  rule; a block whose `alpha` the converter cannot follow leaves the
+  colour as it is, noted. (Solid-colour frames of a frame list:
+  test_atl_animation.py.)
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from textwrap import indent
 
 import pytest
 from PIL import Image
@@ -1177,4 +1188,158 @@ def test_item_9n3_forms_together_make_a_folder_that_plays(tmp_path: Path
         "#000000", "#2288cc", "#000000", "bg", "eve casual calm",
         "eve happy", "eve happy", "#ffffff", "#000000"]
     assert len(manifest["branches"]) == 1
+    check_folder(tmp_path, out, manifest)
+
+
+# --------------------------------------------------------------------------
+# Item 9n5: a bare `scene`, and a solid colour's ATL `alpha`
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("define", "files"), [
+    ('image black = "dark.png"\n', {"images/dark.png": (1, 2, 3)}),
+    ("", {"images/black.png": (1, 2, 3)}),
+    ('image black = Solid("#123")\n', {}),
+])
+def test_a_bare_scene_shows_black_whatever_the_game_s_black_is(
+        tmp_path: Path, define: str, files: dict) -> None:
+    """Ren'Py's bare `scene` clears the layer: black, not the game's own
+    `image black`, which `scene black` still shows."""
+    out, manifest, ledger = run(tmp_path, (
+        f'{define}'
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene\n    "B."\n'
+        '    scene black\n    "C."\n'
+        '    scene bg\n    "D."\n'
+        '    scene with dissolve\n    "E."\n'
+        '    return\n'), files)
+    game_black = {"images/dark.png": "dark", "images/black.png": "black"}
+    named = next((game_black[f] for f in files), "#112233")
+    assert shown(out, manifest, ledger) == [
+        "bg", "#000000", named, "bg", "#000000"]
+    assert manifest["items"][4]["transition"]["kind"] == "dissolve"
+    notes = notes_of(manifest, ledger, "B.")
+    assert any("bare `scene`" in n for n in notes)
+    assert ledger["media"][manifest["items"][1]["file"]]["source"] == {
+        "generated": "black"}
+
+
+def test_a_bare_scene_with_the_built_in_black_is_noted_no_more(
+        tmp_path: Path) -> None:
+    """With no `image black` of the game's own, a bare `scene` shows the
+    built-in black as before, with no note that it differs."""
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene\n    "B."\n'
+        '    return\n'))
+    assert shown(out, manifest, ledger) == ["bg", "#000000"]
+    assert not any("bare `scene`" in n
+                   for n in notes_of(manifest, ledger, "B."))
+
+
+@pytest.mark.parametrize(("block", "colour"), [
+    ("    alpha 0.5\n", "#808080"),
+    ("    alpha 0.0\n    linear 1.0 alpha 0.5\n", "#808080"),
+    ("    ease 0.5 alpha 0.25 xalign 0.5\n", "#404040"),
+    ("    alpha 0.5, xalign 0.5\n    pause 1.0\n", "#808080"),
+    ("    alpha 0.3\n    easein_quad 1.0 alpha 1.0\n", "#ffffff"),
+])
+def test_a_scene_of_a_solid_with_atl_alpha_blends_onto_black(
+        tmp_path: Path, block: str, colour: str) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        f'    scene white:\n{indent(block, "    ")}'
+        '    "B."\n'
+        '    return\n'))
+    assert shown(out, manifest, ledger) == ["bg", colour]
+    assert any("alpha" in n and "ATL" in n
+               for n in notes_of(manifest, ledger, "B."))
+
+
+def test_a_show_of_a_solid_with_atl_alpha_follows_the_translucent_rule(
+        tmp_path: Path) -> None:
+    """Item 9n3's rule with the alpha the block ends at: over a picture a
+    translucent colour keeps its lines over it; with no picture before
+    it, or ending opaque, it is a still."""
+    out, manifest, ledger = run(tmp_path, (
+        'image tint = "#ff0000"\n'
+        'label start:\n'
+        '    show tint:\n        alpha 0.5\n'
+        '    "Over black."\n'
+        '    scene bg\n    "Room."\n'
+        '    show black:\n        alpha 0.0\n        linear 1.0 alpha 0.6\n'
+        '    "Dimmed."\n'
+        '    show black:\n        alpha 0.0\n        linear 1.0 alpha 1.0\n'
+        '    "Dark."\n'
+        '    return\n'))
+    assert [(i["type"], i.get("text")) for i in manifest["items"]] == [
+        ("image", "Over black."), ("image", "Room."), ("text", "Dimmed."),
+        ("image", "Dark.")]
+    assert shown(out, manifest, ledger) == [
+        "#800000", "bg", "bg", "#000000"]
+    assert any(KEPT in n and "translucent" in n
+               for n in notes_of(manifest, ledger, "Dimmed."))
+    assert any(r["statement"] == "black" and "translucent" in r["reason"]
+               for r in ledger["report"])
+
+
+def test_an_atl_block_on_a_solid_with_no_alpha_changes_nothing(
+        tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    show black:\n        xalign 0.5\n'
+        '    "B."\n'
+        '    return\n'))
+    assert shown(out, manifest, ledger) == ["bg", "#000000"]
+    assert not any("ATL" in n for n in notes_of(manifest, ledger, "B."))
+
+
+@pytest.mark.parametrize("block", [
+    "    block:\n        alpha 0.5\n        pause 1.0\n        repeat\n",
+    "    alpha fade_to\n",
+    "    alpha 0.5\n    repeat\n",
+    "    parallel:\n        linear 1.0 alpha 0.5\n",
+])
+def test_an_atl_alpha_the_converter_cannot_read_keeps_the_colour(
+        tmp_path: Path, block: str) -> None:
+    """Today's behaviour, the colour as if the block were not there,
+    noted and reported."""
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        f'    show white:\n{indent(block, "    ")}'
+        '    "B."\n'
+        '    return\n'))
+    assert shown(out, manifest, ledger) == ["bg", "#ffffff"]
+    assert any("not read" in n for n in notes_of(manifest, ledger, "B."))
+    assert any(r["statement"] == "white" and "not read" in r["reason"]
+               for r in ledger["report"])
+
+
+def test_item_9n5_forms_together_make_a_folder_that_plays(tmp_path: Path
+                                                          ) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'image black = "dark.png"\n'
+        'image flash:\n'
+        '    "#fff"\n    pause 0.1\n'
+        '    "bg.png"\n    pause 0.1\n'
+        '    repeat\n'
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene\n    "Cleared."\n'
+        '    scene flash\n    "Flashing."\n'
+        '    scene white:\n        linear 0.5 alpha 0.5\n'
+        '    "Grey."\n'
+        '    scene bg\n'
+        '    show white:\n        alpha 0.5\n'
+        '    "Dimmed."\n'
+        '    scene black\n    "The game\'s black."\n'
+        '    return\n'), {"images/dark.png": (1, 2, 3)})
+    assert texts(manifest) == ["A.", "Cleared.", "Flashing.", "Grey.",
+                               "Dimmed.", "The game's black."]
+    assert shown(out, manifest, ledger) == [
+        "bg", "#000000", "(animation)", "#808080", "bg", "dark"]
     check_folder(tmp_path, out, manifest)

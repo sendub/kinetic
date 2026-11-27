@@ -372,6 +372,13 @@ Found by the 2026-11-27 survey; none loses a line:
 - Double spaces inside one line of a say string stay, where Ren'Py
   collapses them; changing it would alter existing texts and
   translation matching.
+- ATL `alpha` beyond a shown solid colour's own block (item 9n5): an
+  `image x:` block of a solid colour with `alpha` (stays an image with
+  no file), a one-frame ATL image's `alpha`, `alpha` on a picture
+  (`show black: alpha 0.5` where `black` is a file), and `alpha` from a
+  named transform (`show black at half`); a few dozen lines in two
+  corpus games. A frame list with one translucent frame shown over a
+  picture loses the whole animation.
 
 ## Not wanted
 

@@ -25,7 +25,9 @@ file extensions - corpus extensions lie. Policies:
   the game's size (``ship_generated``, after the pass, once the size is
   known), one per colour; its ledger source is ``{"generated":
   "black"}`` or ``{"generated": "#rrggbb"}`` and its one ``solid`` step,
-  which records the colour, makes it again.
+  which records the colour, makes it again. An animation's solid-colour
+  frames (item 9n5) are such stills: the animation's ``frames`` are set
+  once they ship.
 - Other image formats (bmp, tiff, avif, ...) are decoded with Pillow (an
   AVIF sequence's first frame, the picture Ren'Py shows); the smallest
   of (PNG, JPEG q92, JXL) ships, lossless-first when the image
@@ -2008,16 +2010,25 @@ def _ship_animation(record: ItemRecord, run: _Pass,
                                 "ship: item dropped from manifest")
             record.skipped = True
             return 1
+    if not any(frame.generated is not None for frame in record.frames):
+        # Else its solid-colour frames ship later (ship_generated).
+        _set_frames(record)
+    return 0
+
+
+def _set_frames(record: ItemRecord) -> None:
+    """An animation's `frames`, its frames' shipped paths, right after
+    ``id``/``type``, and its ledger entry's ``frames``."""
     shipped = [frame.item["file"] for frame in record.frames]
     rest = {k: v for k, v in record.item.items()
             if k not in ("id", "type", "frames")}
     head = {"id": record.item["id"], "type": "animation", "frames": shipped}
     record.item.clear()
     record.item.update(head | rest)
+    meta = record.asset_meta
     meta["decision"] = "frames"
     meta["frames"] = [{"asset": frame.asset, **frame.asset_meta}
                       for frame in record.frames]
-    return 0
 
 
 def ship_generated(records: list[ItemRecord], out_dir: Path,
@@ -2028,13 +2039,24 @@ def ship_generated(records: list[ItemRecord], out_dir: Path,
     each colour at that size for the records whose ``generated`` names it
     (``"black"`` or ``"#rrggbb"``), recorded in ``media`` (the ledger's
     section, changed in place) with the source ``{"generated": name}``
-    and the ``solid`` step that makes it again. A file already at its
-    content path with other bytes raises ``media.ExistingFileError``, as
-    the asset pass does."""
+    and the ``solid`` step that makes it again; an animation's
+    solid-colour frames (item 9n5) included, whose animation then gets
+    its `frames`. A file already at its content path with other bytes
+    raises ``media.ExistingFileError``, as the asset pass does."""
     by_colour: dict[str, list[ItemRecord]] = {}
+    animations: list[ItemRecord] = []
     for record in records:
-        if record.generated is not None and not record.skipped:
-            by_colour.setdefault(record.generated, []).append(record)
+        if record.skipped:
+            continue
+        if record.item.get("type") == "animation":
+            made = [frame for frame in record.frames
+                    if frame.generated is not None]
+            if made:
+                animations.append(record)
+        else:
+            made = [record] if record.generated is not None else []
+        for one in made:
+            by_colour.setdefault(one.generated, []).append(one)
     if not by_colour:
         return
     with tempfile.TemporaryDirectory(prefix=".kinetic-tmp-",
@@ -2050,6 +2072,8 @@ def ship_generated(records: list[ItemRecord], out_dir: Path,
                 record.asset_meta.update({"sniffedFormat": "png",
                                           "decision": "generated",
                                           "file": ref})
+    for record in animations:
+        _set_frames(record)
 
 
 def _media_records(records: list[ItemRecord]) -> list[ItemRecord]:

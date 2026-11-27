@@ -833,7 +833,8 @@ Each item entry names its outputs with `file` and `poster` (keys into
 `sniffedFormat`, `decision` and, for video, `codec`. An animation's
 entry has `asset: null`, `decision: "frames"` and `frames`, one
 `{asset, sniffedFormat, decision, file}` per frame (ATL frame lists,
-above). A generated still's item entry (the black still, a solid
+above; a solid-colour frame has `asset: null` and `decision:
+"generated"`). A generated still's item entry (the black still, a solid
 colour) has `asset: null` and `decision: "generated"` (Finding a
 script's files, below). Every dict in
 `mediaTools` and `media` has sorted keys (step and argument lists keep
@@ -1011,7 +1012,8 @@ docs/plan.md Phase 60 item 9n3 read solid colours:
   reported, as a visual that resolves nowhere does.
 - **`scene #000` is a bare `scene`**: Ren'Py reads `#` outside a string
   as a comment, so the statement clears the layer, which shows black
-  whatever colour it writes, and so does the converter.
+  whatever colour it writes, and so does the converter (item 9n5: black
+  whatever the game's own `image black` is).
 - **A solid colour nothing shows is no item.** `scene black` then
   `show bg` with no line, `pause`, menu or `with` between: Ren'Py never
   shows the black, so the folder has no item for it, where a picture
@@ -1023,6 +1025,34 @@ docs/plan.md Phase 60 item 9n3 read solid colours:
   a line before any picture shows over, as Ren'Py shows the menu over
   its empty scene; it was kept linear (`no item precedes the menu`).
 
+docs/plan.md Phase 60 item 9n5 read solid colours in the last places:
+
+- **A bare `scene`** (`scene`, `scene with fade`, `scene #000`) clears
+  the layer, so it shows the black still whatever the game's own
+  `image black` is: a picture (`image black = "x.png"`, or
+  `images/black.png`) or another colour. Its item's ledger notes say so
+  (`a bare `scene` clears the layer`) when the game's `black` is not the
+  built-in solid black. `scene black`, which names the image, still
+  shows the game's definition, as Ren'Py does.
+- **Solid-colour frames** of an ATL frame list (ATL frame lists, below)
+  are stills of their colour at the game's size, the same file as any
+  other still of that colour.
+- **A solid colour's ATL `alpha`**: `scene x:` or `show x:` of a solid
+  colour with a block that sets `alpha`, bare (`alpha 0.5`) or as a
+  warper's end value (`linear 1.0 alpha 0.5`, `ease`, `easein_quad`
+  and the rest), takes the last `alpha` the block sets, multiplied
+  into the colour's own alpha, and the translucent rule above follows:
+  over a picture its lines are kept over that picture (the report and
+  note name the alpha), on a `scene`, or with no picture before it, it
+  is laid over black (`scene white:` then `alpha 0.5` is the still
+  `#808080`), and one that ends opaque is the colour's still. A block
+  that sets no `alpha` changes nothing. One whose `alpha` the converter
+  cannot follow, a value that is not a number, a nested block
+  (`block:`, `parallel:`, `on show:`) or a `repeat`, `choice`,
+  `contains`, `time`, `event` or `function`, leaves the colour as it is,
+  reported and noted (`ATL `alpha` ... not read`). The ATL block of a
+  picture, an animation or a video is not read.
+
 ### ATL frame lists
 
 An `image name:` block of ATL (docs/plan.md Phase 60 item 8) is read
@@ -1033,7 +1063,9 @@ joined by commas as Ren'Py allows:
   Phase 60 item 9n2), a file when it has a dot (as Ren'Py reads one),
   else an image name, resolved as `show` resolves a name (its
   `image` definition, a one-frame ATL image included, then the implicit
-  index); a frame may end in `with <transition>`;
+  index), or a solid colour (`"#000"`, an image name of one such as
+  `black`: docs/plan.md Phase 60 item 9n5); a frame may end in `with
+  <transition>`;
 - `pause N` or a bare number `N`, the time the frame before it shows
   (several in a row add up), the number in any parentheses (`pause
   (0.5)`, `pause(0.5)`, `(0.5)`: item 9n2);
@@ -1061,7 +1093,15 @@ Its frames ship as images through the usual image rule, so a picture
 several animations or images use ships once; the item's ledger entry
 has `decision: "frames"` and, under `frames`, each frame's `asset` and
 image decision, and each frame has its own `media` entry, which
-`kinetic media rebuild` checks as any other. An animated GIF or WebP
+`kinetic media rebuild` checks as any other. A solid-colour frame is a
+still of that colour at the game's size, made from nothing as a shown
+solid colour's still is (its frame entry `decision: "generated"`, its
+`media` entry the `{"generated": ...}` source and `solid` step), one
+file per colour; a translucent one (`"#ff000080"`) is laid over black,
+noted, and a `show` of the animation over a picture keeps its lines over
+that picture, reported, as a translucent colour's does (Finding a
+script's files, item 9n3). Frames that are all one colour are that
+colour's still. An animated GIF or WebP
 frame ships as it is (the image rule never re-encodes an animated
 image), so the browser plays it inside its frame time. A block of one
 frame, or whose frames are all one picture, is that picture as a still
