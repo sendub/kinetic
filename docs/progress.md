@@ -7176,7 +7176,42 @@ truthful: an unchecked box means nothing was accepted.
       at the duration, ship's `endSeconds`; all failed first.
       Orchestrator: converter/ 1505 passed, test_validate_content.py
       545 passed; AGENTS.md's posters line names the new flag.)
-- [ ] Menus no longer kept linear (item 9o).
+- [x] Menus no longer kept linear (item 9o).
+      (A conditional choice is a route labelled with its condition in
+      words, or "(not always offered)" when the test cannot be worded
+      (reported); a stat choice (every choice empty, all reaching the
+      join) is a decision of its choice lines, all `"continue"`; a menu
+      right after another decision gets a line before it, its caption
+      or "Another choice follows."; menu lines are read as Ren'Py's
+      `parse_menu` reads them (any quote style, choice arguments, a say
+      menuitem prompt, `set`, `with`, `$`, `pass` and later captions
+      passed over, a `label` in a choice block flowed through); a menu
+      still kept linear keeps its choices' lines in a row, reported. 3
+      new phrases in all 38 PO files, `npm run i18n` rerun. Choices: the
+      `menu "x":` lead is not real (Ren'Py's menu statement takes only
+      a name and arguments before the colon), the single-quote lead was
+      real and is fixed; a variable the menu's own choices set (a hub)
+      is worded by its test alone; a say menuitem is the prompt; the
+      file-order walk keeps stat choices linear (no provable join).
+      Tests: test_menu_shapes.py 14, the first 13 failing against
+      a22a4b0, each decision shape validated `--strict`, routed and
+      walked with `kinetic check`; 7 existing test files updated. Corpus
+      recount, 75 of 79 entries on both sides (4 with no folder or no
+      items), slowest walk 341 s: total lines 1,317,879 -> 1,407,642;
+      decisions 28,115 -> 33,715; conditional-choice routes 0 -> 2,871;
+      stat-choice decisions 0 -> 883; linear menus 5,162 -> 2,777;
+      lines in linear menus kept/lost 15,524/89,682 -> 35,823/6,972.
+      Leads -> items 9o2 (shared spans holding a decision's `after`,
+      validator failures in corpus output), 9o3 (say-menuitem and
+      default prompts untranslated), 9o4 (rejoin-linear menus, 6,607
+      lines lost); `and`/`or` and attribute tests in choices -> item
+      9p's wording. Orchestrator: converter/ 1519 passed,
+      test_validate_content.py 545 passed, npm test 1981 passed, npm
+      run check clean; de, fr, ja, ar and ru phrases read in the words
+      file.)
+- [ ] Shared spans that hold a decision's `after` item (item 9o2).
+- [ ] Menu prompts in the game's languages (item 9o3).
+- [ ] Menus kept linear by a rejoin (item 9o4).
 - [ ] More `if` chains become decisions (item 9p).
 - [ ] Variables shown in text (item 9q).
 - [ ] The picture at a join follows the reader's path (item 9r).

@@ -224,27 +224,33 @@ def test_jump_and_unknown_statement_read_as_label_flow() -> None:
     assert _bodies(parsed) == [[("dialogue", "a")], [("dialogue", "b")]]
 
 
-def test_conditional_choice_and_label_in_a_block_reject() -> None:
-    for text, why in (
-            ('menu:\n    "one" if x:\n        "a"\n    "two":\n'
-             '        "b"\n', "conditional choice: \"one\" if x:"),
-            ('menu:\n    "one":\n        label inner:\n        "a"\n'
-             '    "two":\n        "b"\n', "label inside a choice block")):
-        parsed = parse_file(text, "game/x.rpy")
-        assert [r.reason for r in parsed.reports] == [
-            f"menu unsupported ({why}): branch skipped, linear flow kept"]
-        assert parsed.menus[0].skip_reason == why
-        # No decision fork: the blocks are skipped, their flow followed.
-        assert not any(e.flow.menu is not None for e in parsed.events
-                       if e.kind == "fork")
+def test_conditional_choice_and_label_in_a_block_are_read() -> None:
+    """A conditional choice is a choice with its test, and a label in a
+    choice block is read as label flow (Phase 60 item 9o)."""
+    parsed = parse_file('menu:\n    "one" if x:\n        "a"\n    "two":\n'
+                        '        "b"\n', "game/x.rpy")
+    assert parsed.reports == []
+    assert parsed.menus[0].choices == ["one", "two"]
+    assert parsed.menus[0].choice_tests == ["x", None]
+    assert parsed.menus[0].parse_reason is None
+    parsed = parse_file('menu:\n    "one":\n        label inner:\n'
+                        '        "a"\n    "two":\n        "b"\n',
+                        "game/x.rpy")
+    assert parsed.reports == []
+    (fork,) = [e for e in parsed.events if e.kind == "fork"]
+    assert fork.flow.menu == 0
+    assert [[(e.kind, e.name or e.text) for e in body]
+            for body in fork.flow.bodies] == [
+        [("label", "inner"), ("dialogue", "a")], [("dialogue", "b")]]
 
 
 def test_single_choice_and_dedented_tail_reject() -> None:
-    # A lone conditional choice is rejected; a lone plain one is a line
-    # (Phase 60 item 3, test_one_choice_menu.py).
+    # A lone conditional choice stays linear, its block walked (Phase 60
+    # item 9o); a lone plain one is a line (Phase 60 item 3,
+    # test_one_choice_menu.py).
     parsed = parse_file('menu:\n    "only" if x:\n        "a"\n',
                         "game/x.rpy")
-    assert any("fewer than two choices" in r.reason for r in parsed.reports)
+    assert parsed.menus[0].parse_reason == "fewer than two choices"
     # After a rejected menu the walker resumes at the dedented lines.
     parsed = parse_file('menu\n    "one":\n        "a"\nlabel after:\n'
                         '    "tail"\n', "game/x.rpy")

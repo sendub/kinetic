@@ -160,16 +160,34 @@ game whose story order differs from its file order read out of order.
   block is a place a jump can land. A menu that becomes a decision is
   read as the next item says, and a chain read as a condition as a menu
   is (Conditions, below).
-- **Menus** (docs/plan.md Phase 60 item 4): a menu of two or more plain
-  quoted choices becomes a decision (Branches, in
-  docs/content-format.md). A menu of one plain choice is no decision
-  (item 3): its caption, if any, and its choice text become narration
-  lines where the menu stood, translated from the language's `strings`
-  block, and its block is read on as label flow; a lone conditional
-  choice stays linear, reported `fewer than two choices`. In a
-  decision's menu each choice block is read as label flow: its lines,
-  audio and nested menus, its `$` lines (assignments are kept on the
-  menu's record for conditions; they change nothing here) and the
+- **Menus** (docs/plan.md Phase 60 item 4): a menu of two or more
+  choices becomes a decision (Branches, in docs/content-format.md). The
+  menu block is read as Ren'Py's parser reads it (item 9o): a choice is
+  a string, `"x":`, `'x':` (any of Ren'Py's quotes, an `r` prefix too),
+  with arguments or not (`"x" (badge=1):`), with a test or not (`"x" if
+  cond:`); the first caption (a string on its own line, or a head's
+  `menu "x":`) or say menuitem (`e "Which one?"`) before the choices is
+  the prompt; a later caption, `set`, `with`, a `$` line and `pass` are
+  passed over (the `branchDetection` note lists them). A conditional
+  choice is a route like any other, labelled with its condition in
+  words, as a chain's routes are (Conditions, below): `Kiss her (love 3
+  or more)`, `Greet (met is set)`, `Ask (If you chose: Wave)`; a test on
+  a variable the menu's own choices set (a hub asking each question
+  once) is worded by the test alone, `Ask (asked is not set)`, and one
+  the converter does not read is `Gamble (not always offered)`,
+  reported `menu choice condition not worded (why)`. In each language
+  file the choice's text comes from the `strings` block and the
+  condition is in that language's words; the `branchDetection` note
+  says which choices are offered only on a condition. A menu of one
+  plain choice is no decision (item 3): its caption, if any, and its
+  choice text become narration lines where the menu stood, translated
+  from the language's `strings` block, and its block is read on as
+  label flow; a lone conditional choice stays linear, reported `fewer
+  than two choices`, its block's lines kept in a row. In a decision's
+  menu each choice block is read as label flow: its lines, audio and
+  nested menus, a `label` (Ren'Py flows through it, and a jump to it
+  from elsewhere lands there), its `$` lines (assignments are kept on
+  the menu's record for conditions; they change nothing here) and the
   `jump`, `call` or `return` it ends in. The walk reads each choice's
   path in turn up to where the choices meet, then that join once, as for
   any fork; the join is the post-dominator of the choices that do not
@@ -206,11 +224,19 @@ game whose story order differs from its file order read out of order.
   language's `strings` block, and the nested decision hangs off that
   line (Phase 60 item 8c). A menu whose
   choices all fall through meets right after the menu, so it continues
-  there too; one with no item after its join (the story's end, or a
-  second menu straight after it) is a pure choice, its routes
-  `"ending"`, and that second menu stays linear. A choice with nothing
-  of its own (it goes straight to the join) is one line, its choice
-  text, translated from the language's `strings` block. A route may
+  there too; one with no item after its join (the story's end) is a
+  pure choice, its routes `"ending"`. A menu straight after another
+  decision's join, no item between (item 9o), gets one line before it,
+  which is the earlier decision's `continueAt` and the menu's `after`:
+  its caption (translated from the `strings` block), else the
+  converter's words, `Another choice follows.` (in each language file
+  that language's words; its ledger note says so). A choice with
+  nothing of its own (it goes straight to the join) is one line, its
+  choice text, translated from the language's `strings` block. So a
+  menu every choice of which is empty and meets the others at the join
+  (a stat choice: `"Be kind": $ kind += 1`) is a decision whose routes
+  are its choice lines, all `"continue"` (item 9o); its note says `a
+  stat choice`. A route may
   hold any item (Phase 60 item 8b): pictures, ATL animations, videos
   and lines. A `text` item shows the nearest earlier media item in the
   item array, so when a route after the first starts with a line said
@@ -268,18 +294,24 @@ game whose story order differs from its file order read out of order.
   elsewhere, when a route reaches it on some paths only, or when a call
   cuts a route reaching it off the menu.
 
-  Linear and reported (`menu unsupported (...)`,
-  `skipped` in `branchDetection`): a menu every choice of which is
-  empty, one where a choice's path rejoins content read somewhere other
-  than the join or the menu and that is no shared tail (above; a jump
-  back to a label whose way to the
-  menu, after a line, passes an `if` with a jump, another menu, a call
-  or another jump is such a rejoin), a conditional choice (`"x" if cond:`), a
-  `label` inside a choice block, any line between choices other
-  than a caption, and a nested menu with no item of its route before
-  it (the route's lines dropped with an unresolved visual and no
-  picture before it). Such a menu's blocks are skipped as for an `if`, their
-  jumps and calls followed. A menu in a label the walk reaches that it
+  Linear and reported (`menu unsupported (...): branch skipped, its
+  choices' lines kept in a row`, `skipped` in `branchDetection`): a
+  menu every choice of which is empty that does not meet at one join
+  (a choice ends the story or loops back to the menu), one where a
+  choice's path rejoins content read somewhere other than the join or
+  the menu and that is no shared tail (above; a jump back to a label
+  whose way to the menu, after a line, passes an `if` with a jump,
+  another menu, a call or another jump is such a rejoin), a line at the
+  block's base indent Ren'Py's menu does not take (`show bg`), a
+  statement before the first choice, an empty choice label (`"":`), a
+  lone conditional choice, and a nested menu with no item of its route
+  before it (the route's lines dropped with an unresolved visual and no
+  picture before it). Such a menu's choices are walked as a decision's
+  are, each path in turn up to where they meet (item 9o), so every
+  choice's lines are read in a row, with no decision over them. A menu
+  with no choice at all keeps its block skipped as for an `if`, its
+  jumps and calls followed and its audio reported. A menu in a label
+  the walk reaches that it
   never lays out is `skipped` with why: `not reached: no path of the
   walk reaches it` (it follows a `jump` or `return` in its label) or
   `inside a block the walk does not read` (an `if` chain not converted,
@@ -1437,7 +1469,8 @@ and the summary:
 - creator-defined statements (`renpy.register_statement`): their names
   are matched before dialogue, as Ren'Py matches them;
 - audio inside a skipped block (a screen, a transform, Python, an `if`)
-  or an unsupported menu, and `$` audio Python other than the literal
+  or a menu with no choice the converter reads, and `$` audio Python
+  other than the literal
   calls above (`renpy.play` included);
 - a channel no script registers with literal arguments, and the movie
   channel, which plays video;

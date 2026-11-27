@@ -138,15 +138,19 @@ SIMPLIFICATIONS = [
     "computed jump/call expression walks the labels string literals in "
     "the game's code name (ledger walk); with no label start the scripts "
     "are read in filename order",
-    "menus of two or more plain quoted choices become branch decisions: "
+    "menus of two or more choices become branch decisions: "
     "each choice block is read as label flow, its path walked up to where "
     "the choices meet (the walk's join), and each route's result is how "
     "its path ended: at the join \"continue\" (the last such route the "
     "continuingRoute, the join's first item continueAt), back at the menu "
     "\"return\", at the story's end \"ending\"; a choice with nothing of "
-    "its own is its choice text; a menu with a conditional choice, every "
-    "choice empty or a path rejoining content read elsewhere is reported "
-    "and kept linear (ledger branchDetection)",
+    "its own is its choice text; a conditional choice is a route "
+    "labelled with its condition in words; a menu every choice of which "
+    "is empty (a stat choice) is a decision of its choice lines; a menu "
+    "straight after a decision's join gets a line before it (its "
+    "caption, else the converter's words); a path rejoining content read "
+    "elsewhere is reported and its choices' lines kept in a row (ledger "
+    "branchDetection)",
     "first dialogue line under a visual attaches to the media item; later "
     "lines become text items over the same visual; a route's first line "
     "said over the menu's visual repeats that visual when an earlier "
@@ -619,6 +623,23 @@ def finalize_branches(result: TimelineResult,
                     note += "; a pure choice (no join item to continue at)"
                 if rec.prompt_defaulted:
                     note += "; prompt defaulted (menu has no caption)"
+                tests = [(k, t) for k, t in enumerate(rec.choice_tests)
+                         if t]
+                if tests:
+                    note += "; " + "; ".join(
+                        f"choice {k + 1} offered only when `{t}`, its "
+                        "label in words" for k, t in tests)
+                if rec.stat_choice:
+                    note += ("; a stat choice (every choice reads nothing "
+                             "of its own): its routes are its choice lines")
+                if rec.lead_used:
+                    note += ("; follows another decision's join with no "
+                             "line between: a line before it, "
+                             + ("its caption" if rec.lead_phrase is None
+                                else "the converter's words"))
+                if rec.passed:
+                    note += "; lines passed over: " + ", ".join(
+                        src for src, _text in rec.passed)
                 if rec.condition is not None:
                     note += "; " + _condition_note(rec.condition, decision)
                 notes.append({"source": rec.source, "result": "detected",

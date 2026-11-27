@@ -27,11 +27,19 @@ Design notes:
   `jump`, `call` or `return` it ends in), carried by a ``fork`` event
   tagged with the record; kinetic_extract.flow walks each choice's path
   and lays it out between menu marker events, so the timeline can lay a
-  branch decision over the items. A menu with a conditional choice, a
-  line between choices other than a caption, a statement before the
-  first choice or a `label` in a choice block is reported with ``menu
-  unsupported (...)`` and its whole block is skipped, its jumps and calls
-  followed — never fatal. A menu with one plain choice is no decision
+  branch decision over the items. The block's base lines are read as
+  Ren'Py's parse_menu reads them (Phase 60 item 9o, _menu_line): choices
+  in any quote, with arguments and an `if` test (each choice's test kept
+  for kinetic_extract.conditions to word), a caption or say menuitem as
+  the prompt, `set`, `with`, `$`, `pass` and later captions passed over;
+  a `label` in a choice block is read as label flow. A menu whose shape
+  the parser does not take (another line between choices, a statement
+  before the first choice, an empty choice label, a lone conditional
+  choice) is walked all the same, its ``parse_reason`` set, so its
+  choices' lines are kept in a row and the timeline reports it; one
+  with no choice at all is reported ``menu unsupported (...)`` and its
+  block skipped, its jumps and calls followed — never fatal. A menu
+  with one plain choice is no decision
   (Phase 60 item 3): its caption, if any, and its choice text become
   narration lines where the menu stood, and the choice block is read in
   place as label flow.
@@ -78,8 +86,9 @@ from . import conditions
 from .audio_statements import (AudioChannel, AudioStatement, mentions_audio,
                                read_audio_define, read_channel, read_python,
                                read_statement)
-from .renpy_lexer import (STATEMENT_WORDS, _parse_quoted, item_text,
-                          parse_say, renpy_newlines, say_texts, story_lines)
+from .renpy_lexer import (STATEMENT_WORDS, _Cursor, _parse_quoted,
+                          item_text, parse_say, renpy_newlines, say_texts,
+                          story_lines)
 
 # A Character made by `define e = Character(...)` (with or without an
 # init priority, `define -2 e = ...`), by `$ e = Character(...)`, or by
@@ -551,6 +560,10 @@ class Event:
     # chain, docs/plan.md Phase 60 item 6): the arm's index, whose words
     # each language file gets in its own language.
     arm: int | None = None
+    # A line in the converter's words (docs/plan.md Phase 60 item 9o: the
+    # line before a menu that follows a decision's join), its key in
+    # conditions.Words, which each language file says in its language.
+    phrase: str | None = None
     # A say statement's image attributes, `-` ones removing, and its
     # temporary ones after `@` (docs/plan.md Phase 60 item 9m), which the
     # timeline applies to the speaker's picture.
@@ -606,6 +619,41 @@ class MenuRecord:
     # Per choice, the source of each of those lines.
     assignment_sources: list[list[str]] = field(default_factory=list)
     skip_reason: str | None = None
+    # Why the parser keeps the menu linear (a line it does not take, a
+    # lone conditional choice): its choices are still walked, their lines
+    # kept in a row, and the timeline reports it (docs/plan.md Phase 60
+    # item 9o).
+    parse_reason: str | None = None
+    # Per choice, its test (`"x" if cond:`), None for a plain choice
+    # (item 9o); kinetic_extract.conditions words each one, and the
+    # route's label is the choice's text with those words.
+    choice_tests: list[str | None] = field(default_factory=list)
+    # Per choice, its condition's phrase (conditions.choice_phrase), None
+    # for a plain choice, and its route label in the base language.
+    choice_phrases: list[Any] = field(default_factory=list)
+    route_labels: list[str] = field(default_factory=list)
+    # Whether the caption is a string (translated in `strings`), not a
+    # say menuitem (`e "Which?"`, a say statement of its own).
+    caption_strings: bool = True
+    caption_source: str = ""
+    # The base-indent lines passed over (`set`, `with`, `$`, `pass`, a
+    # caption among the choices), ``(source, text)`` each.
+    passed: list[tuple[str, str]] = field(default_factory=list)
+    # A menu every choice of which reads nothing and meets the others at
+    # the join (a stat choice): a decision whose routes are its choice
+    # lines (item 9o; kinetic_extract.flow sets it).
+    stat_choice: bool = False
+    # The line before the menu when it follows another decision's join
+    # with no line between (item 9o): its caption, or the converter's
+    # words (``lead_phrase``, conditions.Words) in the base language.
+    lead_text: str | None = None
+    lead_phrase: str | None = None
+    lead_used: bool = False
+    # Whether kinetic_extract.conditions.prepare has worded it (once),
+    # in which base language and with which `--condition-names` words.
+    worded: bool = False
+    words_base: str = "en"
+    words_names: dict[str, Any] = field(default_factory=dict)
     # An `if` chain read as a fork (docs/plan.md Phase 60 item 6): its
     # arms are the "choices", ``choices`` their labels once
     # kinetic_extract.conditions.prepare has worded them.
@@ -618,6 +666,13 @@ class MenuRecord:
         if self.condition is not None and k < len(self.condition.asides):
             return self.condition.asides[k], False
         return self.choices[k], True
+
+    def label_of(self, k: int) -> str:
+        """Choice ``k``'s route label: its text, with its condition in
+        words for a conditional choice (item 9o)."""
+        if k < len(self.route_labels) and self.route_labels[k]:
+            return self.route_labels[k]
+        return self.choices[k]
 
 
 
@@ -1399,7 +1454,49 @@ def _handle_chain(raw_lines: list[str], i: int, relname: str, lineno: int,
     return j
 
 
-_PLAIN_CHOICE_RE = re.compile(r"\s*:")
+@dataclass
+class _MenuLine:
+    """One line at a menu block's base indent, as Ren'Py's parse_menu
+    reads it (docs/plan.md Phase 60 item 9o): a ``choice`` (``text``, its
+    ``test`` after `if` or None), a ``caption`` (a string on its own
+    line), a ``say`` menuitem (``speaker`` and ``text``), a line the walk
+    does not need (``ignore``: `set`, `with`, a `$` line, `pass`) or
+    ``other``."""
+
+    kind: str
+    text: str = ""
+    test: str | None = None
+    speaker: str | None = None
+
+
+def _menu_line(text: str) -> _MenuLine:
+    """Read one base-indent line of a menu block. A choice or caption's
+    string may be double-, single- or back-quoted (an `r` prefix too), a
+    choice may carry arguments, `"x" (badge=1) if cond:`."""
+    word = statement_word(text)
+    if word in ("set", "with", "$", "pass"):
+        return _MenuLine("ignore")
+    cur = _Cursor(text)
+    literal = cur.string()
+    if literal is not None:
+        said = item_text(literal)
+        if cur.eol():
+            return _MenuLine("caption", said)
+        cur.parenthesised()
+        test = None
+        if cur.keyword("if"):
+            rest = text[cur.pos:].strip()
+            if not rest.endswith(":") or not rest[:-1].strip():
+                return _MenuLine("other")
+            return _MenuLine("choice", said, rest[:-1].strip())
+        cur.ws()
+        if text[cur.pos:].strip() == ":":
+            return _MenuLine("choice", said, test)
+        return _MenuLine("other")
+    say = parse_say(text, interact=False)
+    if say is not None and say.who and not say.triple:
+        return _MenuLine("say", item_text(say.literal), speaker=say.who)
+    return _MenuLine("other")
 
 
 def _one_choice(block: list[tuple[int, str, int]], caption: str | None,
@@ -1408,7 +1505,9 @@ def _one_choice(block: list[tuple[int, str, int]], caption: str | None,
     caption, if it has one, then its choice text, the choice's line last
     (its block follows it). None for any other menu: two or more choices,
     a conditional choice (`"x" if cond:`), a statement before the choice,
-    or any line between choices the menu reader does not take."""
+    a say menuitem, or any line after the choice or between choices the
+    menu reader does not take. A line the walk does not need (`set`,
+    `with`, `$`, `pass`) before the choice is passed over."""
     if not block:
         return None
     base = block[0][2]
@@ -1419,20 +1518,18 @@ def _one_choice(block: list[tuple[int, str, int]], caption: str | None,
             if choice is None:
                 return None
             continue
-        if indent < base or choice is not None \
-                or not text.startswith("\""):
+        if indent < base or choice is not None:
             return None
-        parsed = _parse_quoted(text, 0)
-        if parsed is None:
-            return None
-        said, end = parsed
-        if _PLAIN_CHOICE_RE.fullmatch(text[end:]):
-            if not said.strip():
+        read = _menu_line(text)
+        if read.kind == "ignore":
+            continue
+        if read.kind == "choice" and read.test is None:
+            if not read.text.strip():
                 return None
-            choice = (lineno, said)
-        elif caption is None and not lines and not text[end:].strip():
-            caption = said
-            lines.append((lineno, said))
+            choice = (lineno, read.text)
+        elif read.kind == "caption" and caption is None and not lines:
+            caption = read.text
+            lines.append((lineno, read.text))
         else:
             return None
     if choice is None:
@@ -1448,50 +1545,67 @@ _CHOICE_ASSIGN_RE = re.compile(
     r"\$\s*([A-Za-z_][\w.]*)\s*(\+=|-=|=)(?!=)\s*(.+)")
 
 
+@dataclass
+class _MenuShape:
+    """What _menu_choices reads of a menu block: why it stays linear (the
+    first such reason, None for none), its caption, its choices
+    ``(label, lineno)`` with each one's test (None when plain) and the
+    lines passed over, ``(lineno, what)``, for the ledger."""
+
+    reject: str | None
+    caption: str | None
+    caption_strings: bool
+    caption_line: int | None
+    choices: list[tuple[str, int]]
+    tests: list[str | None]
+    passed: list[tuple[int, str]]
+
+
 def _menu_choices(block: list[tuple[int, str, int]], caption: str | None,
-                  ) -> tuple[str | None, str | None, list[tuple[str, int]]]:
+                  ) -> _MenuShape:
     """The structure of a menu block (``(lineno, text, indent)`` of its
-    lines deeper than the `menu:` line): ``(reject reason | None,
-    caption, choices)``, each choice ``(label, lineno)``. The lines at the
-    block's base indent must be an optional caption, then plain quoted
-    `"text":` choices; a conditional choice (`"x" if cond:`), any other
-    line there, a statement before the first choice or a `label` inside
-    a choice block (a place a jump could enter a route from outside)
-    rejects the menu. A conditional choice is counted with the others,
-    so a lone one is still `fewer than two choices`."""
+    lines deeper than the `menu:` line), as Ren'Py's parse_menu reads it
+    (docs/plan.md Phase 60 item 9o): the lines at the block's base indent
+    are choices (`"text":`, `"text" if cond:`, either quote, arguments
+    allowed), captions (a string alone: the first before any choice is
+    the prompt, a later one is passed over), a say menuitem (`e "Which
+    one?"`, the prompt when it comes first) and lines the walk does not
+    need (`set`, `with`, a `$` line, `pass`), passed over. A `label`
+    inside a choice block is read as label flow. Anything else at the
+    base indent, a statement before the first choice, a dedented line or
+    an empty choice label is a reason to stay linear; the block is still
+    read to its end, so every choice is known."""
     base = block[0][2]
-    choices: list[tuple[str, int]] = []
-    conditional = None
+    shape = _MenuShape(None, caption, True, None, [], [], [])
+
+    def reject(why: str) -> None:
+        if shape.reject is None:
+            shape.reject = why
+
     for lineno, text, indent in block:
         if indent > base:
-            if not choices:
-                return "statement before the first choice", caption, choices
-            if statement_word(text) == "label":
-                return "label inside a choice block", caption, choices
+            if not shape.choices:
+                reject("statement before the first choice")
             continue
         if indent < base:
-            return f"unexpected indent at line {lineno}", caption, choices
-        parsed = _parse_quoted(text, 0) if text.startswith("\"") else None
-        if parsed is None:
-            return f"unsupported line between choices: {text}", caption, \
-                choices
-        said, end = parsed
-        rest = text[end:]
-        if _PLAIN_CHOICE_RE.fullmatch(rest):
-            if not said.strip():
-                return "empty choice label", caption, choices
-            choices.append((said.strip()[:LABEL_MAX], lineno))
-        elif rest.strip().startswith("if ") and rest.endswith(":"):
-            conditional = conditional or f"conditional choice: {text}"
-            choices.append((said.strip()[:LABEL_MAX], lineno))
-        elif caption is None and not choices and not rest.strip():
-            caption = said
+            reject(f"unexpected indent at line {lineno}")
+            continue
+        read = _menu_line(text)
+        if read.kind == "choice":
+            if not read.text.strip():
+                reject("empty choice label")
+            shape.choices.append((read.text.strip()[:LABEL_MAX], lineno))
+            shape.tests.append(read.test)
+        elif read.kind in ("caption", "say") and shape.caption is None \
+                and not shape.choices:
+            shape.caption = read.text
+            shape.caption_strings = read.kind == "caption"
+            shape.caption_line = lineno
+        elif read.kind in ("caption", "say", "ignore"):
+            shape.passed.append((lineno, text))
         else:
-            return f"unsupported line between choices: {text}", caption, \
-                choices
-    if conditional is not None and len(choices) >= 2:
-        return conditional, caption, choices
-    return None, caption, choices
+            reject(f"unsupported line between choices: {text}")
+    return shape
 
 
 def _choice_assignments(block: list[tuple[int, str, int]]
@@ -1521,16 +1635,18 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
     ``i`` is the index of the line after the ``menu:`` line; the answer is
     the index the outer scan resumes at. A menu with one plain choice
     gives narration lines (its caption, its choice text) and resumes the
-    scan inside its choice block, read as label flow. A menu of two or
-    more plain quoted choices (docs/plan.md Phase 60 item 4) appends a
-    MenuRecord and a ``fork`` event tagged with it whose ``bodies`` hold
-    each choice block read as label flow (_scan_lines: its lines, audio,
-    nested menus, `$` lines and the `jump`, `call` or `return` it ends
+    scan inside its choice block, read as label flow. A menu with
+    choices (docs/plan.md Phase 60 items 4 and 9o) appends a MenuRecord
+    and a ``fork`` event tagged with it whose ``bodies`` hold each choice
+    block read as label flow (_scan_lines: its lines, audio, nested
+    menus, labels, `$` lines and the `jump`, `call` or `return` it ends
     in); kinetic_extract.flow lays the choices out between menu markers.
-    Any other menu is reported ``menu unsupported (reason)`` and its block
-    contributes nothing to the stream but a ``fork`` event of its
-    choices' jumps and calls (the walk follows those, docs/plan.md Phase
-    57 item 4e). Never fatal."""
+    One whose shape the parser does not take (_menu_choices) has its
+    ``parse_reason`` set: walked the same, it stays linear. A menu with no
+    choice is reported ``menu unsupported (reason)`` and its block
+    contributes nothing to the stream but a ``fork`` event of its jumps
+    and calls (the walk follows those, docs/plan.md Phase 57 item 4e).
+    Never fatal."""
     source = f"{relname}:{menu_lineno}"
     head_rest = menu_line[len("menu"):].strip()
     if head_rest.startswith(":"):
@@ -1562,14 +1678,15 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
         # choice line, as label flow.
         return single[-1][0]
 
-    if not block:
-        reject, choices = "empty menu", []
-    else:
-        reject, caption, choices = _menu_choices(block, caption)
+    shape = _menu_choices(block, caption) if block else None
+    choices = shape.choices if shape is not None else []
+    reject = shape.reject if shape is not None else "empty menu"
     if reject is None and not choices:
         reject = "no choices"
     elif reject is None and len(choices) < 2:
         reject = "fewer than two choices"
+    if shape is not None:
+        caption = shape.caption
     record = MenuRecord(
         source=source, statement=menu_line,
         decision_id=f"menu-{slug(cur_label, Path(relname).stem)}"
@@ -1579,10 +1696,17 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
         prompt_defaulted=caption is None,
         choices=[label for label, _lineno in choices],
         choice_sources=[f"{relname}:{lineno}" for _label, lineno in choices],
-        skip_reason=reject)
+        choice_tests=list(shape.tests) if shape is not None else [],
+        caption_strings=shape is None or shape.caption_strings,
+        caption_source=f"{relname}:{shape.caption_line}"
+        if shape is not None and shape.caption_line is not None
+        else source,
+        passed=[(f"{relname}:{n}", text) for n, text in shape.passed]
+        if shape is not None else [])
     menu_idx = len(result.menus)
     result.menus.append(record)
-    if reject:
+    if not choices:
+        record.skip_reason = reject
         result.reports.append(Report(
             source, menu_line,
             f"menu unsupported ({reject}): branch skipped, linear flow kept"))
@@ -1595,14 +1719,21 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
                 "fork", source, text=menu_line,
                 flow=FlowStep("fork", source, menu_line, alternatives=alts)))
         return j
+    # A menu that stays linear for its shape still has its choices walked
+    # as a decision's are (docs/plan.md Phase 60 item 9o): each one's
+    # lines are kept in a row, and the timeline reports the menu.
+    record.parse_reason = reject
 
     # Each choice block, read as label flow into its own event list: the
-    # raw lines after its choice line up to the next choice (the last up
-    # to the menu's end).
+    # raw lines after its choice line up to the next line at the block's
+    # base indent (a choice, or a line passed over), the last up to the
+    # menu's end.
     bodies: list[list[Event]] = []
     starts = [lineno for _label, lineno in choices]
+    base = block[0][2]
     for k, start in enumerate(starts):
-        stop = starts[k + 1] - 1 if k + 1 < len(starts) else j
+        stop = next((n - 1 for n, _text, indent in block
+                     if n > start and indent <= base), j)
         body: list[Event] = []
         _scan_lines(raw_lines, start, stop, relname, result, body,
                     cur_label, cur_global)

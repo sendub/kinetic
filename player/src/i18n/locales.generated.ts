@@ -260,7 +260,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: لا",
     "converter.condition.is": "{name}: {value}",
     "converter.condition.isNot": "{name}: ليس {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "لا يُعرض دائمًا",
+    "converter.menu.next": "يليه اختيار آخر."
   },
   "bg": {
     "page.title": "Kinetic",
@@ -498,7 +501,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: не",
     "converter.condition.is": "{name} е {value}",
     "converter.condition.isNot": "{name} не е {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "не винаги се предлага",
+    "converter.menu.next": "Следва друг избор."
   },
   "ca": {
     "page.title": "Kinetic",
@@ -741,7 +747,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: no",
     "converter.condition.is": "{name} és {value}",
     "converter.condition.isNot": "{name} no és {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "no sempre s’ofereix",
+    "converter.menu.next": "Ve una altra elecció."
   },
   "cs": {
     "page.title": "Kinetic",
@@ -989,7 +998,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: ne",
     "converter.condition.is": "{name} je {value}",
     "converter.condition.isNot": "{name} není {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "není vždy k dispozici",
+    "converter.menu.next": "Následuje další volba."
   },
   "da": {
     "page.title": "Kinetic",
@@ -1227,7 +1239,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: nej",
     "converter.condition.is": "{name} er {value}",
     "converter.condition.isNot": "{name} er ikke {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "tilbydes ikke altid",
+    "converter.menu.next": "Der følger endnu et valg."
   },
   "de": {
     "page.title": "Kinetic",
@@ -1465,7 +1480,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: nein",
     "converter.condition.is": "{name} ist {value}",
     "converter.condition.isNot": "{name} ist nicht {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "nicht immer angeboten",
+    "converter.menu.next": "Es folgt eine weitere Wahl."
   },
   "el": {
     "page.title": "Kinetic",
@@ -1703,7 +1721,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: όχι",
     "converter.condition.is": "{name} είναι {value}",
     "converter.condition.isNot": "{name} δεν είναι {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "δεν προσφέρεται πάντα",
+    "converter.menu.next": "Ακολουθεί άλλη επιλογή."
   },
   "es": {
     "page.title": "Kinetic",
@@ -1946,7 +1967,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: no",
     "converter.condition.is": "{name} es {value}",
     "converter.condition.isNot": "{name} no es {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "no siempre se ofrece",
+    "converter.menu.next": "Sigue otra elección."
   },
   "es-419": {
     "page.title": "Kinetic",
@@ -2189,7 +2213,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: no",
     "converter.condition.is": "{name} es {value}",
     "converter.condition.isNot": "{name} no es {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "no siempre se ofrece",
+    "converter.menu.next": "Sigue otra elección."
   },
   "fa": {
     "page.title": "Kinetic",
@@ -2427,7 +2454,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: خیر",
     "converter.condition.is": "{name}: {value}",
     "converter.condition.isNot": "{name}: غیر از {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "همیشه ارائه نمی‌شود",
+    "converter.menu.next": "انتخاب دیگری در پیش است."
   },
   "fi": {
     "page.title": "Kinetic",
@@ -2665,7 +2695,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: ei",
     "converter.condition.is": "{name} on {value}",
     "converter.condition.isNot": "{name} ei ole {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "ei aina tarjolla",
+    "converter.menu.next": "Seuraavaksi tulee toinen valinta."
   },
   "fr": {
     "page.title": "Kinetic",
@@ -2908,7 +2941,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name} : non",
     "converter.condition.is": "{name} est {value}",
     "converter.condition.isNot": "{name} n’est pas {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "pas toujours proposé",
+    "converter.menu.next": "Un autre choix suit."
   },
   "he": {
     "page.title": "Kinetic",
@@ -3151,7 +3187,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: לא",
     "converter.condition.is": "{name}: {value}",
     "converter.condition.isNot": "{name}: לא {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "לא תמיד זמין",
+    "converter.menu.next": "בהמשך בחירה נוספת."
   },
   "hi": {
     "page.title": "Kinetic",
@@ -3389,7 +3428,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: नहीं",
     "converter.condition.is": "{name}: {value}",
     "converter.condition.isNot": "{name}: {value} नहीं",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "हमेशा उपलब्ध नहीं",
+    "converter.menu.next": "आगे एक और विकल्प है।"
   },
   "hr": {
     "page.title": "Kinetic",
@@ -3632,7 +3674,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: ne",
     "converter.condition.is": "{name} je {value}",
     "converter.condition.isNot": "{name} nije {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "ne nudi se uvijek",
+    "converter.menu.next": "Slijedi još jedan izbor."
   },
   "hu": {
     "page.title": "Kinetic",
@@ -3870,7 +3915,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: nem",
     "converter.condition.is": "{name}: {value}",
     "converter.condition.isNot": "{name}: nem {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "nem mindig választható",
+    "converter.menu.next": "Újabb választás következik."
   },
   "id": {
     "page.title": "Kinetic",
@@ -4103,7 +4151,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: tidak",
     "converter.condition.is": "{name} adalah {value}",
     "converter.condition.isNot": "{name} bukan {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "tidak selalu ditawarkan",
+    "converter.menu.next": "Pilihan lain menyusul."
   },
   "it": {
     "page.title": "Kinetic",
@@ -4346,7 +4397,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: no",
     "converter.condition.is": "{name} è {value}",
     "converter.condition.isNot": "{name} non è {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "non sempre disponibile",
+    "converter.menu.next": "Segue un’altra scelta."
   },
   "ja": {
     "page.title": "Kinetic",
@@ -4579,7 +4633,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}：なし",
     "converter.condition.is": "{name}が{value}",
     "converter.condition.isNot": "{name}が{value}以外",
-    "converter.condition.aside": "（{label}）"
+    "converter.condition.aside": "（{label}）",
+    "converter.condition.when": "{choice}（{condition}）",
+    "converter.condition.sometimes": "いつも選べるとは限らない",
+    "converter.menu.next": "続いて、もう一つの選択があります。"
   },
   "ko": {
     "page.title": "Kinetic",
@@ -4812,7 +4869,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: 아니요",
     "converter.condition.is": "{name}: {value}",
     "converter.condition.isNot": "{name}: {value} 아님",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "항상 제공되지는 않음",
+    "converter.menu.next": "또 다른 선택이 이어집니다."
   },
   "ms": {
     "page.title": "Kinetic",
@@ -5045,7 +5105,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: tidak",
     "converter.condition.is": "{name} ialah {value}",
     "converter.condition.isNot": "{name} bukan {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "tidak sentiasa ditawarkan",
+    "converter.menu.next": "Satu lagi pilihan menyusul."
   },
   "nb": {
     "page.title": "Kinetic",
@@ -5283,7 +5346,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: nei",
     "converter.condition.is": "{name} er {value}",
     "converter.condition.isNot": "{name} er ikke {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "tilbys ikke alltid",
+    "converter.menu.next": "Enda et valg følger."
   },
   "nl": {
     "page.title": "Kinetic",
@@ -5521,7 +5587,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: nee",
     "converter.condition.is": "{name} is {value}",
     "converter.condition.isNot": "{name} is niet {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "niet altijd beschikbaar",
+    "converter.menu.next": "Er volgt nog een keuze."
   },
   "pl": {
     "page.title": "Kinetic",
@@ -5769,7 +5838,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: nie",
     "converter.condition.is": "{name} to {value}",
     "converter.condition.isNot": "{name} to nie {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "nie zawsze do wyboru",
+    "converter.menu.next": "Następuje kolejny wybór."
   },
   "pt-BR": {
     "page.title": "Kinetic",
@@ -6012,7 +6084,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: não",
     "converter.condition.is": "{name} é {value}",
     "converter.condition.isNot": "{name} não é {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "nem sempre disponível",
+    "converter.menu.next": "A seguir, outra escolha."
   },
   "pt-PT": {
     "page.title": "Kinetic",
@@ -6255,7 +6330,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: não",
     "converter.condition.is": "{name} é {value}",
     "converter.condition.isNot": "{name} não é {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "nem sempre disponível",
+    "converter.menu.next": "Segue-se outra escolha."
   },
   "ro": {
     "page.title": "Kinetic",
@@ -6498,7 +6576,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: nu",
     "converter.condition.is": "{name} este {value}",
     "converter.condition.isNot": "{name} nu este {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "nu este mereu disponibilă",
+    "converter.menu.next": "Urmează o altă alegere."
   },
   "ru": {
     "page.title": "Kinetic",
@@ -6746,7 +6827,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: нет",
     "converter.condition.is": "{name} — {value}",
     "converter.condition.isNot": "{name} — не {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "предлагается не всегда",
+    "converter.menu.next": "Далее ещё один выбор."
   },
   "sk": {
     "page.title": "Kinetic",
@@ -6994,7 +7078,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: nie",
     "converter.condition.is": "{name} je {value}",
     "converter.condition.isNot": "{name} nie je {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "nie je vždy k dispozícii",
+    "converter.menu.next": "Nasleduje ďalšia voľba."
   },
   "sv": {
     "page.title": "Kinetic",
@@ -7232,7 +7319,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: nej",
     "converter.condition.is": "{name} är {value}",
     "converter.condition.isNot": "{name} är inte {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "erbjuds inte alltid",
+    "converter.menu.next": "Ännu ett val följer."
   },
   "sw": {
     "page.title": "Kinetic",
@@ -7470,7 +7560,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: hapana",
     "converter.condition.is": "{name} ni {value}",
     "converter.condition.isNot": "{name} si {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "haitolewi kila mara",
+    "converter.menu.next": "Chaguo lingine linafuata."
   },
   "th": {
     "page.title": "Kinetic",
@@ -7703,7 +7796,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: ไม่ใช่",
     "converter.condition.is": "{name} เป็น {value}",
     "converter.condition.isNot": "{name} ไม่ใช่ {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "ไม่ได้มีให้เลือกเสมอ",
+    "converter.menu.next": "ต่อไปมีตัวเลือกอีกครั้ง"
   },
   "tr": {
     "page.title": "Kinetic",
@@ -7941,7 +8037,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: hayır",
     "converter.condition.is": "{name}: {value}",
     "converter.condition.isNot": "{name}: {value} değil",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "her zaman sunulmaz",
+    "converter.menu.next": "Ardından başka bir seçim geliyor."
   },
   "uk": {
     "page.title": "Kinetic",
@@ -8189,7 +8288,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: ні",
     "converter.condition.is": "{name} — {value}",
     "converter.condition.isNot": "{name} — не {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "пропонується не завжди",
+    "converter.menu.next": "Далі ще один вибір."
   },
   "ur": {
     "page.title": "Kinetic",
@@ -8427,7 +8529,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: نہیں",
     "converter.condition.is": "{name}: {value}",
     "converter.condition.isNot": "{name}: {value} نہیں",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "ہمیشہ پیش نہیں کیا جاتا",
+    "converter.menu.next": "آگے ایک اور انتخاب ہے۔"
   },
   "vi": {
     "page.title": "Kinetic",
@@ -8660,7 +8765,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}: không",
     "converter.condition.is": "{name} là {value}",
     "converter.condition.isNot": "{name} không phải {value}",
-    "converter.condition.aside": "({label})"
+    "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "không phải lúc nào cũng có",
+    "converter.menu.next": "Tiếp theo là một lựa chọn khác."
   },
   "zh-Hans": {
     "page.title": "Kinetic",
@@ -8893,7 +9001,10 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}：否",
     "converter.condition.is": "{name}为{value}",
     "converter.condition.isNot": "{name}不为{value}",
-    "converter.condition.aside": "（{label}）"
+    "converter.condition.aside": "（{label}）",
+    "converter.condition.when": "{choice}（{condition}）",
+    "converter.condition.sometimes": "并非总会出现",
+    "converter.menu.next": "接下来还有一个选择。"
   },
   "zh-Hant": {
     "page.title": "Kinetic",
@@ -9126,6 +9237,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.notSet": "{name}：否",
     "converter.condition.is": "{name}為{value}",
     "converter.condition.isNot": "{name}不為{value}",
-    "converter.condition.aside": "（{label}）"
+    "converter.condition.aside": "（{label}）",
+    "converter.condition.when": "{choice}（{condition}）",
+    "converter.condition.sometimes": "並非總會出現",
+    "converter.menu.next": "接下來還有一個選擇。"
   }
 };

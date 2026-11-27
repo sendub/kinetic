@@ -409,8 +409,11 @@ def test_label_inside_a_menu_block_and_named_menu(tmp_path: Path) -> None:
         '    "End."\n')})
     result, parses = walk(game)
     # The named menu is a decision (Phase 60 item 4): Done's line is its
-    # route; the first menu, with a label in a choice block, is not.
-    assert texts(result) == ["One.", "Two.", "Side.", "Done.", "End."]
+    # route. The first menu's choice block is read as Ren'Py flows
+    # through its label (item 9o): the `if`'s jump reads it first, so the
+    # menu, whose Stay choice rejoins it, stays linear.
+    assert texts(result) == ["One.", "Skipped as before.", "Two.", "Side.",
+                             "Done.", "End."]
     assert not any("not a label" in r for r in reasons(parses))
     assert [u["label"] for u in result.walk["labelsUnreached"]] == ["tail"]
 

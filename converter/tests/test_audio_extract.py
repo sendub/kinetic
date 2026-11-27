@@ -644,17 +644,18 @@ def test_a_menu_nested_in_a_route_keeps_the_routes_states(
 
 
 def test_audio_in_an_unsupported_menu_is_reported(tmp_path: Path) -> None:
+    """A menu with no choice the parser reads keeps its blocks skipped:
+    their audio is reported. (A conditional choice is a route, its audio
+    read, Phase 60 item 9o.)"""
     _result, reasons = walk(tmp_path, """
         label start:
             "Lead."
             menu:
-                "Go" if ready:
+                $ ready = True
                     play sound "go.ogg"
-                    jump elsewhere
-                "Stay":
-                    "You stay."
+            "After."
         """, files=("go.ogg",))
-    assert has(reasons, "menu unsupported (conditional choice")
+    assert has(reasons, "menu unsupported (statement before the first choice")
     assert has(reasons, "audio inside an unsupported menu: not converted")
 
 

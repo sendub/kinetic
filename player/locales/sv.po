@@ -1219,3 +1219,19 @@ msgstr "{name} är inte {value}"
 msgctxt "converter.condition.aside"
 msgid "({label})"
 msgstr "({label})"
+
+#. Converter words: the route label of a choice the game offers only when a condition holds; {choice} is the game's own text of the choice, {condition} one of the route labels above (e.g. "Kiss her (love 3 or more)").
+#. Placeholders: {choice}, {condition}.
+msgctxt "converter.condition.when"
+msgid "{choice} ({condition})"
+msgstr "{choice} ({condition})"
+
+#. Converter words: the {condition} of the label above when the converter cannot put the game's condition in words: the game does not always offer this choice.
+msgctxt "converter.condition.sometimes"
+msgid "not always offered"
+msgstr "erbjuds inte alltid"
+
+#. Converter words: a line of the story just before a choice that comes straight after another choice, with no line of the game's own between them.
+msgctxt "converter.menu.next"
+msgid "Another choice follows."
+msgstr "Ännu ett val följer."

@@ -17,10 +17,13 @@ between them are the routes, menus nested in a route included, and the
 first item of the join's path is the `continueAt`. A route may hold any
 item (Phase 60 item 8b). A route with no item before a menu nested in it
 gets its choice text as its first line (item 8c), so the nested decision
-hangs inside the route. A `text` item shows the nearest earlier media
-item in array order, so a route after the first whose first line is said
-over the visual on screen at the menu, when an earlier route changed the
-visual, gets that line on a repeat of the menu's visual: the same picture,
+hangs inside the route; a menu straight after a decision's join, with no
+item between, gets a line before it (item 9o: its caption, else the
+converter's words), both decisions' join and `after`. A `text` item shows
+the nearest earlier media item in array order, so a route after the first
+whose first line is said over the visual on screen at the menu, when an
+earlier route changed the visual, gets that line on a repeat of the
+menu's visual: the same picture,
 animation or video, an animation that holds its last frame as that
 frame's picture, or a video that holds it as its `lastFrame` still
 (item 9n6, ItemRecord.last_frame_of).
@@ -379,6 +382,9 @@ class ItemRecord:
     # Phase 60 item 6): ``(chain, arm index)``, whose words each language
     # file gets in its own language (kinetic_extract.translations).
     condition_arm: tuple[Any, int] | None = None
+    # A line in the converter's words (docs/plan.md Phase 60 item 9o):
+    # its conditions.Words key, said in each language file's language.
+    converter_phrase: str | None = None
     # A picture made from nothing but its ledger entry, a still of one
     # colour (solid_key: ``"black"``, the black still a line before any
     # picture shows over, Phase 60 item 9n2, or ``"#rrggbb"``, a shown
@@ -1273,6 +1279,32 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         pending = new
         return back, None
 
+    def menu_lead(parsed: FileParse, event: Event) -> Event | None:
+        """The line before a menu that opens straight after a decision's
+        join, no item since that decision closed (docs/plan.md Phase 60
+        item 9o): the menu's caption, else the converter's words, as a
+        narration line both decisions hang off, the earlier one's
+        `continueAt` and the menu's `after`, as item 8c gives a nested
+        menu its route's choice text. None when an item came since (or
+        a visual waits that the `menu-open` emits), or the menu is a
+        chain's."""
+        record = parsed.menus[int(event.name or 0)]
+        if record.condition is not None or record.lead_text is None:
+            return None
+        if not any(len(result.items) <= count and id(cand) not in released
+                   for cand, count in awaiting):
+            return None
+        if not (pending is None or pending.consumed or (
+                pending.origin is not None and not pending.unresolved)):
+            return None
+        record.lead_used = True
+        if record.lead_phrase is None:
+            return Event("dialogue", record.caption_source or event.source,
+                         text=record.lead_text,
+                         from_strings=record.caption_strings)
+        return Event("dialogue", event.source, text=record.lead_text,
+                     phrase=record.lead_phrase)
+
     def emit_media(pend: _Pending, speaker: str | None,
                    text: str | None,
                    line_source: str | None = None,
@@ -1465,7 +1497,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         ends = starts[1:] + [region_end]
         dropped = ms.get("drop", set())
         outcome = outcome or {}
-        reason = ms.get("reject") or outcome.get("linear")
+        reason = (record.parse_reason or ms.get("reject")
+                  or outcome.get("linear"))
         if reason is None and ms["after"] < 0:
             reason = "no item precedes the menu in the walked flow"
         elif reason is None and len(menu_stack) > 1 \
@@ -1484,7 +1517,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             parsed.reports.append(Report(
                 record.source, record.statement,
                 f"{what} unsupported ({reason}): branch skipped, "
-                "linear flow kept"))
+                + ("its choices' lines kept in a row"
+                   if record.condition is None else "linear flow kept")))
             return
         kept = [k for k in range(len(starts)) if k not in dropped]
         results = list(outcome.get("results")
@@ -1509,8 +1543,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         cand = {
             "record": record,
             "after_idx": ms["after"],
-            "route_spans": [(record.choices[k], starts[k], ends[k] - 1)
+            "route_spans": [(record.label_of(k), starts[k], ends[k] - 1)
                             for k in kept],
+            "kept": kept,
             "results": [results[k] for k in kept],
             "how": [how[k] for k in kept],
             "continuing": None,
@@ -1593,6 +1628,10 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     continue
                 top["suppress"] = False
                 top["drop"].discard(len(top["starts"]) - 1)
+            if event.kind == "menu-lead":
+                event = menu_lead(parsed, event)
+                if event is None:
+                    continue
             if event.kind == "route-lead":
                 if not route_needs_lead():
                     continue
@@ -1856,6 +1895,11 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         and menu_stack:
                     last_line.condition_arm = (
                         menu_stack[-1]["record"].condition, event.arm)
+                if event.phrase is not None and last_line is not None:
+                    last_line.converter_phrase = event.phrase
+                    last_line.notes.append(
+                        "the converter's words before a menu that follows "
+                        "a decision's join with no line between")
             elif event.kind == "path-end":
                 # The join's path ended before an item of its own.
                 flush_bare()

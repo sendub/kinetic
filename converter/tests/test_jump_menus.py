@@ -33,7 +33,7 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from kinetic_extract import routes
+from kinetic_extract import conditions, routes
 from kinetic_extract.cli import main as cli_main
 from kinetic_extract.parser import parse_file
 
@@ -439,18 +439,23 @@ def test_menus_nested_several_deep_inside_routes(tmp_path: Path) -> None:
     check_folder(tmp_path, out, manifest)
 
 
-def test_every_choice_to_one_label_stays_linear(tmp_path: Path) -> None:
+def test_every_choice_to_one_label_is_a_stat_choice(tmp_path: Path) -> None:
+    """Every choice empty, all meeting at the join: a decision of the
+    choice lines (Phase 60 item 9o; it stayed linear before)."""
     out, manifest, ledger = extract(tmp_path, LEAD + (
         '    menu:\n'
         '        "Agree":\n            jump same\n'
         '        "Nod":\n            jump same\n'
         'label same:\n    "Same place."\n    return\n'))
-    assert texts(manifest) == ["Lead.", "Same place."]
-    assert manifest.get("branches", []) == []
+    assert texts(manifest) == ["Lead.", "Agree", "Nod", "Same place."]
+    assert shape(manifest) == [{
+        "after": "Lead.",
+        "routes": [("Agree", "Agree", "Agree", "continue"),
+                   ("Nod", "Nod", "Nod", "continue")],
+        "continuing": "Nod", "continueAt": "Same place."}]
     (note,) = detection(ledger)
-    assert note["result"] == "skipped"
-    assert "every choice is empty" in note["reason"]
-    assert any("every choice is empty" in r for r in menu_reports(ledger))
+    assert note["result"] == "detected"
+    assert menu_reports(ledger) == []
     check_folder(tmp_path, out, manifest)
 
 
@@ -604,22 +609,30 @@ def test_menu_at_the_story_end_stays_a_pure_choice(tmp_path: Path) -> None:
     check_folder(tmp_path, out, manifest)
 
 
-def test_conditional_choice_stays_linear(tmp_path: Path) -> None:
+def test_conditional_choice_is_a_route(tmp_path: Path) -> None:
+    """A conditional choice is a route labelled with its condition
+    (Phase 60 item 9o): `key` is set nowhere, so not in words."""
     out, manifest, ledger = extract(tmp_path, LEAD + (
         '    menu:\n'
         '        "Open it" if key:\n            jump open\n'
         '        "Walk away":\n            "You walk away."\n'
         '    "Done."\n    return\n'
         'label open:\n    "It opens."\n    return\n'))
-    assert manifest.get("branches", []) == []
-    assert any("conditional choice" in r for r in menu_reports(ledger))
+    assert shape(manifest) == [{
+        "after": "Lead.",
+        "routes": [("Open it (not always offered)", "It opens.",
+                    "It opens.", "ending"),
+                   ("Walk away", "You walk away.", "Done.", "ending")],
+        "continuing": None, "continueAt": None}]
+    assert menu_reports(ledger) == []
+    check_folder(tmp_path, out, manifest)
 
 
 @pytest.mark.parametrize("gap", ["", '    "Between."\n'])
 def test_a_menu_straight_after_a_menu(tmp_path: Path, gap: str) -> None:
     """With a line between two menus each is a decision; with none the
-    first has no item to continue at (a pure choice) and the second,
-    whose `after` would lie in the first's last route, stays linear."""
+    second gets a line before it, the converter's words, that both hang
+    off (Phase 60 item 9o; it stayed linear before)."""
     out, manifest, ledger = extract(tmp_path, LEAD + (
         '    menu:\n'
         '        "A":\n            "Line A."\n'
@@ -633,13 +646,10 @@ def test_a_menu_straight_after_a_menu(tmp_path: Path, gap: str) -> None:
         assert [d["continueAt"] for d in got] == ["Between.", "Last."]
         assert menu_reports(ledger) == []
     else:
-        assert got == [{
-            "after": "Lead.",
-            "routes": [("A", "Line A.", "Line A.", "ending"),
-                       ("B", "Line B.", "Line B.", "ending")],
-            "continuing": None, "continueAt": None}]
-        assert any("follows the menu at game/script.rpy:4" in r
-                   for r in menu_reports(ledger))
+        line = conditions.Words("en").say("menu.next")
+        assert [d["continueAt"] for d in got] == [line, "Last."]
+        assert got[1]["after"] == line
+        assert menu_reports(ledger) == []
     check_folder(tmp_path, out, manifest)
 
 

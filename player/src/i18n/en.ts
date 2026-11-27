@@ -510,4 +510,10 @@ export const EN = {
   "converter.condition.isNot": "{name} is not {value}",
   /** Converter words: a line of the story showing a route label ({label}, one of the labels above) in parentheses, for a route with no line of its own. */
   "converter.condition.aside": "({label})",
+  /** Converter words: the route label of a choice the game offers only when a condition holds; {choice} is the game's own text of the choice, {condition} one of the route labels above (e.g. "Kiss her (love 3 or more)"). */
+  "converter.condition.when": "{choice} ({condition})",
+  /** Converter words: the {condition} of the label above when the converter cannot put the game's condition in words: the game does not always offer this choice. */
+  "converter.condition.sometimes": "not always offered",
+  /** Converter words: a line of the story just before a choice that comes straight after another choice, with no line of the game's own between them. */
+  "converter.menu.next": "Another choice follows.",
 } as const satisfies Record<string, Message>;

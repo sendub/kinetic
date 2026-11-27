@@ -306,6 +306,19 @@ something more of an author.
   `kinetic media ship` request with `"lastFrame": true` may give
   `endSeconds`, the range's end (docs/extracting.md, "kinetic-media
   posters").
+- More menus become decisions. A conditional choice (`"Kiss her" if
+  love >= 3:`) is a route labelled with its condition in words, `Kiss
+  her (love 3 or more)`, or `(not always offered)` when the converter
+  cannot word it; a menu whose choices only set variables (a stat
+  choice) is a decision of its choice lines; a menu straight after
+  another decision gets a line before it, its caption or `Another
+  choice follows.`; choices in single quotes or with arguments, a say
+  menuitem (`e "Which one?"`, the prompt), and `set`, `with`, `$`,
+  `pass` or a later caption among the choices no longer keep a menu
+  linear, nor does a `label` in a choice block. A menu that still stays
+  linear keeps every choice's lines in a row, reported, where they
+  were lost. The new words are in every interface language
+  (docs/extracting.md, "The walk follows labels").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

@@ -756,7 +756,8 @@ class Words:
         self.fell_back = False
 
     def say(self, key: str, **params: str) -> str:
-        full = KEY + key
+        # A key of another group of the converter's words (`menu.next`).
+        full = ("converter." + key) if "." in key else KEY + key
         text = self.own.get(full)
         if text is None:
             text = self.english.get(full, "")
@@ -1161,6 +1162,134 @@ def prepare(parses: list[tuple[str, Any]], base: str | None = None,
 
     for _rel, parsed in parses:
         parsed.events[:] = process(parsed.events, parsed)
+    for _rel, parsed in parses:
+        for record in parsed.menus:
+            if getattr(record, "condition", None) is not None \
+                    or record.worded:
+                continue
+            for k, why in word_menu(record, every, choice_of, before, base,
+                                    names):
+                parsed.reports.append(Report(
+                    record.choice_sources[k], record.choice_tests[k],
+                    f"menu choice condition not worded ({why}): its "
+                    "route says it is not always offered"))
+
+
+# --------------------------------------------------------------------------
+# Menus: conditional choices and the line before a menu (item 9o)
+# --------------------------------------------------------------------------
+
+# A conditional choice whose test the converter does not word.
+SOMETIMES = ("sometimes",)
+# The line before a menu that follows another decision's join with no
+# line between, when the menu has no caption.
+NEXT_MENU = "menu.next"
+
+
+def _test_phrase(test: Test) -> tuple[Any, ...]:
+    """``test`` in words on its own: a whole-number test as ranges, else
+    `set`, `is` and the like, else SOMETIMES."""
+    ranges = test.whole_numbers()
+    if ranges is not None and test.op in ORDERING | {"==", "!=", "in",
+                                                      "not in"}:
+        return range_phrase(test.var, normal(ranges), False)
+    return words_phrase(test.var, test) or SOMETIMES
+
+
+def choice_phrase(test: str, variables: dict[str, list[Assignment]],
+                  choice_of: dict[str, tuple[Any, int]],
+                  before: Before | None = None, own: Any = None,
+                  ) -> tuple[tuple[Any, ...], str | None]:
+    """A conditional choice's test (`"x" if test:`) in words, as the first
+    arm of a chain `if test:` with no `else` would be worded (classify):
+    "love 3 or more", "met is set", "If you chose: A" when only an
+    earlier menu's choices set it. A variable the choices of its own menu
+    (``own``) set is worded by the test alone ("asked is not set"): which
+    choice was taken before is the reader's own path back to the menu.
+    ``(phrase, None)``, or ``(SOMETIMES, why)`` when the converter does
+    not read the test."""
+    read = read_chain([test, None], variables)
+    if isinstance(read, str):
+        return SOMETIMES, read
+    sets = variables.get(read.variable, [])
+    if read.unread:
+        sets = sets + [Assignment(read.variable, "python", "", "")]
+    read.absent_else = True
+    first = read.tests[0]
+    if own is not None and any(choice_of.get(a.source, (None, 0))[0]
+                               is own for a in sets):
+        return (_test_phrase(first) if first is not None else SOMETIMES,
+                None)
+    dead = classify(read, sets, choice_of, before)
+    if 0 in dead or read.phrases[0] == ("otherwise",):
+        return (_test_phrase(first) if first is not None else SOMETIMES,
+                None)
+    return read.phrases[0], None
+
+
+def _render_choice(phrase: tuple[Any, ...], text: str, words: Words,
+                   name: Callable[[str], str],
+                   choice: Callable[[str], str]) -> str:
+    condition = (words.say("sometimes") if phrase == SOMETIMES
+                 else render(phrase, words, name, choice))
+    return fit(words.say("when", choice=text, condition=condition),
+               LABEL_MAX)
+
+
+def choice_label(record: Any, k: int, tag: str, text: str,
+                 choice: Callable[[str], str] | None = None,
+                 ) -> tuple[str | None, bool]:
+    """Choice ``k``'s route label in ``tag``'s words, its text ``text``
+    and another menu's choice texts through ``choice`` ("If you chose:
+    ..."), None for a plain choice; and whether a phrase fell back to
+    English."""
+    phrase = (record.choice_phrases[k]
+              if k < len(record.choice_phrases) else None)
+    if phrase is None:
+        return None, False
+    words = Words(tag)
+
+    def name(var: str) -> str:
+        return name_for(record.words_names, var, tag, record.words_base)
+
+    return (_render_choice(phrase, text, words, name,
+                           choice or (lambda t: t)), words.fell_back)
+
+
+def word_menu(record: Any, variables: dict[str, list[Assignment]],
+              choice_of: dict[str, tuple[Any, int]],
+              before: Before | None, base: str,
+              names: dict[str, Any]) -> list[tuple[int, str]]:
+    """Word a menu (docs/plan.md Phase 60 item 9o): each conditional
+    choice's route label, "Kiss her (love 3 or more)", in the ``base``
+    language with the ``names`` file's words, and the line it gets when
+    it follows another decision's join with no line between (its
+    caption, else the converter's words). The choices whose test is not
+    worded, ``(index, why)``."""
+    record.worded = True
+    record.words_base, record.words_names = base, names
+    unworded: list[tuple[int, str]] = []
+    phrases: list[tuple[Any, ...] | None] = []
+    for k, test in enumerate(record.choice_tests):
+        if not test:
+            phrases.append(None)
+            continue
+        phrase, why = choice_phrase(test, variables, choice_of, before,
+                                    record)
+        phrases.append(phrase)
+        if why is not None:
+            unworded.append((k, why))
+    record.choice_phrases = phrases
+    if any(p is not None for p in phrases):
+        record.route_labels = [
+            choice_label(record, k, base, text)[0] or text
+            for k, text in enumerate(record.choices)]
+    if record.prompt_defaulted:
+        record.lead_text = Words(base).say(NEXT_MENU)
+        record.lead_phrase = NEXT_MENU
+    else:
+        record.lead_text = record.prompt
+    return unworded
 
 
 def chains(parses: list[tuple[str, Any]]) -> list[ChainCondition]:

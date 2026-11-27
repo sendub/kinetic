@@ -361,10 +361,15 @@ Ren'Py runs the story in and what Ren'Py draws:
   the choice, and one reaching the story's end is an ending. A choice
   with no line of its own shows its choice text as its one line, as a
   route that opens with a nested menu does before it. A menu of one
-  plain choice shows its choice text as a line and reads on. A menu
-  stays linear, reported, when every choice is empty, a choice's path
-  rejoins another's content away from the join, or a choice is
-  conditional (`"x" if cond:`). Before 1.15.0 only menus whose choices
+  plain choice shows its choice text as a line and reads on. A
+  conditional choice (`"x" if cond:`) is a route labelled with its
+  condition in words ("Kiss her (love 3 or more)"); a menu whose choices
+  only set variables (a stat choice) is a decision of its choice lines;
+  a menu straight after another decision gets a line before it, its
+  caption or "Another choice follows.". A menu stays linear, reported,
+  when a choice's path rejoins another's content away from the join or
+  its block holds a line Ren'Py's menu does not take; its choices'
+  lines are then read in a row. Before 1.15.0 only menus whose choices
   held their lines in place converted, and those as pure choices whose
   routes all ended, so a reader with Play all routes off read every
   route before going on.

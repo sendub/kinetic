@@ -51,9 +51,14 @@ story events in that order, each statement once:
   where it leads (``shared``), filled in once the outermost menu open
   closes (resolve_region), when every route reaching it is known. The
   menu stays linear (a path rejoining content read elsewhere that is no
-  shared tail, every choice empty); a
+  shared tail, every choice empty but not all meeting at the join); a
   choice with nothing of its own gets its text as a line
-  (kinetic_extract.timeline makes the decision). A menu nested in a
+  (kinetic_extract.timeline makes the decision), so a menu every choice
+  of which meets the join with nothing of its own (a stat choice, item
+  9o) is a decision of its choice lines. Before each menu it opens the
+  walk puts a `menu-lead` marker, which the timeline makes the menu's
+  line when it follows another decision's join with no item between
+  (item 9o). A menu nested in a
   choice's path is preceded by that choice's text as a `route-lead`
   marker once it is a decision (item 8c), a line the timeline keeps when
   the route has no item before the menu. A nested menu whose choices meet
@@ -107,7 +112,8 @@ NOT_LAID_OUT = ("inside a block the walk does not read (an if chain not "
 # Markers a shared tail's run may not hold (docs/plan.md Phase 60 item
 # 9i): a span holds no decision.
 _MARKER_KINDS = frozenset({"menu-open", "choice-open", "menu-close",
-                           "choice-text", "route-lead", "path-end",
+                           "choice-text", "route-lead", "menu-lead",
+                           "path-end",
                            "shared-mark", "shared-open"})
 # How a shared tail's path ends -> the span's `result`.
 _SPAN_RESULT = {"join": "continue", "exit": "ending", "menu": "return"}
@@ -490,8 +496,8 @@ def _in_file_order(parsed: FileParse, stream: list[Event],
                 if not filled[-1]:
                     texts.append(choice_marker(record, k))
                     out.append((parsed, texts[-1]))
-            linear = None if any(filled) else (
-                "every choice is empty: none reads anything")
+            linear = record.parse_reason or (None if any(filled) else (
+                "every choice is empty: none reads anything"))
             if linear is None:
                 for marker in texts:
                     marker.kind = "dialogue"
@@ -897,7 +903,12 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 if k in bad:
                     return (f"choice {k + 1} ({label}) rejoins content "
                             f"read at {where}")
-            if not any(info["story"]):
+            if not any(info["story"]) and not (
+                    record.condition is None and endings
+                    and all(ends == {"join"} for ends in endings)):
+                # A menu every choice of which meets the others at the
+                # join is a stat choice (docs/plan.md Phase 60 item 9o):
+                # its routes are its choice lines.
                 return ("every choice is empty: none reads anything "
                         "before where the choices meet")
             if record.condition is not None:
@@ -1165,6 +1176,9 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                f"{then_of[(fork, k)][1]}, which for this "
                                f"decision {how[-1]}")
             shared = []
+            if linear is None and not any(info["story"]):
+                parsed_of[ops[fork].file].menus[ops[fork].menu] \
+                    .stat_choice = True
             if linear is None:
                 for marker in info["texts"]:
                     marker.kind = "dialogue"
@@ -1441,6 +1455,12 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 events.append((parsed_of[op.file],
                                                Event("path-end", "")))
                             awaiting[0] = None
+                            # The line a menu straight after another
+                            # decision's join gets (docs/plan.md Phase 60
+                            # item 9o): the timeline keeps it when no item
+                            # came since that decision closed.
+                            events.append((parsed_of[op.file], Event(
+                                "menu-lead", op.source, name=str(op.menu))))
                             menus[n]["route_lead"] = route_lead(ctx)
                             events.append((parsed_of[op.file], Event(
                                 "menu-open", op.source, name=str(op.menu))))

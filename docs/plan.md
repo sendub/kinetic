@@ -5151,12 +5151,35 @@ The orchestrator's choices, within those decisions:
     menu that still stays linear keeps every choice's lines in a row,
     reported, instead of losing them. New phrases in every interface
     language, as item 6b. Tests: synthetic menus for each shape.
+9o2. Shared spans that hold a decision's `after` item (lead from item
+    9o). Converted folders fail the validator's branch rules with
+    "shared span holds decision X (its after item ...)" where an `if`
+    decision opens right after a shared span's last item: 15 problems
+    in 6 corpus games at item 9o's start, 19 in 7 after it. The
+    converter makes a folder the validator accepts, the decision kept
+    and its lines with it, as Ren'Py flows. Tests: a synthetic script of
+    that shape validates `--strict` and plays with `kinetic check`; the
+    corpus walk outputs pass the branch rules.
+9o3. Menu prompts in the game's languages (leads from item 9o). A say
+    menuitem prompt (`e "Which one?"` in a menu) is translated from the
+    game's `translate` blocks as its dialogue is, not looked up in
+    `strings`; the default prompt "What happens next?" becomes a
+    converter phrase in every interface language, as item 6b. Tests: a
+    game with a language file shows both prompts translated.
+9o4. Menus kept linear because a choice rejoins content read elsewhere
+    (lead from item 9o: 2,409 menus in the corpus, 35,499 lines kept in
+    a row and 6,607 lost). Find why those lines are lost and keep them,
+    and make the menus decisions where a route can end in a shared span
+    or rejoin (items 9i and 4) instead. Tests: synthetic menus for each
+    rejoin shape found; a corpus recount with the lines lost by reason.
 9p. More `if` chains become decisions (about 73,000 lines lost and
     34,000 read in a row, in 48 games). Tests joined by `and`/`or`,
     comparisons on expressions the converter can name (`x + y > 3`,
     `len(x)`), object attributes (`p.love >= 3`) and two variables
     become words decisions labelled with the whole test; a label inside
-    an arm is read as Ren'Py flows through it. Item 9k's run-time state
+    an arm is read as Ren'Py flows through it. The same wording labels
+    item 9o's conditional menu choices, which read "(not always
+    offered)" for these tests until then. Item 9k's run-time state
     stays unconverted. New phrases translated as in item 6b. Tests: one
     synthetic chain per form.
 9q. Variables shown in text (39,000 lines in 51 games show a literal
@@ -5195,7 +5218,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

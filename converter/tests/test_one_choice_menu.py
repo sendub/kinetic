@@ -115,16 +115,22 @@ def test_a_named_one_choice_menu_still_makes_its_label() -> None:
                                  ("dialogue", None, "Body.")]
 
 
-def test_a_conditional_one_choice_menu_stays_as_today() -> None:
+def test_a_conditional_one_choice_menu_stays_linear() -> None:
+    """No line of its choice text; its block is walked as a choice's is,
+    its lines kept in a row (Phase 60 item 9o, test_menu_shapes.py), and
+    the timeline reports it."""
     parsed = parse_file('label start:\n'
                         '    "Lead."\n'
                         '    menu:\n'
                         '        "Only" if met:\n'
                         '            "Body."\n'
                         '    "After."\n', "game/x.rpy")
-    assert any("fewer than two choices" in r.reason for r in parsed.reports)
+    assert parsed.menus[0].parse_reason == "fewer than two choices"
     assert [e.text for e in parsed.events if e.kind == "dialogue"] == [
         "Lead.", "After."]
+    (fork,) = [e for e in parsed.events if e.kind == "fork"]
+    assert [[e.text for e in body] for body in fork.flow.bodies] == [
+        ["Body."]]
 
 
 def test_the_walk_follows_the_blocks_jump(tmp_path: Path) -> None:

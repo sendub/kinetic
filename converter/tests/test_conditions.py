@@ -833,6 +833,9 @@ FRENCH = {
     "converter.condition.is": "{name} est {value}",
     "converter.condition.isNot": "{name} n'est pas {value}",
     "converter.condition.aside": "({label})",
+    "converter.condition.when": "{choice} ({condition})",
+    "converter.condition.sometimes": "pas toujours proposé",
+    "converter.menu.next": "Un autre choix suit.",
 }
 
 

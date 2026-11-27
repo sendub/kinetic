@@ -52,6 +52,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import conditions
 from .language_file import base_hash, canonical_tag
 from .parser import (LABEL_MAX, PROMPT_MAX, creator_statement_names,
                      say_key, script_lines, walked_scripts)
@@ -1098,6 +1099,10 @@ def language_files(manifest: dict[str, Any], records: list[Any],
             arm = getattr(record, "condition_arm", None)
             if arm is not None:
                 new = words_of(arm[0])[2][arm[1]]
+            phrase = getattr(record, "converter_phrase", None)
+            if phrase is not None:
+                # The converter's words (Phase 60 item 9o), in the tag's.
+                new = conditions.Words(tag).say(phrase)
             if new is not None and new.strip():
                 made_from = record.translation_bases.get(tag, texts[item_id])
                 item_entries[item_id] = _entry(new, made_from)
@@ -1127,8 +1132,18 @@ def language_files(manifest: dict[str, Any], records: list[Any],
                 if new is not None:
                     entry["prompt"] = _entry(new, branch["prompt"])
             routes = {}
-            for route in branch["routes"]:
-                new = lookup(route["label"], LABEL_MAX, "route label")
+            kept = cand.get("kept") or range(len(branch["routes"]))
+            phrases = getattr(record, "choice_phrases", None) or []
+            for route, k in zip(branch["routes"], kept):
+                if k < len(phrases) and phrases[k] is not None:
+                    # A conditional choice (Phase 60 item 9o): its text
+                    # from `strings`, its condition in the tag's words.
+                    text = lookup(record.choices[k], LABEL_MAX, "choice")
+                    new = None if text is None else conditions.choice_label(
+                        record, k, tag, text,
+                        lambda t: lookup(t, None, "choice") or t)[0]
+                else:
+                    new = lookup(route["label"], LABEL_MAX, "route label")
                 if new is not None:
                     routes[route["id"]] = _entry(new, route["label"])
             if routes:
