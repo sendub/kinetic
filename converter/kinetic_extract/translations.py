@@ -54,7 +54,7 @@ from typing import Any
 
 from .language_file import base_hash, canonical_tag
 from .parser import (LABEL_MAX, PROMPT_MAX, creator_statement_names,
-                     script_lines, walked_scripts)
+                     say_key, script_lines, walked_scripts)
 from .renpy_lexer import (STATEMENT_WORDS, Say, _Cursor, _parse_quoted,
                           item_text, logical_lines, parse_say,
                           renpy_newlines)
@@ -245,12 +245,17 @@ class Group:
     # The walk's name for the file, when it is not `file`: an archive
     # member's "game/<archive>.rpa!<key>" (item records' sources).
     item_file: str | None = None
+    # Which paragraph of a triple-quoted (monologue) say string the say
+    # statement is, from 0: each is a say statement of its own.
+    paragraph: int = 0
 
     def say_source(self) -> str | None:
-        """The say statement's source as item records name it."""
+        """The say statement's source as item records name it
+        (parser.say_key: a monologue's later paragraphs `#k`)."""
         if self.say_line is None:
             return None
-        return f"{self.item_file or self.file}:{self.say_line}"
+        return say_key(f"{self.item_file or self.file}:{self.say_line}",
+                       self.paragraph)
 
 
 def _first_word(text: str) -> str:
@@ -293,7 +298,8 @@ class _FileIds:
             identifier = f"{base}_{i}"
         return identifier
 
-    def create(self, group: list[tuple[int, str, Say | None]]) -> None:
+    def create(self, group: list[tuple[int, str, Say | None]],
+               paragraph: int = 0) -> None:
         md5 = hashlib.md5()
         for _line, code, _say in group:
             md5.update((code + "\r\n").encode("utf-8"))
@@ -317,7 +323,8 @@ class _FileIds:
         says = [line for line, _code, say in group if say is not None]
         self.groups.append(Group(identifier, alternate, self.file,
                                  group[0][0], [c for _l, c, _s in group],
-                                 says[-1] if says else None))
+                                 says[-1] if says else None,
+                                 paragraph=paragraph))
 
     def set_label(self, name: str, hidden: bool) -> None:
         if name.startswith(".") and self.global_label:
@@ -380,10 +387,10 @@ class _FileIds:
             if kind == "say":
                 assert say is not None
                 # A monologue is one say statement per paragraph, the
-                # first joining the group before it.
-                for what in say.whats():
+                # first joining the group before it, all on its line.
+                for k, what in enumerate(say.whats()):
                     group.append((line.number, say.code(what), say))
-                    self.create(group)
+                    self.create(group, paragraph=k)
                     group = []
             elif kind == "translatable":
                 group.append((line.number, text, None))
@@ -822,7 +829,11 @@ def read_project(game_dir: Path, records: list[Any],
         by_id.setdefault(group.identifier, group)
         if group.alternate:
             by_id.setdefault(group.alternate, group)
-    by_loc = {(g.file, g.line): g for g in groups}
+    # The groups each location comment may name: several for a
+    # monologue's paragraphs, which share its line.
+    by_loc: dict[tuple[str, int], list[Group]] = {}
+    for group in groups:
+        by_loc.setdefault((group.file, group.line), []).append(group)
     # A say statement's source -> the item record its text went to and
     # its place among the record's parts (an `extend` line is a part of
     # the item before it).
@@ -846,7 +857,7 @@ def read_project(game_dir: Path, records: list[Any],
         for block in lang.blocks:
             stats.blocks += 1
             by_identifier = by_id.get(block.identifier)
-            by_comment = by_loc.get(block.comment) if block.comment else None
+            by_comment = _at_comment(block, by_loc, by_identifier)
             if block.comment is None:
                 stats.no_comment += 1
             elif by_identifier is not None and by_comment is not None:
@@ -888,6 +899,20 @@ def read_project(game_dir: Path, records: list[Any],
                                                   found)
         _assemble(tag, records, found, stats)
     return project
+
+
+def _at_comment(block: Block, by_loc: dict[tuple[str, int], list[Group]],
+                by_identifier: Group | None) -> Group | None:
+    """The group `block`'s location comment names: the one at that line,
+    or of several there (a monologue's paragraphs) the one its
+    identifier names, else the one whose code Ren'Py commented in the
+    block, else none."""
+    found = by_loc.get(block.comment, []) if block.comment else []
+    if len(found) <= 1:
+        return found[0] if found else None
+    if by_identifier in found:
+        return by_identifier
+    return next((g for g in found if g.codes == block.original), None)
 
 
 def _take(block: Block, group: Group, old_english: str | None,

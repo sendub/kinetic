@@ -6944,7 +6944,29 @@ truthful: an unchecked box means nothing was accepted.
       unchanged. Tests: test_say_forms.py, 24 (23 failed first).
       Orchestrator: converter/ 1381 passed, test_validate_content.py
       and test_translations.py 578 passed.)
-- [ ] Nameless speakers and monologue translations (item 9m2).
+- [x] Nameless speakers and monologue translations (item 9m2).
+      (2026-11-27: a line by a nameless Character is narration with a
+      ledger note: `Character(None, ...)`, `name=None`, no name with a
+      nameless literal `kind=` chain or no `kind=` at all (Ren'Py's
+      `adv` has none), and Ren'Py's own `narrator`, `centered`,
+      `vcentered`, `nvl_narrator`, `adv`, `nvl` unless the game defines
+      them; through `define character.x`, dotted names and `init
+      python`. An unreadable name or kind keeps the variable as speaker.
+      Narration takes no colour, so a `what_color` is noted as not
+      carried. test_presentation.py's `kind=nvl` case now expects
+      narration, as Ren'Py shows it. Monologue paragraphs each have
+      their own source key (`game/x.rpy:LINE#k`), so each matches its
+      own `translate` block, by identifier or by location comment. Leads
+      left: an explicit `id` on a monologue string gives every paragraph
+      one identifier (rare); a `{clear}` paragraph, which Ren'Py reads as
+      `nvl clear`, occurs in no corpus `.rpy` (orchestrator's grep: 0).
+      Corpus recount (39 games, parse-only, read-only): speakerless lines
+      77,752 -> 81,602 in 17 games (much of it Ren'Py's `centered`,
+      shown before as a speaker "centered"), translated lines matched
+      468,735 -> 468,765, total lines unchanged in every game. Tests: 20
+      in test_say_forms.py (14 failed first). Orchestrator: converter/
+      1401 passed, test_validate_content.py and test_translations.py
+      578 passed.)
 - [ ] Pictures resolved as Ren'Py resolves them (item 9n).
 - [ ] Menus no longer kept linear (item 9o).
 - [ ] More `if` chains become decisions (item 9p).

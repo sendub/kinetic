@@ -390,6 +390,15 @@ def _join_from_clauses(lines: list[str]) -> None:
         prev = k
 
 
+def say_key(source: str, paragraph: int = 0) -> str:
+    """The name of one say statement Ren'Py makes of a line: its source
+    ("game/<rel>:LINE"), with `#k` added for paragraph k > 0 of a
+    triple-quoted (monologue) string, whose paragraphs share the line
+    (Event.paragraph). Item records' text parts and translation groups
+    are matched by it."""
+    return f"{source}#{paragraph}" if paragraph else source
+
+
 def statement_word(line: str) -> str:
     """The keyword a stripped statement line starts with (`if(x):` is
     `if`), else its first space- or colon-separated part."""
@@ -527,6 +536,10 @@ class Event:
     # The speaker is a name as written (`"Ann" "Hello."`), not a
     # Character's variable.
     speaker_named: bool = False
+    # The paragraph of a triple-quoted (monologue) say string the line is,
+    # from 0: Ren'Py makes a say statement, with its own translation, of
+    # each (docs/plan.md Phase 60 item 9m2; say_key).
+    paragraph: int = 0
 
 
 @dataclass
@@ -2075,11 +2088,12 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
             speaker, named = say.who, False
             if speaker is not None and _QUOTED_WHO_RE.match(speaker):
                 speaker, named = item_text(speaker), True
-            for said in say_texts(say):
+            for k, said in enumerate(say_texts(say)):
                 events.append(Event(
                     "dialogue", source, text=said, speaker=speaker,
                     attributes=tuple(say.attributes),
-                    temporary=tuple(say.temporary), speaker_named=named))
+                    temporary=tuple(say.temporary), speaker_named=named,
+                    paragraph=k))
             continue
         # Lines the say grammar does not take, read as before.
         quoted_start = line.find("\"")
@@ -2382,6 +2396,24 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     return parses, image_defs, characters, sources
 
 
+def _kind_argument(statement: str) -> str | None:
+    """A Character statement's `kind=` value as written, stripped, or
+    None when it gives none."""
+    m = _DEFINE_CHAR_RE.match(statement)
+    for arg in (_call_arguments(statement, m.end()) or []) if m else []:
+        kw = _KEYWORD_ARG_RE.fullmatch(arg)
+        if kw is not None and kw.group(1) == "kind":
+            return kw.group(2).strip()
+    return None
+
+
+def _literal_kind(statement: str) -> str | None:
+    """A Character statement's `kind=` when it is a plain (dotted) name,
+    else None."""
+    kind = _kind_argument(statement)
+    return kind if kind and _DOTTED_NAME_RE.fullmatch(kind) else None
+
+
 def character_images(parses: list[tuple[str, FileParse]]
                      ) -> dict[str, str]:
     """Variable -> the image tag of each Character define that gives one
@@ -2394,12 +2426,9 @@ def character_images(parses: list[tuple[str, FileParse]]
         for var, (_source, statement) in parsed.character_defs.items():
             own[var] = character_image(statement)
             kinds.pop(var, None)
-            m = _DEFINE_CHAR_RE.match(statement)
-            for arg in _call_arguments(statement, m.end()) or []:
-                kw = _KEYWORD_ARG_RE.fullmatch(arg)
-                if kw is not None and kw.group(1) == "kind" and \
-                        _DOTTED_NAME_RE.fullmatch(kw.group(2).strip()):
-                    kinds[var] = kw.group(2).strip()
+            kind = _literal_kind(statement)
+            if kind is not None:
+                kinds[var] = kind
     out: dict[str, str] = {}
     for var in own:
         seen, at = {var}, var
@@ -2409,6 +2438,68 @@ def character_images(parses: list[tuple[str, FileParse]]
         if own.get(at) is not None:
             out[var] = own[at]
     return out
+
+
+# Ren'Py's own Characters with no name (renpy/common): the kinds `adv`
+# and `nvl`, and `narrator`, `nvl_narrator`, `centered` and `vcentered`,
+# each `Character(None, ...)`. A game's own define of the name wins.
+BUILTIN_NAMELESS = frozenset({"adv", "nvl", "narrator", "nvl_narrator",
+                              "centered", "vcentered"})
+
+
+def character_nameless(line: str) -> bool | None:
+    """Whether a Character statement (_DEFINE_CHAR_RE) makes a Character
+    with no name: True when its name (the first positional argument or
+    `name=`) is `None`, False when it gives another name, None when it
+    gives none, its name then its `kind=`'s (Ren'Py's default kind,
+    `adv`, has none). Arguments the converter cannot read (`*args`,
+    `**kwargs`, an unclosed call) are a name it does not know: False."""
+    m = _DEFINE_CHAR_RE.match(line)
+    args = _call_arguments(line, m.end()) if m else None
+    if args is None:
+        return False
+    for arg in args:
+        if arg.startswith("*"):
+            return False
+        kw = _KEYWORD_ARG_RE.fullmatch(arg)
+        if kw is None:
+            return arg == "None"
+        if kw.group(1) == "name":
+            return kw.group(2).strip() == "None"
+    return None
+
+
+def nameless_characters(parses: list[tuple[str, FileParse]]) -> set[str]:
+    """The variables whose Character has no name (docs/plan.md Phase 60
+    item 9m2), whose lines Ren'Py shows as narration: a define whose name
+    is `None`; one with no name argument whose literal `kind=` is
+    nameless, through a chain of kinds, or that gives no `kind=` (Ren'Py's
+    default kind, `adv`, has no name); and Ren'Py's own nameless
+    Characters (BUILTIN_NAMELESS) the game does not define. A later
+    define replaces an earlier one; a `kind` the converter cannot read
+    gives no answer."""
+    own: dict[str, bool | None] = {}
+    kinds: dict[str, str | None] = {}
+    for _rel, parsed in parses:
+        for var, (_source, statement) in parsed.character_defs.items():
+            own[var] = character_nameless(statement)
+            kinds[var] = _literal_kind(statement)
+            if (own[var] is None and kinds[var] is None
+                    and _kind_argument(statement) is not None):
+                own[var] = False        # a kind the converter cannot read
+
+    def nameless(var: str, seen: frozenset[str]) -> bool:
+        if var not in own:
+            return var in BUILTIN_NAMELESS
+        if own[var] is not None:
+            return own[var]
+        kind = kinds[var]
+        if kind is None:
+            return True                 # Ren'Py's default kind, `adv`
+        return kind not in seen and nameless(kind, seen | {kind})
+
+    found = {var for var in own if nameless(var, frozenset({var}))}
+    return found | {var for var in BUILTIN_NAMELESS if var not in own}
 
 
 def kind_names(characters: dict[str, str],

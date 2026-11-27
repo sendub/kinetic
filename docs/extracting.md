@@ -394,7 +394,25 @@ back-quoted.
 - **Triple-quoted strings** are monologue mode: one line per paragraph
   (paragraphs are separated by blank lines), each with its line breaks
   and runs of spaces made one space. A file's `rpy monologue` setting is
-  not read: the default, one blank line, always splits.
+  not read: the default, one blank line, always splits. Ren'Py makes a
+  say statement of each paragraph, all named by the string's first line,
+  each with its own translation identifier and `translate` block
+  (docs/plan.md Phase 60 item 9m2), and each paragraph's item takes its
+  own block's text (Translations, below).
+- **A nameless speaker**, a Character with no name, is narration, as
+  Ren'Py shows its lines (docs/plan.md Phase 60 item 9m2): `define n =
+  Character(None, ...)` or `Character(name=None, ...)`; a Character with
+  no name argument whose literal `kind=` is nameless, through a chain of
+  kinds, or that gives no `kind=` (Ren'Py's default kind, `adv`, has no
+  name); and Ren'Py's own `narrator`, `centered`, `vcentered`,
+  `nvl_narrator`, `adv` and `nvl`, unless the game defines that name
+  itself. It holds however the Character is reached: `define
+  character.n`, a dotted name, an `init python` assignment. The item has
+  no `speaker`, and the ledger notes the nameless speaker. Narration is
+  never coloured (docs/content-format.md, "Characters"), so a
+  `what_color` it has is not carried; the note says so. A name or `kind`
+  the converter cannot read (an expression, `*args`) is not taken as
+  nameless: the line keeps the variable as its speaker, as before.
 - **A speaker with image attributes**, `e happy "..."`, is e's line.
   When e's Character gives a literal `image="tag"` (its own or its
   literal `kind=`'s) and the picture on screen has that tag, the
@@ -2051,8 +2069,9 @@ block (and `$` lines in `init:` blocks), from `DynamicCharacter`,
 several. The same statements give the speaker's display name
 (docs/plan.md Phase 57 item 4c), and a Character with no name argument
 takes its `kind=`'s name, through a chain of kinds, as Ren'Py does; a
-later statement for the same variable replaces an earlier one. The
-colours:
+later statement for the same variable replaces an earlier one. A
+Character with no name says narration, never coloured (Say statements,
+"A nameless speaker"). The colours:
 
 - `color` and `who_color` give the name's colour, `nameColor`;
   `who_color` wins when both are given. `what_color` gives the lines'
@@ -2190,7 +2209,9 @@ What is read, per language:
   statement, the comment is the fallback, taken only when the statement
   on that line is the one Ren'Py commented inside the block (`    #
   e "Hello."`), so a stale comment never gives a line another line's
-  translation.
+  translation. The paragraphs of a triple-quoted string share its line:
+  a comment naming it is taken for the paragraph the identifier names,
+  else the one whose code Ren'Py commented inside the block.
 - **Changed English kept as stale.** A block whose identifier names no
   statement because the English changed since the translation was made
   is kept when the line its comment names is safely the same line: the

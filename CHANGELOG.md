@@ -223,6 +223,14 @@ something more of an author.
   triple-quoted one as a line per paragraph; `if(x):` is an `if`; and a
   `call`'s `from` clause alone on the next line is the call's
   (docs/extracting.md, "Say statements").
+- A line said by a Character with no name, `Character(None, ...)` (or
+  one whose `kind=` has none, and Ren'Py's own `narrator` and
+  `centered`), is narration, as Ren'Py shows it, where the item used to
+  name the variable as its speaker; its `what_color` is not carried, as
+  narration is never coloured, and the ledger notes it. Each paragraph
+  of a triple-quoted line takes its own `translate` block's text, where
+  only the first paragraph was translated (docs/extracting.md, "Say
+  statements").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds` and `holdLastFrame` once
   upgraded. Converting a Ren'Py game again with this release gains its

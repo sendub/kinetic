@@ -59,7 +59,7 @@ from .audio_cues import AudioFiles, AudioTrack, CueWalker
 from .flow import follow_labels
 from .media import probe_duration_seconds
 from .parser import (Event, FileParse, Report, character_images,
-                     slug as _slug)
+                     nameless_characters, say_key, slug as _slug)
 from .presentation import (CharacterColors, Resolved, TransitionCounts,
                            character_colors, resolve_transition,
                            transition_defines)
@@ -124,11 +124,12 @@ class ItemRecord:
     # naming ids of TimelineResult.audio_tracks (kinetic_extract.
     # audio_cues); kept out of `item` until the tracks ship.
     audio: dict[str, Any] | None = None
-    # The say statement the item's text came from ("game/<rel>:LINE"),
-    # which Ren'Py's translations are matched to (``source`` is the
-    # visual's line for a media item); None for an item without text.
+    # The say statement the item's text came from ("game/<rel>:LINE",
+    # with `#k` for a monologue's paragraph k > 0: parser.say_key), which
+    # Ren'Py's translations are matched to (``source`` is the visual's
+    # line for a media item); None for an item without text.
     text_source: str | None = None
-    # The say statements the text is made of, ``(source, text)`` in order:
+    # The say statements the text is made of, ``(say key, text)`` in order:
     # the line itself, then each ``extend`` line that continues it (Ren'Py
     # shows the line and its extensions in one box). Their translations
     # are joined the same way (kinetic_extract.translations).
@@ -373,6 +374,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     # Each Character's image tag, and the `image` definitions by tag with
     # their attributes, for say statements' image attributes (item 9m).
     image_tags = character_images(parses)
+    # The Characters with no name, whose lines are narration (item 9m2).
+    nameless = nameless_characters(parses)
     tagged: dict[str, list[tuple[str, frozenset[str]]]] = {}
     for key in image_defs:
         parts = key.split()
@@ -740,8 +743,10 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         """The Character variable a say statement's speaker names: itself,
         or the `character` store's (`define character.e = ...`), which
         Ren'Py's say statement also looks in."""
-        if speaker not in characters and f"character.{speaker}" in characters:
-            return f"character.{speaker}"
+        store = f"character.{speaker}"
+        if (speaker not in characters and speaker not in nameless
+                and (store in characters or store in nameless)):
+            return store
         return speaker
 
     def apply_line(item: dict[str, Any], record: ItemRecord,
@@ -753,8 +758,19 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         if speaker is not None and named:
             # `"Ann" "Hello."`: the speaker's name as written.
             item["speaker"] = speaker
+        elif speaker is not None and (var := speaker_var(speaker)) \
+                in nameless:
+            # `Character(None, ...)`: Ren'Py shows the line as narration
+            # (item 9m2), which is never coloured.
+            record.notes.append(
+                f"speaker {speaker!r} is a nameless Character: narration, "
+                "as Ren'Py shows it")
+            color = colors[var].text_color if var in colors else None
+            if color is not None:
+                record.notes.append(
+                    f"speaker {speaker!r} text colour {color} not carried: "
+                    "narration is never coloured")
         elif speaker is not None:
-            var = speaker_var(speaker)
             item["speaker"] = characters.get(var, speaker)
             if var in colors:
                 known = result.speaker_colors.setdefault(item["speaker"], [])
@@ -792,7 +808,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         part at once)."""
         cues.extend_line()
         record.item["text"] += event.text
-        record.text_parts.append((event.source, event.text))
+        record.text_parts.append((say_key(event.source, event.paragraph),
+                                  event.text))
         record.notes.append(f"extended by the extend line at {event.source}")
         note_interpolations(record)
 
@@ -1100,7 +1117,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     continue
                 if pending is not None and not pending.consumed:
                     emit_media(pending, speaker, event.text,
-                               event.source, event.speaker_named)
+                               say_key(event.source, event.paragraph),
+                               event.speaker_named)
                     pending.consumed = True
                 else:
                     item_id = result._next_id("line")
@@ -1108,7 +1126,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                                             "type": "text"}
                     record = ItemRecord(item=item, source=event.source,
                                         asset=None,
-                                        text_source=event.source)
+                                        text_source=say_key(
+                                            event.source, event.paragraph))
                     if pending is None:
                         record.notes.append(
                             "dialogue with no preceding visual in flow")

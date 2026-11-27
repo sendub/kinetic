@@ -449,8 +449,10 @@ def test_a_nameless_character_takes_its_kinds_name(tmp_path: Path) -> None:
               '    a_again "Two."\n'
               '    z "Three."\n')
     manifest, _ledger, _out = convert(tmp_path, script)
+    # Ren'Py's `nvl` kind has no name, so z's line is narration
+    # (docs/plan.md Phase 60 item 9m2).
     assert [item.get("speaker") for item in manifest["items"]] == [
-        "Ana", "Ana", "z"]
+        "Ana", "Ana", None]
     # Both nameless characters show "Ana"; the first defined with a
     # colour (a_shout, inheriting a's name colour) wins.
     assert manifest["characters"] == {

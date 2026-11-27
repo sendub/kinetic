@@ -18,10 +18,22 @@ newline inside brackets continues the line too, so a test may run on.
 - `"Name" "text"` is a line said by Name.
 - `call x()` with its `from` clause on the next line is one call.
 - `if(x == 1):` and a test over several lines are `if` statements.
+
+Phase 60 item 9m2:
+
+- A line by a nameless Character (`Character(None, ...)`, `name=None`,
+  one whose `kind=` is nameless, Ren'Py's own `narrator` and `centered`)
+  is narration, as Ren'Py shows it; its `what_color` is noted as not
+  carried, since narration is never coloured.
+- Each paragraph of a triple-quoted string has its own say statement,
+  so its own `translate` block, and its item takes that block's text.
 """
 
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,7 +41,9 @@ from PIL import Image
 
 from kinetic_extract.parser import parse_file
 
-from test_jump_menus import check_folder, extract, texts
+from test_jump_menus import (REPO_ROOT, check_folder, extract, run_kinetic,
+                             texts)
+from test_renpy_translations import ident, lang_file
 
 
 def dialogue(script: str) -> list[tuple[str | None, str]]:
@@ -357,3 +371,187 @@ def test_a_spread_line_keeps_the_label_going(tmp_path: Path) -> None:
     assert not [r for r in ledger["report"]
                 if r["reason"].startswith("unrecognized statement")]
     check_folder(tmp_path, out, manifest)
+
+
+# --------------------------------------------------------------------------
+# Nameless speakers (item 9m2)
+# --------------------------------------------------------------------------
+
+def said(manifest: dict) -> list[tuple[str | None, str | None]]:
+    return [(i.get("speaker"), i.get("text")) for i in manifest["items"]]
+
+
+@pytest.mark.parametrize("define", [
+    'define n = Character(None)',
+    'define n = Character(None, what_color="#ccddee")',
+    'define n = Character(name=None, what_italic=True)',
+    'define n = NVLCharacter(None, kind=nvl)',
+    'define base = Character(None)\ndefine n = Character(kind=base)',
+    'define base = Character(None)\n'
+    'define mid = Character(kind=base, what_color="#ccddee")\n'
+    'define n = Character(kind=mid)',
+    'define n = Character(kind=nvl)',
+    'define n = Character(what_color="#ccddee")',
+    'define character.n = Character(None)',
+    'init python:\n    n = Character(None)',
+    'define n = Character("Nell")\ndefine n = Character(None)',
+])
+def test_a_nameless_characters_line_is_narration(tmp_path: Path,
+                                                 define: str) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        define + '\n'
+        'define e = Character("Eve")\n'
+        'label start:\n    scene bg\n'
+        '    n "A thought in the dark."\n'
+        '    e "Eve speaks."\n'
+        '    return\n'))
+    assert said(manifest) == [(None, "A thought in the dark."),
+                              ("Eve", "Eve speaks.")]
+    assert any("nameless" in n for n in
+               notes_of(manifest, ledger, "A thought in the dark."))
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_dotted_nameless_speaker_is_narration(tmp_path: Path) -> None:
+    out, manifest, _ledger = run(tmp_path, (
+        'define c.n = Character(None)\n'
+        'init python in cast:\n    t = Character(None)\n'
+        'label start:\n    scene bg\n'
+        '    c.n "One thought."\n    cast.t "Another."\n    return\n'))
+    assert said(manifest) == [(None, "One thought."), (None, "Another.")]
+
+
+def test_ren_pys_own_nameless_characters_are_narration(tmp_path: Path
+                                                       ) -> None:
+    out, manifest, _ledger = run(tmp_path, (
+        'label start:\n    scene bg\n'
+        '    narrator "Said by the narrator."\n'
+        '    centered "In the middle."\n'
+        '    return\n'))
+    assert said(manifest) == [(None, "Said by the narrator."),
+                              (None, "In the middle.")]
+
+
+def test_a_games_own_named_narrator_keeps_its_name(tmp_path: Path) -> None:
+    out, manifest, _ledger = run(tmp_path, (
+        'define narrator = Character("The Voice")\n'
+        'define n = Character(None)\n'
+        'define t = Character("Tess", kind=n)\n'
+        'label start:\n    scene bg\n'
+        '    narrator "Heard."\n    t "Tess here."\n    return\n'))
+    assert said(manifest) == [("The Voice", "Heard."), ("Tess", "Tess here.")]
+
+
+@pytest.mark.parametrize("define", [
+    'define n = Character(kind=pick_kind())',
+    'define n = Character(*cast_args)',
+    'define n = Character(name_of("n"))',
+])
+def test_a_character_whose_name_is_not_read_is_not_nameless(
+        tmp_path: Path, define: str) -> None:
+    """A name or kind the converter cannot read may be a name: the line
+    keeps its speaker as before."""
+    out, manifest, _ledger = run(tmp_path, (
+        define + '\nlabel start:\n    scene bg\n    n "Hello."\n'
+        '    return\n'))
+    assert said(manifest) == [("n", "Hello.")]
+
+
+def test_a_nameless_speakers_text_colour_is_noted_not_carried(
+        tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'define n = Character(None, what_color="#ccddee")\n'
+        'label start:\n    scene bg\n    n "Quiet."\n    return\n'))
+    assert said(manifest) == [(None, "Quiet.")]
+    assert "characters" not in manifest
+    assert any("#ccddee" in n and "not carried" in n
+               for n in notes_of(manifest, ledger, "Quiet."))
+
+
+# --------------------------------------------------------------------------
+# Monologue translations (item 9m2)
+# --------------------------------------------------------------------------
+
+MONOLOGUE = ('define e = Character("Eve")\n'
+             'label start:\n'                  # 2
+             '    scene bg\n'                   # 3
+             '    e """\n'                      # 4
+             '    The first paragraph\n'
+             '    runs on.\n'
+             '\n'
+             '    The second one.\n'
+             '\n'
+             '    And a third.\n'
+             '    """\n'
+             '    """\n'                        # 12
+             '    Narrated once.\n'
+             '\n'
+             '    Narrated twice.\n'
+             '    """\n'
+             '    "After."\n'                   # 17
+             '    return\n')
+
+MONOLOGUE_DE = [
+    (4, 'e "The first paragraph runs on."', 'e "Der erste Absatz läuft."'),
+    (4, 'e "The second one."', 'e "Der zweite."'),
+    (4, 'e "And a third."', 'e "Und ein dritter."'),
+    (12, '"Narrated once."', '"Einmal erzählt."'),
+    (12, '"Narrated twice."', '"Zweimal erzählt."'),
+    (17, '"After."', '"Danach."'),
+]
+
+
+def tl_file(blocks: list[tuple[int, str, str]],
+            ids: list[str] | None = None) -> str:
+    return "".join(
+        f'# game/script.rpy:{line}\n'
+        f'translate de {ids[k] if ids else ident("start", code)}:\n\n'
+        f'    # {code}\n    {new}\n\n'
+        for k, (line, code, new) in enumerate(blocks))
+
+
+def test_each_monologue_paragraph_takes_its_own_translation(
+        tmp_path: Path) -> None:
+    out, manifest, ledger = extract(tmp_path, MONOLOGUE, tl={"de": (
+        tl_file(MONOLOGUE_DE) + 'translate de strings:\n'
+        '    old "Eve"\n    new "Eva"\n    old "proj"\n    new "Projekt"\n')})
+    by_text = {i["text"]: i["id"] for i in manifest["items"]}
+    de = {k: v["text"] for k, v in lang_file(out, "de")["items"].items()}
+    assert {text: de.get(item_id) for text, item_id in by_text.items()} == {
+        "The first paragraph runs on.": "Der erste Absatz läuft.",
+        "The second one.": "Der zweite.",
+        "And a third.": "Und ein dritter.",
+        "Narrated once.": "Einmal erzählt.",
+        "Narrated twice.": "Zweimal erzählt.",
+        "After.": "Danach.",
+    }
+    stats = ledger["translations"]["languages"]["de"]
+    assert (stats["matched"], stats["duplicates"]) == (6, 0)
+    # The validator and tools/translations.py count every paragraph, with
+    # the speaker's name and the title.
+    proc = run_kinetic("validate", str(out), "--json")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    coverage = json.loads(proc.stdout)["coverage"]["de"]
+    assert (coverage["translated"], coverage["strings"]) == (8, 8)
+    proc = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "tools" / "translations.py"),
+         "status", str(out)], capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "de: 8 of 8 strings (100%), 0 stale, 0 unchecked, 0 missing" \
+        in proc.stdout
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_monologue_paragraph_matches_by_its_location_comment(
+        tmp_path: Path) -> None:
+    """With identifiers that name no statement (the label renamed since),
+    the location comment names the monologue's line, and the paragraph
+    is the one whose code Ren'Py commented in the block."""
+    ids = [ident("old_start", code) for _l, code, _n in MONOLOGUE_DE]
+    out, manifest, _ledger = extract(tmp_path, MONOLOGUE,
+                                     tl={"de": tl_file(MONOLOGUE_DE, ids)})
+    by_text = {i["text"]: i["id"] for i in manifest["items"]}
+    de = {k: v["text"] for k, v in lang_file(out, "de")["items"].items()}
+    assert de.get(by_text["The second one."]) == "Der zweite."
+    assert de.get(by_text["Narrated twice."]) == "Zweimal erzählt."
+    assert len(de) == 6
