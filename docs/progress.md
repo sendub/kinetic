@@ -7094,7 +7094,33 @@ truthful: an unchecked box means nothing was accepted.
       fileend + videosound 95/95 Chrome and 105/105 WebKit, converter/
       1473 passed, test_validate_content.py + test_setup_media_tools.py
       578 passed, setup self-test 24 cases passed.)
-- [ ] The walk's time on very large games (item 9n4b).
+- [x] The walk's time on very large games (item 9n4b).
+      (Cause: no slowdown but a hang in `finalize_branches`, there
+      since the first release: a decision id cut to 64 characters lost
+      its `-n` suffix in the cut, so the search for a free id never
+      ended once two decisions shared a cut id (a long label name
+      leaves no room for the line number). Item 6's `if-` decisions
+      first hit it in the corpus; the commit before item 6 finishes,
+      every one after hangs. The note that item 9n3's recount finished
+      these episodes was wrong: they had timed out. Fix: `suffixed_id`
+      cuts the base, never the suffix; the set of ids in use is built
+      once and grows, and each base's suffix search resumes where it
+      stopped; span ids avoid a persistent set instead of a union per
+      decision, same results. Ids that never reached the cut are
+      unchanged; the renpy_demo golden is unchanged. Guard:
+      `test_decisions_sharing_a_cut_id_each_take_a_suffix_at_once`,
+      300 menus in a 60-character label, unique ids within 64
+      characters and exactly 299 `suffixed_id` tries (fails on the old
+      code; the fix without the resumed search makes 44,850). Timings,
+      three episodes of the corpus's largest game: over the 30-minute
+      cap at HEAD, aa054f0 and a9eff20; 90 to 113 s with the fix; walk
+      output identical to the old algorithm with only the cut fixed,
+      and the five colliding decisions per episode now take `-2` to
+      `-5`. Lead, not an item: the remaining walk time is linear
+      parsing (`strip_comment`, `ast.parse`, the file walk,
+      `follow_labels`). Orchestrator: converter/ 1474 passed,
+      test_validate_content.py 545 passed, the guard fails against
+      HEAD's cli.py, one episode walked in 124 s at load 7.)
 - [ ] Solid colours in the last places (item 9n5).
 - [ ] Held videos repeated and checked (item 9n6).
 - [ ] Menus no longer kept linear (item 9o).

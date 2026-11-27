@@ -396,6 +396,14 @@ def build_manifest(result: TimelineResult, width: int, height: int,
     return manifest
 
 
+def suffixed_id(base: str, n: int) -> str:
+    """`base` with the suffix `-n`, within the 64-character id limit: a
+    long base loses characters from its end, never the suffix, so each
+    `n` gives another id."""
+    suffix = f"-{n}"
+    return base[:ID_MAX - len(suffix)] + suffix
+
+
 def finalize_branches(result: TimelineResult,
                       parses: list[tuple[str, object]],
                       reports: list[Report],
@@ -412,8 +420,14 @@ def finalize_branches(result: TimelineResult,
     walk (docs/plan.md Phase 60 item 4): the join is where the choices'
     paths meet, never guessed. A `continueAt` item the asset pass dropped
     moves to the next item kept; with none the decision is a pure choice."""
-    manifest_ids = {record.item["id"] for record in result.items
-                    if not record.skipped}
+    # The item ids kept and the decision ids made so far, which a new
+    # decision id avoids; it only grows, so the suffix a decision id
+    # last took is where the next search for its base starts.
+    used = {record.item["id"] for record in result.items
+            if not record.skipped}
+    next_suffix: dict[str, int] = {}
+    # The span ids in `span_ids`, which a new span id avoids.
+    span_made: set[str] = set()
     branches: list[dict[str, Any]] = []
     decision_of: dict[int, tuple[dict[str, Any], list[str]]] = {}
     # A shared span's key -> its decision and id; each route's `then`
@@ -468,12 +482,13 @@ def finalize_branches(result: TimelineResult,
                 f"{what} unsupported ({rec.skip_reason}): decision "
                 "withdrawn, linear flow kept"))
             continue
-        used = manifest_ids | {b["id"] for b in branches}
         decision_id = rec.decision_id
-        n = 2
-        while decision_id in used:
-            decision_id = f"{rec.decision_id}-{n}"[:ID_MAX]
-            n += 1
+        if decision_id in used:
+            n = next_suffix.get(rec.decision_id, 2)
+            while (decision_id := suffixed_id(rec.decision_id, n)) in used:
+                n += 1
+            next_suffix[rec.decision_id] = n + 1
+        used.add(decision_id)
         results = list(cand.get("results")
                        or ["ending"] * len(cand["route_spans"]))
         how = list(cand.get("how") or [""] * len(results))
@@ -515,23 +530,32 @@ def finalize_branches(result: TimelineResult,
         if spans:
             # Shared spans (Phase 60 item 9i), ids from the label's name,
             # unique manifest-wide so a nested route's `then` finds its
-            # own (rule 30 takes the nearest of that id).
-            taken = used | {decision_id} | {r["id"] for r in routes} | {
-                made for _decision, made in span_ids.values()}
+            # own (rule 30 takes the nearest of that id): each avoids
+            # `used`, `span_made` and `mine`, this decision's route ids
+            # and the span ids made for it.
+            mine = {r["id"] for r in routes}
+            # Ids a span key of this decision takes over from an earlier
+            # one: free for later decisions, not for this one's spans.
+            replaced: list[str] = []
             decision["shared"] = []
             for k, span in enumerate(spans):
                 base = f"shared-{slug(span.get('label'), str(k + 1))}"
                 span_id, n = base[:ID_MAX], 2
-                while span_id in taken:
-                    span_id = f"{base}-{n}"[:ID_MAX]
+                while span_id in used or span_id in mine \
+                        or span_id in span_made:
+                    span_id = suffixed_id(base, n)
                     n += 1
-                taken.add(span_id)
+                mine.add(span_id)
+                if span["key"] in span_ids:
+                    replaced.append(span_ids[span["key"]][1])
                 span_ids[span["key"]] = (decision, span_id)
+                span_made.add(span_id)
                 decision["shared"].append({
                     "id": span_id,
                     "start": result.items[span["start"]].item["id"],
                     "end": result.items[span["end"]].item["id"],
                     "result": span["result"]})
+            span_made.difference_update(replaced)
         for route, key in zip(routes, cand.get("then") or []):
             if key is not None:
                 pending_then.append((decision, route, key))

@@ -279,6 +279,13 @@ something more of an author.
   still and recorded in the ledger for `kinetic media rebuild`, and
   `kinetic media ship` takes `"lastFrame": true` on a video request.
   An older player loops the video on and never shows the still.
+- `kinetic extract` no longer hangs on a game where two decisions'
+  ids are the same once cut to the 64-character limit (menus or `if`
+  chains in a label whose long name leaves no room for their line
+  numbers): the second takes `-2`, the next `-3` and so on, the id's
+  end cut to make room, where the cut used to drop the suffix and the
+  search for a free id never ended. A game with thousands of decisions
+  also finishes its decisions faster.
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

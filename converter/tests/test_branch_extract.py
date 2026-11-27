@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from helpers import encoded_tracks, mask_tracks
+from kinetic_extract import cli as cli_module
 from kinetic_extract.cli import main as cli_main
 from kinetic_extract.parser import parse_file
 from kinetic_extract.timeline import build_timeline
@@ -304,3 +305,47 @@ def test_clean_menu_after_lead_in_becomes_a_candidate(tmp_path: Path) -> None:
     assert [label for label, _s, _e in cand["route_spans"]] == ["one", "two"]
     assert parsed.reports == []
     assert parsed.menus[0].skip_reason is None
+
+
+# --- decision ids: unique within the id limit, in linear work --------------
+
+# A label name of 60 characters, the most a slug keeps: every menu's
+# decision id in it, `menu-<label>-<line>`, is cut to the 64-character
+# limit before its line number, so all of them start out the same.
+LONG_LABEL = "a_label_whose_name_fills_the_whole_of_a_decision_id_limit_xy"
+
+
+def test_decisions_sharing_a_cut_id_each_take_a_suffix_at_once(
+        tmp_path: Path, monkeypatch) -> None:
+    """Decisions whose ids are the same once cut at the id limit get
+    `-2`, `-3`, ... within the limit, each found in one try (docs/plan.md
+    Phase 60 item 9n4b: the limit cut the suffix off, so the search for
+    a free id never ended, and it started from `-2` each time)."""
+    assert len(LONG_LABEL) == 60
+    count = 300
+    text = f"label {LONG_LABEL}:\n" + "".join(
+        f'    "lead {k}"\n    menu:\n        "one {k}":\n'
+        f'            "a {k}"\n        "two {k}":\n            "b {k}"\n'
+        for k in range(count))
+    parsed, result = _run(tmp_path, text)
+    assert len({m.decision_id for m in parsed.menus}) == 1
+    tried: list[int] = []
+    real = cli_module.suffixed_id
+
+    def counted(base: str, n: int) -> str:
+        tried.append(n)
+        return real(base, n)
+
+    monkeypatch.setattr(cli_module, "suffixed_id", counted)
+    branches, _notes = cli_module.finalize_branches(
+        result, [("game/x.rpy", parsed)], [])
+    ids = [b["id"] for b in branches]
+    first = parsed.menus[0].decision_id
+    assert len(first) == 64
+    assert ids[:3] == [first, first[:62] + "-2", first[:62] + "-3"]
+    assert ids[-1] == first[:60] + f"-{count}"
+    assert len(set(ids)) == count
+    assert all(len(i) <= 64 for i in ids)
+    assert not set(ids) & {r.item["id"] for r in result.items}
+    # One try per decision after the first: linear in the decisions.
+    assert len(tried) == count - 1
