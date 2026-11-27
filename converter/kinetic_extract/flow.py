@@ -44,6 +44,11 @@ story events in that order, each statement once:
   the route has no item before the menu. A nested menu whose choices meet
   at the end of the enclosing choice's block meets where the enclosing
   menu's choices do.
+- An `if` chain the parser reads as a fork (docs/plan.md Phase 60 item 6)
+  is laid out as such a menu, its arms the choices: an arm with nothing
+  of its own gets its label in parentheses as its line
+  (MenuRecord.line_of, the marker's ``arm``), and an arm whose path leads
+  back to the chain keeps it linear.
 
 After the story the walk can go on from more labels: each `--also-label`
 (a Ren'Py entry label such as `splashscreen` the walk never runs, say),
@@ -328,14 +333,24 @@ def _line(source: str) -> tuple[str, int]:
     return rel, int(line) if line.isdigit() else 0
 
 
+def choice_marker(record: Any, k: int) -> Event:
+    """The `choice-text` marker of choice ``k`` of a menu (its text, which
+    Ren'Py translates in a `strings` block) or of arm ``k`` of a condition
+    (its label in parentheses, the converter's words: ``arm``)."""
+    text, from_strings = record.line_of(k)
+    return Event("choice-text", record.choice_sources[k], text=text,
+                 from_strings=from_strings,
+                 arm=None if from_strings else k)
+
+
 def _in_file_order(parsed: FileParse, stream: list[Event],
                    out: list[tuple[FileParse, Event]],
-                   choice: tuple[str, str] | None = None) -> bool:
+                   choice: tuple[Any, int] | None = None) -> bool:
     """``stream``'s story events in file order onto ``out``, a menu that
     becomes a decision laid out between its markers as the walk lays it
     out, with no join (nothing follows a jump here, so nothing proves
     one): every route ``"ending"``, a pure choice. ``choice`` is the
-    ``(source, text)`` of the choice whose block ``stream`` is, which a
+    ``(record, index)`` of the choice whose block ``stream`` is, which a
     menu nested in it is preceded by, as the walk's route lead. True
     when a story event (or a choice's text) was added."""
     story = False
@@ -346,8 +361,7 @@ def _in_file_order(parsed: FileParse, stream: list[Event],
             record = parsed.menus[flow.menu]
             lead = None
             if choice is not None:
-                lead = Event("choice-text", choice[0], text=choice[1],
-                             from_strings=True)
+                lead = choice_marker(*choice)
                 out.append((parsed, lead))
             out.append((parsed, Event("menu-open", event.source,
                                       name=str(flow.menu))))
@@ -357,14 +371,10 @@ def _in_file_order(parsed: FileParse, stream: list[Event],
                 out.append((parsed, Event(
                     "choice-open", record.choice_sources[k],
                     name=f"{flow.menu}:{k}")))
-                filled.append(_in_file_order(
-                    parsed, body, out,
-                    (record.choice_sources[k], record.choices[k])))
+                filled.append(_in_file_order(parsed, body, out,
+                                             (record, k)))
                 if not filled[-1]:
-                    texts.append(Event("choice-text",
-                                       record.choice_sources[k],
-                                       text=record.choices[k],
-                                       from_strings=True))
+                    texts.append(choice_marker(record, k))
                     out.append((parsed, texts[-1]))
             linear = None if any(filled) else (
                 "every choice is empty: none reads anything")
@@ -621,8 +631,14 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             if info["story"][k]:
                 return
             record = parsed_of[ops[fork].file].menus[ops[fork].menu]
-            marker = Event("choice-text", record.choice_sources[k],
-                           text=record.choices[k], from_strings=True)
+            marker = choice_marker(record, k)
+            cond = record.condition
+            if cond is not None and cond.absent_else \
+                    and k == len(record.choices) - 1:
+                # Whether another arm reaches the join, which a following
+                # decision that leaves this absent else out passes to.
+                marker.outcome = {"others_join": any(
+                    "join" in ends for ends in info["endings"][:k])}
             info["texts"].append(marker)
             events.append((parsed_of[ops[fork].file], marker))
 
@@ -650,8 +666,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 return None
             outer, k, _s = ctx[-1]
             record = parsed_of[ops[outer].file].menus[ops[outer].menu]
-            marker = Event("choice-text", record.choice_sources[k],
-                           text=record.choices[k], from_strings=True)
+            marker = choice_marker(record, k)
             events.append((parsed_of[ops[outer].file], marker))
             return marker
 
@@ -673,6 +688,14 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             if linear is None and not any(info["story"]):
                 linear = ("every choice is empty: none reads anything "
                           "before where the choices meet")
+            if linear is None and record.condition is not None:
+                back = next((k for k, ends in enumerate(info["endings"])
+                             if "menu" in ends and "join" not in ends),
+                            None)
+                if back is not None:
+                    head = record.condition.heads[back] or "the absent else"
+                    linear = (f"arm {back + 1} ({head}) leads back to the "
+                              "condition")
             join = info["join"]
             join_source = ops[join].source if 0 <= join < exit_ else None
             results, how = [], []

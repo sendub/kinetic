@@ -1,5 +1,5 @@
 // The player's catalogue tooling (docs/plan.md Phase 56 item 2;
-// docs/verify-player.md, "The player's words"). Three generated files,
+// docs/verify-player.md, "The player's words"). Four generated files,
 // all committed, all rewritten by `npm run i18n` and by every build,
 // and all checked by `npm test` (scripts/i18n.test.mjs), which fails
 // while any is stale:
@@ -26,7 +26,13 @@
 //   which embeds the table in each host, refuses a stale one without
 //   running Node.
 //
-// Run: `node scripts/i18n.mjs` (writes all three, prints any problem) or
+// - converter/condition-words.json, the converter's own words (docs/plan.md
+//   Phase 60 item 6): the `converter.*` messages alone (the prompt and
+//   route labels kinetic-extract writes for a decision made from a
+//   condition), in English and every language that has them, which
+//   kinetic_extract/conditions.py reads (a wheel carries a copy).
+//
+// Run: `node scripts/i18n.mjs` (writes all four, prints any problem) or
 // `node scripts/i18n.mjs --check` (writes nothing; exit 1 if stale).
 
 import { createHash } from "node:crypto";
@@ -49,6 +55,14 @@ export const GENERATED_FILE = join(
 export const HOST_WORDS_FILE = join(playerDir, "..", "apps", "host-words.json");
 /** The prefix of the messages the game apps draw themselves. */
 export const HOST_PREFIX = "host.";
+export const CONVERTER_WORDS_FILE = join(
+  playerDir,
+  "..",
+  "converter",
+  "condition-words.json",
+);
+/** The prefix of the messages the converter writes into games. */
+export const CONVERTER_PREFIX = "converter.";
 
 /** The `{name}` placeholders in `text`, in order, each once. */
 export function placeholdersOf(text) {
@@ -265,6 +279,10 @@ export function auditLocale(tag, text, en = EN) {
   for (const [key, english] of Object.entries(en)) {
     const value = catalogue[key];
     if (value === undefined) {
+      // The converter's words may wait for their translation (docs/plan.md
+      // Phase 60 item 6b): kinetic-extract writes English for a phrase a
+      // language lacks and `kinetic report` says so.
+      if (key.startsWith(CONVERTER_PREFIX)) continue;
       found.push(`${name}: "${key}" is not translated`);
       continue;
     }
@@ -361,8 +379,33 @@ export function buildHostWords(locales, digest, en = EN) {
 }
 
 /**
+ * converter/condition-words.json's text: the `converter.*` messages of
+ * English and of each compiled catalogue in `locales` (a key a language
+ * lacks is left out; the converter writes English for it and says so).
+ */
+export function buildConverterWords(locales, en = EN) {
+  const pick = (catalogue) =>
+    Object.fromEntries(
+      Object.keys(en)
+        .filter((key) => key.startsWith(CONVERTER_PREFIX))
+        .filter((key) => typeof catalogue[key] === "string")
+        .map((key) => [key, catalogue[key]]),
+    );
+  const languages = { en: pick(en) };
+  for (const [tag, catalogue] of Object.entries(locales)) {
+    languages[tag] = pick(catalogue);
+  }
+  const table = {
+    generated:
+      "by player/scripts/i18n.mjs from player/src/i18n/en.ts and player/locales/<tag>.po: do not edit; npm run i18n rewrites it",
+    languages,
+  };
+  return `${JSON.stringify(table, null, 2)}\n`;
+}
+
+/**
  * The generated files' text from the sources now: `{ pot, module,
- * hostWords, problems, tags }`.
+ * hostWords, converterWords, problems, tags }`.
  */
 export function generateI18n(dir = LOCALES_DIR) {
   const pot = buildPot();
@@ -376,7 +419,14 @@ export function generateI18n(dir = LOCALES_DIR) {
     problems.push(...compiled.problems);
   }
   const hostWords = buildHostWords(locales, sourceDigest(dir));
-  return { pot, module: buildModule(locales), hostWords, problems, tags };
+  return {
+    pot,
+    module: buildModule(locales),
+    hostWords,
+    converterWords: buildConverterWords(locales),
+    problems,
+    tags,
+  };
 }
 
 function readOr(file) {
@@ -394,6 +444,9 @@ export function writeI18n() {
   if (readOr(HOST_WORDS_FILE) !== generated.hostWords) {
     writeFileSync(HOST_WORDS_FILE, generated.hostWords);
   }
+  if (readOr(CONVERTER_WORDS_FILE) !== generated.converterWords) {
+    writeFileSync(CONVERTER_WORDS_FILE, generated.converterWords);
+  }
   return generated;
 }
 
@@ -405,6 +458,9 @@ export function staleI18n() {
   if (readOr(GENERATED_FILE) !== generated.module) stale.push(GENERATED_FILE);
   if (readOr(HOST_WORDS_FILE) !== generated.hostWords) {
     stale.push(HOST_WORDS_FILE);
+  }
+  if (readOr(CONVERTER_WORDS_FILE) !== generated.converterWords) {
+    stale.push(CONVERTER_WORDS_FILE);
   }
   return stale;
 }
@@ -418,6 +474,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const { problems, tags } = writeI18n();
   for (const problem of problems) console.warn(problem);
   console.log(
-    `${Object.keys(EN).length} messages; messages.pot, ${tags.length} language(s) and apps/host-words.json written`,
+    `${Object.keys(EN).length} messages; messages.pot, ${tags.length} language(s), apps/host-words.json and converter/condition-words.json written`,
   );
 }

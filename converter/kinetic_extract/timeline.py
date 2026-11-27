@@ -24,6 +24,14 @@ visual, gets that line on a repeat of the menu's visual: the same picture,
 animation or video, or an animation that holds its last frame as that
 frame's picture.
 
+Conditions (docs/plan.md Phase 60 item 6): an `if` chain the walk lays
+out as a menu becomes a candidate the same way. One on what a single
+menu's choices set follows that menu's decision when it became one before
+the chain opened (``follows``, each kept arm's ``when`` from
+kinetic_extract.conditions); the absent `else` such a decision passes is
+then never emitted. A line that is an arm's label in parentheses keeps
+its arm (ItemRecord.condition_arm) for the language files' words.
+
 ATL frame lists (docs/plan.md Phase 60 item 8): a `scene`/`show` of a
 name the parser read as an `image name:` frame list (parser.AtlImage)
 is an ``animation`` item whose frames resolve as ``show`` names do; its
@@ -46,6 +54,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import conditions
 from .audio_cues import AudioFiles, AudioTrack, CueWalker
 from .flow import follow_labels
 from .media import probe_duration_seconds
@@ -138,6 +147,10 @@ class ItemRecord:
     # id and the type): the asset pass ships each as an image item's file
     # and gives the animation their shipped paths as its `frames`.
     frames: list["ItemRecord"] = field(default_factory=list)
+    # A line that is a condition arm's label in parentheses (docs/plan.md
+    # Phase 60 item 6): ``(chain, arm index)``, whose words each language
+    # file gets in its own language (kinetic_extract.translations).
+    condition_arm: tuple[Any, int] | None = None
 
 
 def set_video_duration(record: ItemRecord,
@@ -341,6 +354,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     # Note -> (parse, first source, statement, uses) for how transitions
     # were read (a clamped time, a fade colour), reported once each.
     transition_notes: dict[str, list[Any]] = {}
+    # Chains the CLI did not prepare (a direct call): English words.
+    conditions.prepare(parses)
     walk = follow_labels(parses, start_label, also_labels, include_unreached)
     result.walk, result.walk_summary = walk.record, walk.summary
     # The open menu regions, innermost last (Phase 13; nested since Phase
@@ -653,6 +668,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         record = ms["record"]
         starts = ms["starts"]
         ends = starts[1:] + [len(result.items)]
+        dropped = ms.get("drop", set())
         outcome = outcome or {}
         reason = ms.get("reject") or outcome.get("linear")
         if reason is None and ms["after"] < 0:
@@ -664,29 +680,39 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             reason = "choice count does not match the walked blocks"
         elif reason is None:
             for k, (s, e) in enumerate(zip(starts, ends)):
-                if s >= e:
+                if s >= e and k not in dropped:
                     reason = f"choice {k + 1} produced no item"
                     break
         if reason is not None:
             record.skip_reason = reason
+            what = "if chain" if record.condition is not None else "menu"
             parsed.reports.append(Report(
                 record.source, record.statement,
-                f"menu unsupported ({reason}): branch skipped, "
+                f"{what} unsupported ({reason}): branch skipped, "
                 "linear flow kept"))
             return
+        kept = [k for k in range(len(starts)) if k not in dropped]
         results = list(outcome.get("results")
                        or ["ending"] * len(starts))
+        how = list(outcome.get("how") or [""] * len(starts))
         cand = {
             "record": record,
             "after_idx": ms["after"],
             "route_spans": [(record.choices[k], starts[k], ends[k] - 1)
-                            for k in range(len(starts))],
-            "results": results,
-            "how": list(outcome.get("how") or [""] * len(starts)),
+                            for k in kept],
+            "results": [results[k] for k in kept],
+            "how": [how[k] for k in kept],
             "continuing": None,
             "continue_idx": None,
             "join": outcome.get("join"),
         }
+        if record.condition is not None:
+            # Decision made from a condition (Phase 60 item 6): its arms
+            # kept, the decision it follows (when that one is a
+            # candidate) and whether an arm was left out for it.
+            cand["arms"] = kept
+            cand["follows"] = ms.get("follows")
+            cand["dropped"] = bool(dropped)
         result.branch_candidates.append(cand)
         ms["cand"] = cand
         link = outcome.get("link")
@@ -699,6 +725,24 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                  and open_ms["index"] == link[1]), None)
         elif "continue" in results and outcome.get("join"):
             awaiting.append((cand, len(result.items)))
+
+    def follows_menu(ms: dict[str, Any]) -> None:
+        """A chain on what one menu's choices set follows that menu's
+        decision (Phase 60 item 6) when the menu became one before the
+        chain opened: it is closed, a candidate, not enclosing the chain.
+        Then the absent `else` such a decision passes is left out; else
+        the chain is an ordinary decision, every arm a route."""
+        cond = ms["record"].condition
+        if cond is None or cond.kind != "follows" or cond.follow is None:
+            return
+        followed = next((c for c in reversed(result.branch_candidates)
+                         if c["record"] is cond.follow), None)
+        if followed is None or any(open_ms["record"] is cond.follow
+                                   for open_ms in menu_stack):
+            return
+        ms["follows"] = followed
+        ms["drop"] = {k for k, drop in enumerate(cond.drop_when_following)
+                      if drop}
 
     def end_route(ms: dict[str, Any]) -> None:
         """Close the route block before the boundary just reached."""
@@ -713,13 +757,24 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 flush_bare()
                 continue
             check_limit()
+            if menu_stack and menu_stack[-1].get("suppress") \
+                    and event.kind not in ("choice-open", "menu-close"):
+                # The absent `else` a following decision leaves out
+                # (Phase 60 item 6): its one line, never shown; kept as a
+                # route when no other arm reaches the join to pass to.
+                top = menu_stack[-1]
+                if (event.outcome or {}).get("others_join", True):
+                    continue
+                top["suppress"] = False
+                top["drop"].discard(len(top["starts"]) - 1)
             if event.kind == "route-lead":
                 if not route_needs_lead():
                     continue
                 # The enclosing route's choice text, as a line (Phase 60
                 # item 8c): the nested decision hangs off it.
                 event = Event("dialogue", event.source, text=event.text,
-                              from_strings=True)
+                              from_strings=event.from_strings,
+                              arm=event.arm)
             if event.kind in ("dialogue", "interact", "menu-open",
                               "choice-open", "menu-close",
                               "stop-movie", "path-end"):
@@ -846,6 +901,10 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     check_limit()
                 if event.from_strings and last_line is not None:
                     last_line.string_sources.add(event.source)
+                if event.arm is not None and last_line is not None \
+                        and menu_stack:
+                    last_line.condition_arm = (
+                        menu_stack[-1]["record"].condition, event.arm)
             elif event.kind == "path-end":
                 # The join's path ended before an item of its own.
                 flush_bare()
@@ -867,6 +926,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     "screen": on_screen,
                 }
                 resolve_awaiting(state)
+                follows_menu(state)
                 cues.menu_open()
                 menu_stack.append(state)
             elif event.kind == "choice-open":
@@ -875,9 +935,12 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     last_line = None
                     resolve_awaiting()
                     end_route(menu_stack[-1])
-                    menu_stack[-1]["starts"].append(len(result.items))
+                    top = menu_stack[-1]
+                    top["suppress"] = len(top["starts"]) in top.get(
+                        "drop", ())
+                    top["starts"].append(len(result.items))
                     cues.route_start()
-                    repeat_at_route_start(menu_stack[-1])
+                    repeat_at_route_start(top)
             elif event.kind == "menu-close":
                 if menu_stack:
                     flush_bare()

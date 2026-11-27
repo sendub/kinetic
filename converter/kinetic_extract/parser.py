@@ -27,19 +27,26 @@ Design notes:
   (Phase 60 item 3): its caption, if any, and its choice text become
   narration lines where the menu stood, and the choice block is read in
   place as label flow.
+- An ``if``/``elif``/``else`` chain whose tests all read one variable
+  the script sets (docs/plan.md Phase 60 item 6; kinetic_extract.
+  conditions.read_chain, judged by every assignment of the project:
+  _scan_assignments) is read as a menu is: a MenuRecord with its
+  ``condition`` and a ``fork`` event whose ``bodies`` hold each arm read
+  as label flow, an absent ``else`` an empty arm. Any other chain is
+  reported, ``if chain not converted (why)``.
 - ``jump``, ``call`` and ``return`` become flow events (``Event.flow``, a
-  ``FlowStep``), and so do the jumps and calls inside an ``if``/``elif``/
-  ``else`` chain, a ``while`` or a menu that is no decision (a ``fork``
-  event, one alternative per block). kinetic_extract.flow follows
-  them from ``label start`` (docs/plan.md Phase 57 item 4e); the blocks'
-  other statements are skipped as before.
+  ``FlowStep``), and so do the jumps and calls inside an ``if`` chain
+  that is not read, a ``while`` or a menu that is no decision (a
+  ``fork`` event, one alternative per block). kinetic_extract.flow
+  follows them from ``label start`` (docs/plan.md Phase 57 item 4e);
+  the blocks' other statements are skipped as before.
 - Audio statements (``play``, ``queue``, ``stop``, ``voice`` and literal
   ``$ renpy.music``/``renpy.sound`` calls, docs/plan.md Phase 47 item 8)
   become ``audio`` events, in label flow and in choice blocks alike;
   kinetic_extract.audio_statements reads them. Audio the walk cannot
   convert is reported: inside a skipped block (a screen, a transform,
-  Python, an ``if``), inside an unsupported menu, or in a form that is
-  not read. ``define audio.x``, ``register_channel`` and
+  Python, an ``if`` chain that is not read), inside an unsupported menu,
+  or in a form that is not read. ``define audio.x``, ``register_channel`` and
   ``register_statement`` are read on every line, blocks included.
 - A ``with`` clause on ``scene``/``show`` rides on its visual event; a
   bare ``with`` (and a ``hide``'s clause) is a ``with`` event and a
@@ -58,6 +65,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import conditions
 from .audio_statements import (AudioChannel, AudioStatement, mentions_audio,
                                read_audio_define, read_channel, read_python,
                                read_statement)
@@ -122,6 +130,20 @@ _ASSIGN_RE = re.compile(
 _SET_VARIABLE_RE = re.compile(
     r"""SetVariable\(\s*["']([A-Za-z_]\w*)["']\s*,\s*([^)]*)\)""")
 _DEF_RE = re.compile(r"def\s+([A-Za-z_]\w*)\s*\(")
+# The assignments a condition's variable is read from (_scan_assignments):
+# `$ x = ...` and its operators, `default`/`define x = ...`, a Python
+# block's `x = ...`, a screen's SetVariable or ToggleVariable.
+_SET_OPS = r"(\+=|-=|\*\*=|//=|[*/%&|^@]=|<<=|>>=|=)(?!=)"
+_DOLLAR_SET_RE = re.compile(
+    r"\$\s*(?:store\.)?([A-Za-z_]\w*)\s*" + _SET_OPS + r"\s*(.*)")
+_STORE_DECL_RE = re.compile(
+    r"(default|define)\s+(?:[+-]?\d+\s+)?((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)"
+    r"\s*(\+=|\|=|=)(?!=)\s*(.*)")
+_PY_SET_RE = re.compile(r"(?:store\.)?([A-Za-z_]\w*)\s*" + _SET_OPS)
+_PY_BLOCK_RE = re.compile(r"(?:init\s+(?:[+-]?\d+\s+)?)?python\b[^:]*:")
+_INIT_BLOCK_RE = re.compile(r"init(?:\s+[+-]?\d+)?\s*:")
+_ACTION_SET_RE = re.compile(
+    r"""\b(?:SetVariable|ToggleVariable)\(\s*["']([A-Za-z_]\w*)["']""")
 # A named menu, `menu name:`, which is also a label.
 _NAMED_MENU_RE = re.compile(r"menu\s+(" + _LABEL_NAME_RE.pattern + r")\s*:")
 # `$ renpy.jump("x")` and `$ renpy.call("x")` with a literal label.
@@ -409,6 +431,10 @@ class Event:
     # each choice's result and how it was proven, the join, or why the
     # menu stays linear.
     outcome: dict[str, Any] | None = None
+    # A condition arm's label in parentheses (a `choice-text` marker of a
+    # chain, docs/plan.md Phase 60 item 6): the arm's index, whose words
+    # each language file gets in its own language.
+    arm: int | None = None
 
 
 @dataclass
@@ -438,7 +464,21 @@ class MenuRecord:
     # reads them); the walk treats them as noise.
     assignments: list[list[tuple[str, str, str]]] = field(
         default_factory=list)
+    # Per choice, the source of each of those lines.
+    assignment_sources: list[list[str]] = field(default_factory=list)
     skip_reason: str | None = None
+    # An `if` chain read as a fork (docs/plan.md Phase 60 item 6): its
+    # arms are the "choices", ``choices`` their labels once
+    # kinetic_extract.conditions.prepare has worded them.
+    condition: conditions.ChainCondition | None = None
+
+    def line_of(self, k: int) -> tuple[str, bool]:
+        """The line choice ``k`` with no item of its own becomes, and
+        whether Ren'Py translates it in a `strings` block: its text, or a
+        condition arm's label in parentheses (generated words)."""
+        if self.condition is not None and k < len(self.condition.asides):
+            return self.condition.asides[k], False
+        return self.choices[k], True
 
 
 
@@ -493,6 +533,13 @@ class FileParse:
         default_factory=list)
     # Function name -> the text of its body (`def name(...):` in Python).
     functions: dict[str, str] = field(default_factory=dict)
+    # This file's assignments as an `if` chain's variable is read from
+    # (_scan_assignments), and the project's by variable, which the chain
+    # reader judges a condition by (parse_project gathers them).
+    assignment_scan: list[conditions.Assignment] = field(
+        default_factory=list)
+    known_variables: dict[str, list[conditions.Assignment]] = field(
+        default_factory=dict)
     # Screen name -> its literal `Jump`/`Call` actions as jump and call
     # steps, in order, and the screens it includes with `use`.
     screens: dict[str, tuple[list[FlowStep], list[str]]] = field(
@@ -966,6 +1013,107 @@ def _chain_fork(raw_lines: list[str], i: int, lineno: int, line: str,
     return steps[0] if steps else None
 
 
+def _chain_heads(raw_lines: list[str], i: int, lineno: int, line: str,
+                 indent: int) -> tuple[list[tuple[int, str]], int]:
+    """The `if`, `elif` and `else` heads of the chain whose `if` (``line``,
+    raw line ``lineno``) was just read, ``(lineno, text)`` each, and the
+    index after the chain's last block."""
+    heads = [(lineno, line)]
+    _block, j = _gather_block(raw_lines, i, indent)
+    while j < len(raw_lines):
+        content = strip_comment(raw_lines[j])
+        if not content.strip():
+            j += 1
+            continue
+        depth = len(content) - len(content.lstrip(" \t"))
+        head = content.strip()
+        if depth != indent or head.split(" ", 1)[0].split(":", 1)[0] \
+                not in ("elif", "else"):
+            break
+        heads.append((j + 1, head))
+        _block, j = _gather_block(raw_lines, j + 1, indent)
+    return heads, j
+
+
+def _handle_chain(raw_lines: list[str], i: int, relname: str, lineno: int,
+                  line: str, indent: int, result: FileParse,
+                  events: list[Event], cur_label: str | None,
+                  cur_global: str | None) -> int:
+    """Read the `if` chain whose head was just read; the index the scan
+    resumes at, after its last block.
+
+    A chain every test of which reads one variable the script sets
+    (kinetic_extract.conditions.read_chain, by the project's assignments)
+    becomes a MenuRecord with its ``condition`` and a ``fork`` event whose
+    ``bodies`` hold each arm read as label flow, an absent `else` an empty
+    arm (docs/plan.md Phase 60 item 6). Another (or one with a `label` in
+    an arm, a place a jump could enter it from outside) is reported, `if
+    chain not converted (why)`, its blocks skipped as before, their audio
+    reported, their jumps and calls a fork the walk follows."""
+    heads, j = _chain_heads(raw_lines, i, lineno, line, indent)
+    source = f"{relname}:{lineno}"
+    keywords = [head.split(" ", 1)[0].split(":", 1)[0]
+                for _n, head in heads]
+    spans = [(n, heads[k + 1][0] - 1 if k + 1 < len(heads) else j)
+             for k, (n, _head) in enumerate(heads)]
+    blocks = [[(m + 1, strip_comment(raw_lines[m]).strip())
+               for m in range(start, stop)
+               if strip_comment(raw_lines[m]).strip()]
+              for start, stop in spans]
+    tests = [None if kw == "else" else head[len(kw):].rstrip()[:-1].strip()
+             for kw, (_n, head) in zip(keywords, heads)]
+    read: conditions.ChainCondition | str
+    if not all(head.endswith(":") for _n, head in heads):
+        read = "an arm's head does not end in a colon"
+    elif any(text.split(" ", 1)[0].split(":", 1)[0] == "label"
+             for block in blocks for _m, text in block):
+        read = "a label inside an arm, where a jump could enter it"
+    else:
+        read = conditions.read_chain(tests, result.known_variables)
+    if isinstance(read, str):
+        result.reports.append(Report(
+            source, line, f"if chain not converted ({read}): its blocks "
+            "skipped, the jumps and calls in them followed"))
+        for kw, block in zip(keywords, blocks):
+            result.reports.extend(
+                Report(f"{relname}:{m}", text,
+                       f"audio inside a skipped `{kw}` block: not converted")
+                for m, text in block if mentions_audio(text))
+        fork = _chain_fork(raw_lines, i, lineno, line, indent, relname,
+                           cur_global)
+        if fork is not None:
+            events.append(Event("fork", source, text=line, flow=fork))
+        return j
+    bodies: list[list[Event]] = []
+    for start, stop in spans:
+        body: list[Event] = []
+        _scan_lines(raw_lines, start, stop, relname, result, body,
+                    cur_label, cur_global)
+        bodies.append(body)
+    read.heads = [head for _n, head in heads]
+    read.written = list(read.heads)
+    read.sources = [f"{relname}:{n}" for n, _head in heads]
+    if keywords[-1] != "else":
+        bodies.append([])
+        read.tests.append(None)
+        read.heads.append("")
+        read.sources.append(source)
+        read.absent_else = True
+    record = MenuRecord(
+        source=source, statement=line,
+        decision_id=f"if-{slug(cur_label, Path(relname).stem)}"
+                    f"-{lineno}"[:ID_MAX],
+        prompt="", prompt_defaulted=False,
+        choices=list(read.heads), choice_sources=list(read.sources),
+        condition=read)
+    step = FlowStep("fork", source, line, menu=len(result.menus),
+                    bodies=bodies)
+    read.step, read.record = step, record
+    result.menus.append(record)
+    events.append(Event("fork", source, text=line, flow=step))
+    return j
+
+
 _PLAIN_CHOICE_RE = re.compile(r"\s*:")
 
 
@@ -1062,17 +1210,19 @@ def _menu_choices(block: list[tuple[int, str, int]], caption: str | None,
 
 
 def _choice_assignments(block: list[tuple[int, str, int]]
-                        ) -> list[tuple[str, str, str]]:
+                        ) -> list[tuple[int, tuple[str, str, str]]]:
     """The `$` assignments written directly in a choice block (not in a
-    block inside it), ``(variable, operator, expression)`` in order."""
+    block inside it), each ``(lineno, (variable, operator,
+    expression))`` in order."""
     if not block:
         return []
     depth = block[0][2]
-    out: list[tuple[str, str, str]] = []
-    for _lineno, text, indent in block:
+    out: list[tuple[int, tuple[str, str, str]]] = []
+    for lineno, text, indent in block:
         m = _CHOICE_ASSIGN_RE.fullmatch(text) if indent == depth else None
         if m is not None:
-            out.append((m.group(1), m.group(2), m.group(3).strip()))
+            out.append((lineno, (m.group(1), m.group(2),
+                                 m.group(3).strip())))
     return out
 
 
@@ -1172,8 +1322,11 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
         _scan_lines(raw_lines, start, stop, relname, result, body,
                     cur_label, cur_global)
         bodies.append(body)
-        record.assignments.append(_choice_assignments(
-            [entry for entry in block if start < entry[0] <= stop]))
+        found = _choice_assignments(
+            [entry for entry in block if start < entry[0] <= stop])
+        record.assignments.append([a for _n, a in found])
+        record.assignment_sources.append([f"{relname}:{n}"
+                                          for n, _a in found])
     events.append(Event(
         "fork", source, text=menu_line,
         flow=FlowStep("fork", source, menu_line, menu=menu_idx,
@@ -1345,13 +1498,77 @@ def creator_statement_names(text: str) -> set[str]:
     return names
 
 
+def _scan_assignments(raw_lines: list[str], relname: str
+                      ) -> list[conditions.Assignment]:
+    """Every place the script sets a plain variable, for the `if` chain
+    reader (kinetic_extract.conditions): `$ x = ...` (``=``, ``+=``,
+    ``-=``; another operator is ``python``; in an `init:` block a `$ x =`
+    is a ``define``), `default`/`define x = ...`, and as ``python`` an
+    assignment in a Python block (`python:`, `init python:`, functions in
+    them) and a screen's `SetVariable`/`ToggleVariable` action."""
+    out: list[conditions.Assignment] = []
+    py_indent: int | None = None
+    init_indent: int | None = None
+    for n, raw in enumerate(raw_lines):
+        text = strip_comment(raw)
+        stripped = text.strip()
+        if not stripped:
+            continue
+        indent = len(text) - len(text.lstrip(" \t"))
+        if py_indent is not None and indent <= py_indent:
+            py_indent = None
+        if init_indent is not None and indent <= init_indent:
+            init_indent = None
+        source = f"{relname}:{n + 1}"
+        for m in _ACTION_SET_RE.finditer(stripped):
+            out.append(conditions.Assignment(m.group(1), "python", "",
+                                             source))
+        if py_indent is not None:
+            m = _PY_SET_RE.match(stripped)
+            if m:
+                out.append(conditions.Assignment(m.group(1), "python",
+                                                 stripped, source))
+            continue
+        if _PY_BLOCK_RE.fullmatch(stripped):
+            py_indent = indent
+            continue
+        if _INIT_BLOCK_RE.fullmatch(stripped):
+            init_indent = indent
+            continue
+        m = _STORE_DECL_RE.fullmatch(stripped)
+        if m:
+            whole = _STORE_DECL_RE.fullmatch(
+                _continued(raw_lines, n, stripped, 5000)[0]) or m
+            op = m.group(1) if m.group(3) == "=" else "python"
+            out.append(conditions.Assignment(m.group(2), op, whole.group(4),
+                                             source))
+            continue
+        m = _DOLLAR_SET_RE.fullmatch(stripped)
+        if m:
+            whole = _DOLLAR_SET_RE.fullmatch(
+                _continued(raw_lines, n, stripped, 5000)[0]) or m
+            op = m.group(2) if m.group(2) in ("=", "+=", "-=") else "python"
+            if op == "=" and init_indent is not None:
+                op = "define"
+            out.append(conditions.Assignment(m.group(1), op, whole.group(3),
+                                             source))
+    return out
+
+
 def parse_file(text: str, relname: str,
-               creator_statements: set[str] = frozenset()) -> FileParse:
+               creator_statements: set[str] = frozenset(),
+               variables: dict[str, list[conditions.Assignment]]
+               | None = None) -> FileParse:
     """Parse one .rpy source; never raises on unknown statements.
-    ``creator_statements`` are statement names other files register."""
+    ``creator_statements`` are statement names other files register;
+    ``variables`` every assignment of the project by variable (default:
+    this file's own), which an `if` chain is read by."""
     result = FileParse(relname=relname,
                        creator_statements=set(creator_statements))
     raw_lines = script_lines(text)
+    result.assignment_scan = _scan_assignments(raw_lines, relname)
+    result.known_variables = (variables if variables is not None else
+                              conditions.by_variable(result.assignment_scan))
     _scan_settings(raw_lines, relname, result)
     result.story_reports_from = len(result.reports)
     result.creator_statements |= creator_statement_names(text)
@@ -1565,9 +1782,16 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
         if keyword == "screen":
             block, _j = _gather_block(raw_lines, i, indent)
             _screen_flow(line, block, relname, result)
-        if keyword in ("if", "while") and line.endswith(":"):
-            # Its blocks are skipped (and reported) as before; the jumps
-            # and calls in them are followed (kinetic_extract.flow).
+        if keyword == "if" and line.endswith(":"):
+            # A chain on one variable the script sets is a fork of its
+            # arms (docs/plan.md Phase 60 item 6); another is skipped as
+            # before, its jumps and calls followed.
+            i = _handle_chain(raw_lines, i, relname, lineno, line, indent,
+                              result, events, cur_label, cur_global)
+            continue
+        if keyword == "while" and line.endswith(":"):
+            # Its block is skipped (and reported) as before; the jumps
+            # and calls in it are followed (kinetic_extract.flow).
             fork = _chain_fork(raw_lines, i, lineno, line, indent, relname,
                                cur_global)
             if fork is not None:
@@ -1857,12 +2081,16 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
         texts.append((rel, text))
     # A statement is often registered in another file than its uses.
     creator = set().union(*(creator_statement_names(t) for _r, t in texts))
+    # An `if` chain's variable may be set in any file.
+    variables = conditions.by_variable(
+        [a for rel, text in texts
+         for a in _scan_assignments(script_lines(text), rel)])
     parses: list[tuple[str, FileParse]] = []
     image_defs: dict[str, tuple[str, Any]] = {}
     characters: dict[str, str] = {}
     kinds: dict[str, str] = {}
     for rel, text in texts:
-        parsed = parse_file(text, rel, creator)
+        parsed = parse_file(text, rel, creator, variables)
         parses.append((rel, parsed))
         image_defs.update(parsed.image_defs)
         for var in parsed.character_defs:

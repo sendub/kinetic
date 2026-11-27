@@ -9,7 +9,7 @@ Usage:
                     [--title TEXT] [--game-version TEXT] [--story-id ID]
                     [--decoder MODULE:FUNC ...]
                     [--no-translations] [--language-map NAME=TAG ...]
-                    [--base-language TAG]
+                    [--base-language TAG] [--condition-names FILE]
 
 <renpy_project> may be a directory containing ``game/``, a ``game/``
 directory itself, or a macOS ``.app`` bundle (the ``game`` dir is resolved
@@ -84,6 +84,17 @@ know, or overrides it. ``--base-language TAG`` names the language the
 game's own script is written in (the manifest's ``language``; default
 English, left unwritten): a ``tl/`` language with that tag is skipped,
 and ``tl/english`` becomes an ``en`` language file like any other.
+
+An ``if``/``elif``/``else`` chain on one variable the script sets becomes
+a decision (docs/plan.md Phase 60 item 6; docs/extracting.md,
+"Conditions"; kinetic_extract.conditions): one that ``follows`` the menu
+whose choices alone set it, else an ordinary one labelled by ranges
+("love 3 or more") or in words ("If you chose: A", "met is set"), in the
+base language and each language file's words. ``--condition-names FILE``
+(a JSON object of variable to reader words, one string or an object of
+language tag to string) names the variables in those labels; a key no
+chain reads is a warning. The ledger's ``conditions`` lists each such
+decision, and the languages whose words fell back to English.
 """
 
 from __future__ import annotations
@@ -98,7 +109,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from . import __version__
+from . import __version__, conditions
 from .assets import run_asset_pass
 from .audio_cues import AudioFiles, carry_dropped_audio, rename_tracks
 from .audio_ship import SoundShipment, ship_sound
@@ -316,6 +327,14 @@ def _base_language_arg(text: str) -> str:
     return tag
 
 
+def _condition_names_arg(text: str) -> dict[str, Any]:
+    """argparse type for `--condition-names`: the names file's table."""
+    try:
+        return conditions.names_option(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
 def decoder_option(text: str) -> Decoder:
     """argparse type for `--decoder`: the loaded hook, or a usage error."""
     try:
@@ -398,15 +417,42 @@ def finalize_branches(result: TimelineResult,
 
     withdrawn = {id(cand) for cand in result.branch_candidates
                  if dropped(cand)}
+    why_withdrawn: dict[int, str] = {}
+    for cand in result.branch_candidates:
+        # A decision made from a condition that follows another (Phase
+        # 60 item 6): when that one is withdrawn it is ordinary, or
+        # withdrawn too if it left out an arm for following; a choice
+        # there that takes no route passes it, which needs its join.
+        followed = cand.get("follows")
+        if followed is None or id(cand) in withdrawn:
+            continue
+        if id(followed) in withdrawn:
+            if cand.get("dropped"):
+                withdrawn.add(id(cand))
+                why_withdrawn[id(cand)] = ("the decision it follows was "
+                                           "withdrawn")
+            else:
+                cand["follows"] = None
+            continue
+        cond = cand["record"].condition
+        taken = {c for k in cand["arms"] for c in cond.when[k]}
+        if len(taken) < len(followed["route_spans"]) \
+                and cand.get("continuing") is None:
+            withdrawn.add(id(cand))
+            why_withdrawn[id(cand)] = (
+                "a choice of the decision it follows takes no route, and "
+                "it has no join to pass on to")
     for cand in result.branch_candidates:
         rec = cand["record"]
         after_idx = cand["after_idx"]
         if id(cand) in withdrawn:
-            rec.skip_reason = "route item dropped by the asset pass"
+            rec.skip_reason = why_withdrawn.get(
+                id(cand), "route item dropped by the asset pass")
+            what = "if chain" if rec.condition is not None else "menu"
             reports.append(Report(
                 rec.source, rec.statement,
-                f"menu unsupported ({rec.skip_reason}): decision withdrawn, "
-                "linear flow kept"))
+                f"{what} unsupported ({rec.skip_reason}): decision "
+                "withdrawn, linear flow kept"))
             continue
         used = manifest_ids | {b["id"] for b in branches}
         decision_id = rec.decision_id
@@ -450,6 +496,20 @@ def finalize_branches(result: TimelineResult,
         if continuing is not None:
             decision["continuingRoute"] = routes[continuing]["id"]
             decision["continueAt"] = result.items[at].item["id"]
+        followed = cand.get("follows")
+        if followed is not None and "branch" in followed:
+            cond = rec.condition
+            theirs = followed["branch"]["routes"]
+            for route, k in zip(routes, cand["arms"]):
+                route["when"] = [theirs[c]["id"] for c in cond.when[k]]
+            taken = {c for k in cand["arms"] for c in cond.when[k]}
+            if len(taken) == len(theirs) or continuing is not None:
+                decision["follows"] = followed["branch"]["id"]
+                cond.passes = len(taken) < len(theirs)
+            else:
+                # Its join item was dropped: an ordinary decision.
+                for route in routes:
+                    del route["when"]
         branches.append(decision)
         # The decision the candidate became, for its translations.
         cand["branch"] = branches[-1]
@@ -473,6 +533,8 @@ def finalize_branches(result: TimelineResult,
                     note += "; a pure choice (no join item to continue at)"
                 if rec.prompt_defaulted:
                     note += "; prompt defaulted (menu has no caption)"
+                if rec.condition is not None:
+                    note += "; " + _condition_note(rec.condition, decision)
                 notes.append({"source": rec.source, "result": "detected",
                               "note": note})
             else:
@@ -483,6 +545,73 @@ def finalize_branches(result: TimelineResult,
                               "reason": rec.skip_reason})
     return branches, notes
 
+
+
+def condition_kind(cond: Any, decision: dict[str, Any]) -> str:
+    """`follows`, `ranges` or `words`: what a decision made from a
+    condition became (a chain on one menu's choices whose menu did not
+    become a decision is worded by those choices, an ordinary one)."""
+    if "follows" in decision:
+        return "follows"
+    return "ranges" if cond.kind == "ranges" else "words"
+
+
+def _condition_note(cond: Any, decision: dict[str, Any]) -> str:
+    kind = condition_kind(cond, decision)
+    note = f"from a condition on {cond.variable}, kind {kind} ("
+    if kind == "follows":
+        note += (f"it follows {decision['follows']}, each route taking "
+                 "the choices there whose value meets its arm")
+    elif kind == "ranges":
+        note += "an ordinary decision labelled by the counter's ranges"
+    else:
+        note += "an ordinary decision labelled by the choices or in words"
+        if cond.kind == "follows":
+            note += (", as the menu whose choices set it is no decision "
+                     "before it")
+    if cond.passes and "follows" in decision:
+        note += "; the choices there no arm takes pass it at continueAt"
+    return note + ")"
+
+
+def condition_ledger(candidates: list[dict[str, Any]], base: str,
+                     written: list[str]) -> list[dict[str, Any]]:
+    """The ledger's `conditions`: each decision made from an `if` chain,
+    with its chain as written, kind, the decision it follows, its labels
+    and the languages (the base, the language files written) whose words
+    fell back to English."""
+    out: list[dict[str, Any]] = []
+    for cand in candidates:
+        branch = cand.get("branch")
+        cond = cand["record"].condition
+        if branch is None or cond is None:
+            continue
+        out.append({
+            "decision": branch["id"],
+            "source": cand["record"].source,
+            "condition": list(cond.written),
+            "kind": condition_kind(cond, branch),
+            "follows": branch.get("follows"),
+            "labels": [route["label"] for route in branch["routes"]],
+            "englishFor": sorted(tag for tag in cond.english_for
+                                 if tag == base or tag in written),
+        })
+    return out
+
+
+def condition_summary(record: list[dict[str, Any]]) -> list[str]:
+    if not record:
+        return []
+    kinds = {kind: sum(r["kind"] == kind for r in record)
+             for kind in conditions.KINDS}
+    line = (f"conditions: {len(record)} "
+            f"decision{'s' if len(record) != 1 else ''} from if chains "
+            f"(follows {kinds['follows']}, ranges {kinds['ranges']}, "
+            f"words {kinds['words']})")
+    english = sorted({tag for r in record for tag in r["englishFor"]})
+    if english:
+        line += f"; English words for: {', '.join(english)}"
+    return [line]
 
 
 def sorted_keys(value: Any) -> Any:
@@ -736,6 +865,13 @@ def main(argv: list[str] | None = None) -> int:
                            "written); a game/tl language with this tag is "
                            "skipped, and game/tl/english becomes an en "
                            "language file")
+    argp.add_argument("--condition-names", type=_condition_names_arg,
+                      default={}, metavar="FILE",
+                      help="a JSON object naming the variables of if "
+                           "chains in route labels: variable to words, one "
+                           "string for every language or an object of "
+                           "language tag to words (docs/extracting.md, "
+                           "\"Conditions\")")
     add_version_option(argp)
     args = argp.parse_args(argv)
     args.language_map = dict(args.language_map)
@@ -761,6 +897,12 @@ def main(argv: list[str] | None = None) -> int:
         episodes.append(episode)
     result = _join_results([e.result for e in episodes])
     parses = [entry for e in episodes for entry in e.parses]
+    read_vars = {c.variable for c in conditions.chains(parses)}
+    for name in args.condition_names:
+        if name not in read_vars:
+            print(f"kinetic-extract: warning: --condition-names: no if "
+                  f"chain the converter read tests {name!r}",
+                  file=sys.stderr)
     sources = _join_sources([e.sources for e in episodes], several)
     reports: list[Report] = []
     for _rel, parsed in parses:
@@ -835,6 +977,10 @@ def main(argv: list[str] | None = None) -> int:
     lang_files, lang_stats, lang_warnings = language_files(
         manifest, result.items, result.branch_candidates, projects_tl,
         LANG_SCHEMA_REF if manifest.get("$schema") == SCHEMA_REF else None)
+    condition_record = condition_ledger(
+        result.branch_candidates,
+        args.base_language or conditions.ENGLISH,
+        [d["language"] for d in lang_files])
     if lang_files:
         manifest = build_manifest(result, width, height, branches=branches,
                                   story_id=story_id, title=title,
@@ -865,6 +1011,11 @@ def main(argv: list[str] | None = None) -> int:
     # What became of the `with` statements (docs/extracting.md, "Colours
     # and transitions").
     ledger["transitions"] = transition_record
+    if condition_record:
+        # Each decision made from an `if` chain (docs/extracting.md,
+        # "Conditions"): its chain, kind, labels, and the languages whose
+        # words fell back to English.
+        ledger["conditions"] = condition_record
     # What the walk reached from label start and what it left
     # (docs/extracting.md, "The walk follows labels"): one object, or one
     # per project with its number.
@@ -892,7 +1043,7 @@ def main(argv: list[str] | None = None) -> int:
                   + summary_lines(lang_stats,
                                   [d["language"] for d in lang_files],
                                   skipped_tl),
-                  presentation_lines,
+                  presentation_lines + condition_summary(condition_record),
                   [(f"ep{n}: " if several else "") + line
                    for n, e in enumerate(episodes, start=1)
                    for line in e.result.walk_summary])
@@ -931,6 +1082,8 @@ def _walk_project(project: Path, args: argparse.Namespace
               + (f" matching {args.files!r}" if args.files else ""),
               file=sys.stderr)
         return None
+    # The if chains' kinds and words, before the walk lays them out.
+    conditions.prepare(parses, args.base_language, args.condition_names)
     implicit = ImplicitImages(game_dir, asset_archives)
     result = build_timeline(parses, image_defs, characters, game_dir,
                             start_label=args.label, max_items=args.max_items,
@@ -1046,6 +1199,8 @@ def _join_results(results: list[TimelineResult]) -> TimelineResult:
     for cand in joined.branch_candidates:
         if "joins_with" in cand:
             cand["joins_with"] = copies[id(cand["joins_with"])]
+        if cand.get("follows") is not None:
+            cand["follows"] = copies[id(cand["follows"])]
     return joined
 
 

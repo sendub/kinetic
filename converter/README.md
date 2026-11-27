@@ -220,6 +220,15 @@ an English language file); `--no-translations` leaves translations out.
 `tl/` is never part of the script walk. Details: docs/extracting.md,
 "Translations".
 
+An `if`/`elif`/`else` chain on one variable the script sets becomes a
+decision (docs/plan.md Phase 60 item 6), one that `follows` the menu
+whose choices alone set it or an ordinary one labelled by ranges or in
+words, in the base language and each language file's words (the
+player's catalogue, `converter/condition-words.json`). `--condition-names
+FILE` (a JSON object of variable to reader words, one string or an
+object of language tag to words) names the variables in the labels.
+Details: docs/extracting.md, "Conditions".
+
 ### kinetic-media ship
 
 ```sh

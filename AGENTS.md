@@ -7,8 +7,9 @@ are implementing and docs/stack.md for settled decisions.
 
 - Player: from `player/`: `npm test`, `npm run check`, `npm run build`,
   `npm run dev`. `npm run i18n` rewrites `player/locales/messages.pot`,
-  `src/i18n/locales.generated.ts` and `apps/host-words.json` (the game
-  apps' own words) from the English catalogue and
+  `src/i18n/locales.generated.ts`, `apps/host-words.json` (the game
+  apps' own words) and `converter/condition-words.json` (the
+  converter's `converter.*` words) from the English catalogue and
   the PO files (`npm run build` runs it; `npm test` fails while they
   are stale; docs/verify-player.md, "The player's words").
 - Python tools/fixtures/validator: `.venv/bin/python` from the repo root;
@@ -32,7 +33,9 @@ are implementing and docs/stack.md for settled decisions.
   with `--repin CASE` from the installed pinned tools while every other
   case still matches; and it lists every hash recorded in the item's
   evidence note. Run `.venv/bin/kinetic extract
-  <renpy_project> <out>`; it refuses to start until that setup has
+  <renpy_project> <out> [--condition-names FILE]` (a JSON object
+  naming `if` chains' variables in route labels: docs/extracting.md,
+  "Conditions"); it refuses to start until that setup has
   passed. Tests
   `.venv/bin/pytest converter/ tools/ -q -n auto` (pytest-xdist, one
   worker per core, about 45 s; a single file runs fine without `-n`).

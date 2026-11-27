@@ -54,6 +54,8 @@ def test_in_a_checkout_everything_is_the_repos_as_before() -> None:
     assert paths.CHECK_GAME == (REPO_ROOT / "player" / "scripts" / "testing"
                                 / "check-game.mjs")
     assert media_tools.SETUP_CMD.endswith("setup_media_tools.py")
+    assert paths.CONDITION_WORDS_FILE == (REPO_ROOT / "converter"
+                                          / "condition-words.json")
 
 
 def test_kinetic_home_is_ignored_in_a_checkout(monkeypatch) -> None:

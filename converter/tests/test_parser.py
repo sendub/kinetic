@@ -163,7 +163,10 @@ def test_non_breaking_spaces_in_indentation_parse_as_plain() -> None:
     assert list(said(want.events)) == [
         "Hello.", "You go left.", "You go right.", "Both roads meet.",
         "Later."]
-    assert len(want.menus) == 1
+    # The menu, and the `if` on `seen`, which the script sets (Phase 60
+    # item 6).
+    assert len(want.menus) == 2
+    assert want.menus[1].condition.variable == "seen"
     assert got.events == want.events
     assert got.menus == want.menus
     assert got.reports == want.reports

@@ -22,6 +22,7 @@ kinetic_extract/data/:
     VERSION                         the repo's VERSION
     LICENSE                         the repo's LICENSE (the apps carry it)
     media-tools.json                converter/media-tools.json
+    condition-words.json            converter/condition-words.json
     schemas/content-schema.json     docs/content-schema.json
     schemas/lang.schema.json        docs/lang.schema.json
     selftest/                       converter/tests/data/selftest/
@@ -80,6 +81,7 @@ DATA_FILES = {
     "LICENSE": REPO_ROOT / "LICENSE",
     "apps/host-words.json": REPO_ROOT / "apps" / "host-words.json",
     "media-tools.json": CONVERTER / "media-tools.json",
+    "condition-words.json": CONVERTER / "condition-words.json",
     "schemas/content-schema.json": REPO_ROOT / "docs" / "content-schema.json",
     "schemas/lang.schema.json": REPO_ROOT / "docs" / "lang.schema.json",
     "vendor/SOURCES.md": CONVERTER / "vendor" / "SOURCES.md",

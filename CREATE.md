@@ -372,9 +372,28 @@ Ren'Py runs the story in and what Ren'Py draws:
   such as `linear`, `parallel`, `block`, properties over several
   frames) stays `image without a file`, the report naming the
   statement.
+- **Conditions.** An `if`/`elif`/`else` chain whose tests read one
+  variable the script sets (`$ x = ...`, `+=`, `-=`, `default`,
+  `define`) becomes a decision, its arms' lines, pictures and sound
+  kept as routes that go on where the arms meet. A variable only one
+  menu's choices set gives a decision that follows that menu: with Play
+  all routes off the reader's pick there decides, and its routes read
+  `If you chose: Wake Robin`. A counter gives an ordinary decision
+  labelled by ranges (`love 3 or more`, `love 1 or 2`, `love under 1`),
+  and any other test one labelled by the choices that set the value or
+  in words (`met is set`), so the reader picks what fits their story; the
+  prompt is `Which fits your story so far?`. The words are in the
+  game's base language and each language file's own (English for a
+  language the catalogue lacks, which `kinetic report` names). Name the
+  variables for readers with `--condition-names FILE`, a JSON object
+  such as `{"love": "Love", "met_sam": {"en": "Robin met", "fr": "Robin
+  rencontré"}}`; keep the file with the game so the labels come back on
+  every conversion. A test on two variables, a function call or Ren'Py's
+  or persistent state stays as before, its blocks skipped and reported
+  `if chain not converted (why)`.
 
-docs/extracting.md, "The walk follows labels", "ATL frame lists" and
-"Colours and transitions", has every rule. A folder converted before Kinetic 1.12.0
+docs/extracting.md, "The walk follows labels", "Conditions", "ATL frame
+lists" and "Colours and transitions", has every rule. A folder converted before Kinetic 1.12.0
 gains colours and transitions only by converting it again (Upgrading
 to a newer Kinetic).
 
@@ -411,6 +430,10 @@ kinetic report novel-play --json
   licence and readme files are not listed.
 - The 20 longest lines by shown characters, with id, speaker, length and
   their first 60 characters.
+- Each decision the converter made from an `if` chain, from the build
+  ledger: its id and kind, the chain as written, its route labels, and
+  the languages whose words are English because the catalogue lacks
+  them (`English words for: de`).
 - For a game with translations, each language's coverage, counted as
   the validator counts it: strings translated of the base's, with the
   missing, stale, unchecked (no `from`) and long ones:

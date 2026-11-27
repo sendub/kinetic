@@ -182,14 +182,23 @@ print it.
   it came from (`sourceDigest`), which the app host build
   (`converter/kinetic_extract/app_hosts.py`) embeds in each host and
   refuses when stale (docs/plan.md Phase 56 item 7;
-  apps/README.md, "The apps' own words"). All three are committed; `npm
+  apps/README.md, "The apps' own words"), and
+  `converter/condition-words.json`, the converter's own words (the
+  `converter.*` messages: the prompt and route labels `kinetic extract`
+  writes for a decision made from an `if` chain, docs/extracting.md,
+  "Conditions") in English and every language that has them, which
+  `kinetic_extract/conditions.py` reads and the wheel carries. All four
+  are committed; `npm
   test` (`scripts/i18n.test.mjs`) fails while any is stale, and the
   compiler reports and leaves out an entry with an unknown key, a wrong
   plural shape or placeholders that differ from the English. The PO
   reader is `player/scripts/po.mjs`.
 - `npm test` also holds every `<tag>.po` to a complete catalogue
   (`auditLocale` in `scripts/i18n.mjs`): its header says it is an
-  unreviewed draft; every message is translated; every plural message
+  unreviewed draft; every message is translated (the `converter.*`
+  messages may wait for theirs until docs/plan.md Phase 60 item 6b: the
+  converter writes English for a phrase a language lacks and says so);
+  every plural message
   has each CLDR category the language uses
   (`Intl.PluralRules(tag).resolvedOptions().pluralCategories`: Polish
   one, few, many and other; Japanese other alone); and each plural form

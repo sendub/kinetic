@@ -472,4 +472,33 @@ export const EN = {
   /** Windows program, an error box before the game opens: the program is not in its game folder; {title} is the game's title, {file} the page's file name (index.html), kept as written; the blank line stays. */
   "host.windows.missing":
     "{title} cannot find {file} next to this program.\n\nKeep the program inside its game folder, or open the folder's {file} instead.",
+
+  /** Converter words, not the player's: written into a converted game as the prompt of a decision made from a condition in the script (what the story so far decides); the reader picks the route that matches their earlier choices. */
+  "converter.condition.prompt": "Which fits your story so far?",
+  /** Converter words: a route label of a decision made from a condition; {choice} is the game's own text of an earlier choice (or several, joined by the "or" words below). */
+  "converter.condition.chose": "If you chose: {choice}",
+  /** Converter words: joins two alternatives in a route label, choices ({first} the game's text of one choice, or of several already joined) or number ranges ("love under 1 or love 3 or more"). */
+  "converter.condition.or": "{first} or {second}",
+  /** Converter words: a route label for a counter; {name} is the game's name for it (e.g. love), {n} a whole number: the counter is {n} or higher. */
+  "converter.condition.atLeast": "{name} {n} or more",
+  /** Converter words: a route label for a counter; {name} is the game's name for it, {low} and {high} whole numbers at least two apart: the counter is from {low} to {high}, both included. */
+  "converter.condition.between": "{name} {low} to {high}",
+  /** Converter words: a route label for a counter; {name} is the game's name for it, {low} and {high} two whole numbers in a row (1 and 2): the counter is one or the other. */
+  "converter.condition.either": "{name} {low} or {high}",
+  /** Converter words: a route label for a counter; {name} is the game's name for it, {n} a whole number: the counter is exactly {n}. */
+  "converter.condition.exactly": "{name} exactly {n}",
+  /** Converter words: a route label for a counter; {name} is the game's name for it, {n} a whole number: the counter is below {n}. */
+  "converter.condition.under": "{name} under {n}",
+  /** Converter words: the route label of the last case of a decision made from a condition, when the rest cannot be put in words. */
+  "converter.condition.otherwise": "Otherwise",
+  /** Converter words: a route label; {name} is the game's name for something the story has or has not done (e.g. met_sam): it has. */
+  "converter.condition.set": "{name} is set",
+  /** Converter words: a route label; {name} is the game's name for something the story has or has not done: it has not. */
+  "converter.condition.notSet": "{name} is not set",
+  /** Converter words: a route label; {name} is the game's name for a setting of the story, {value} the game's own value for it (e.g. ending is good). */
+  "converter.condition.is": "{name} is {value}",
+  /** Converter words: a route label; {name} is the game's name for a setting of the story, {value} the game's own value it does not have. */
+  "converter.condition.isNot": "{name} is not {value}",
+  /** Converter words: a line of the story showing a route label ({label}, one of the labels above) in parentheses, for a route with no line of its own. */
+  "converter.condition.aside": "({label})",
 } as const satisfies Record<string, Message>;

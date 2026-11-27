@@ -64,6 +64,14 @@ the `--json` object:
   there. The top-level `language` and `languages` keys hold the base
   language and the listed tags.
 
+- `conditions`: each decision the converter made from an `if` chain
+  (docs/extracting.md, "Conditions"), from the folder's build ledger
+  (`build-ledger.json`, its `conditions`) for the decisions the manifest
+  still has: its id, the chain's source and heads as written, its kind
+  (`follows`, `ranges` or `words`), the decision it follows, its route
+  labels, and the languages whose words fell back to English (`[]` for a
+  folder without a ledger or such decisions).
+
 Where a decision the player keeps breaks the span rules of
 docs/content-format.md "Branches" (a route not after its `after` item,
 two of its routes overlapping, a `continueAt` not after every route
@@ -719,6 +727,27 @@ def unused_files(folder: Path, manifest: dict[str, Any],
 # The report
 # ---------------------------------------------------------------------------
 
+def conditions_section(folder: Path, manifest: dict[str, Any]
+                       ) -> list[dict[str, Any]]:
+    """The build ledger's decisions made from conditions that the
+    manifest still has, as the ledger records them."""
+    try:
+        ledger = json.loads((folder / "build-ledger.json").read_text(
+            encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    records = ledger.get("conditions") if isinstance(ledger, dict) else None
+    branches = manifest.get("branches")
+    ids = {b.get("id") for b in branches if isinstance(b, dict)} \
+        if isinstance(branches, list) else set()
+    keys = ("decision", "source", "condition", "kind", "follows", "labels",
+            "englishFor")
+    return [{key: record.get(key) for key in keys}
+            for record in records if isinstance(record, dict)
+            and record.get("decision") in ids] \
+        if isinstance(records, list) else []
+
+
 def build_report(folder: Path) -> dict[str, Any]:
     """The whole report as JSON-ready data. Raises ReportError."""
     manifest = read_manifest(folder)
@@ -744,6 +773,7 @@ def build_report(folder: Path) -> dict[str, Any]:
         "unusedFiles": unused_files(folder, manifest, languages),
         "longestLines": longest_section(manifest),
         "coverage": validate_content.language_coverage(manifest, folder),
+        "conditions": conditions_section(folder, manifest),
     }
 
 
@@ -875,6 +905,18 @@ def format_text(report: dict[str, Any]) -> str:
         start = line["start"] + ("..." if line["cut"] else "")
         add(f"  {line['length']:>5}  {line['id']:<{id_width}}  "
             f"{line['speaker'] or '-':<{sp_width}}  \"{start}\"")
+
+    made = report["conditions"]
+    add("")
+    add(f"Decisions made from conditions: {len(made) or 'none'}")
+    for c in made:
+        kind = f"follows {c['follows']}" if c["follows"] else c["kind"]
+        add(f"  {c['decision']} ({kind}) at {c['source']}: "
+            + " / ".join(c["condition"] or []))
+        add("    labels: " + "; ".join(
+            f"\"{_one_line(label)}\"" for label in c["labels"] or []))
+        if c["englishFor"]:
+            add(f"    English words for: {', '.join(c['englishFor'])}")
 
     base = report["language"]
     listed = [tag for tag in report["languages"] if tag != base]

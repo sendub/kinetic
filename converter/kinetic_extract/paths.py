@@ -121,3 +121,8 @@ CHECK_LIBRARY = resource("player/scripts/testing/kinetic.mjs",
 # words in every catalogue language (kinetic_extract/apps.py).
 LICENSE_FILE = resource("LICENSE", "LICENSE")
 HOST_WORDS_FILE = resource("apps/host-words.json", "apps/host-words.json")
+# The words kinetic-extract writes for a decision made from a condition
+# (kinetic_extract/conditions.py), in every catalogue language: `npm run
+# i18n` writes it from the player's catalogue (player/scripts/i18n.mjs).
+CONDITION_WORDS_FILE = resource("converter/condition-words.json",
+                                "condition-words.json")

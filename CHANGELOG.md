@@ -32,6 +32,25 @@ something more of an author.
   follows and which pick each route takes. The validator checks both
   fields (docs/content-format.md, "Branches", rules 26 and 27). An
   older player ignores them and shows an ordinary choice.
+- The converter makes a decision of an `if`/`elif`/`else` chain whose
+  tests read one variable the script sets (`$ x = ...`, `+=`, `-=`,
+  `default`, `define`), where it used to skip every arm as an
+  `unrecognized statement` and drop their lines and sound. The arms
+  become routes that go on where they meet. A variable only one menu's
+  choices set gives a decision that `follows` that menu, its routes
+  labelled `If you chose: Wake Robin`; a counter gives an ordinary
+  decision labelled by ranges (`love 3 or more`, `love 1 or 2`, `love
+  under 1`); any other test one labelled by the choices that set it or
+  in words (`met is set`); the prompt is `Which fits your story so
+  far?`. The words come from the player's catalogue, in the game's base
+  language and each language file's own (English where the catalogue
+  lacks a language). `kinetic extract --condition-names FILE` names the
+  variables in the labels, for every language or per language. An arm
+  no value takes is left out, reported. A chain on two variables, a
+  function call, Ren'Py's or persistent state stays as before, reported
+  `if chain not converted (why)`. The ledger's `conditions` and a new
+  `kinetic report` section list each such decision with the languages
+  whose words fell back to English (docs/extracting.md, "Conditions").
 - Animation timing: two new optional fields on an `animation` item.
   `frameSeconds`, one display time in seconds per frame, times the
   frames unevenly in place of `fps`, and one loop lasts their sum;

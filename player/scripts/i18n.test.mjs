@@ -6,9 +6,11 @@ import { EN } from "../src/i18n/en.ts";
 import { pseudoCatalogue } from "../src/i18n/pseudo.ts";
 import {
   auditLocale,
+  buildConverterWords,
   buildHostWords,
   buildModule,
   buildPot,
+  CONVERTER_WORDS_FILE,
   compilePo,
   EN_SOURCE,
   generateI18n,
@@ -229,6 +231,26 @@ describe("auditLocale: a complete catalogue in its language", () => {
     );
   });
 
+  it("lets a PO file lack the converter's words for now (item 6b)", () => {
+    const blank = (text) =>
+      text.replace(
+        /(msgctxt "converter\.[^"]+"\nmsgid "source"\nmsgstr )"[^"]*"/g,
+        '$1""',
+      );
+    const text = blank(full((m) => m));
+    expect(text).toContain(
+      'msgctxt "converter.condition.prompt"\nmsgid "source"\nmsgstr ""',
+    );
+    expect(auditLocale("de", text)).toEqual([]);
+    const missing = text.replace(
+      /msgctxt "help.title"\nmsgid "source"\nmsgstr "Keys"/,
+      'msgctxt "help.title"\nmsgid "source"\nmsgstr ""',
+    );
+    expect(auditLocale("de", missing)).toEqual([
+      'de.po: "help.title" is not translated',
+    ]);
+  });
+
   it("names an untranslated message and a header with no draft mark", () => {
     const text = full((m) => m, "# Kinetic player.\n").replace(
       /msgctxt "help.title"\nmsgid "source"\nmsgstr "Keys"/,
@@ -308,6 +330,44 @@ describe("the generated files", () => {
         Object.keys(EN).filter((key) => key.startsWith("host.")),
       );
     }
+  });
+
+  it("the converter's table holds the converter.* messages alone, English first", () => {
+    const table = JSON.parse(
+      buildConverterWords(
+        {
+          fr: {
+            "converter.condition.otherwise": "Sinon",
+            "config.title": "X",
+          },
+          de: {},
+        },
+        {
+          "converter.condition.otherwise": "Otherwise",
+          "converter.condition.prompt": "Which?",
+          "x.y": "Hi",
+        },
+      ),
+    );
+    expect(Object.keys(table.languages)).toEqual(["en", "fr", "de"]);
+    expect(table.languages.en).toEqual({
+      "converter.condition.otherwise": "Otherwise",
+      "converter.condition.prompt": "Which?",
+    });
+    // A message the language lacks is left out: the converter writes
+    // English for it and says so.
+    expect(table.languages.fr).toEqual({
+      "converter.condition.otherwise": "Sinon",
+    });
+    expect(table.languages.de).toEqual({});
+    const shipped = JSON.parse(readFileSync(CONVERTER_WORDS_FILE, "utf8"));
+    expect(Object.keys(shipped.languages)).toEqual(["en", ...localeTags()]);
+    expect(Object.keys(shipped.languages.en)).toEqual(
+      Object.keys(EN).filter((key) => key.startsWith("converter.")),
+    );
+    expect(shipped.languages.en["converter.condition.prompt"]).toBe(
+      "Which fits your story so far?",
+    );
   });
 
   it("the sources' digest changes with a PO file", () => {

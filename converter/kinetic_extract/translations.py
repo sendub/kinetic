@@ -1473,6 +1473,18 @@ def language_files(manifest: dict[str, Any], records: list[Any],
             used.add(key)
             return new
 
+        # A decision made from a condition (docs/plan.md Phase 60 item 6)
+        # in this language's words, a choice's text in it from `strings`.
+        worded: dict[int, tuple[str, list[str], list[str], bool]] = {}
+
+        def words_of(cond: Any) -> tuple[str, list[str], list[str], bool]:
+            if id(cond) not in worded:
+                worded[id(cond)] = cond.render(
+                    tag, lambda text: lookup(text, None, "choice") or text)
+                if worded[id(cond)][3]:
+                    cond.english_for.add(tag)
+            return worded[id(cond)]
+
         data: dict[str, Any] = {}
         if schema_ref:
             data["$schema"] = schema_ref
@@ -1500,6 +1512,9 @@ def language_files(manifest: dict[str, Any], records: list[Any],
             if record.skipped or item_id not in texts:
                 continue
             new = record.translations.get(tag)
+            arm = getattr(record, "condition_arm", None)
+            if arm is not None:
+                new = words_of(arm[0])[2][arm[1]]
             if new is not None and new.strip():
                 made_from = record.translation_bases.get(tag, texts[item_id])
                 item_entries[item_id] = _entry(new, made_from)
@@ -1514,6 +1529,16 @@ def language_files(manifest: dict[str, Any], records: list[Any],
                 continue
             record = cand["record"]
             entry: dict[str, Any] = {}
+            cond = getattr(record, "condition", None)
+            if cond is not None:
+                prompt, labels, _asides, _fell = words_of(cond)
+                entry["prompt"] = _entry(prompt, branch["prompt"])
+                entry["routes"] = {
+                    route["id"]: _entry(labels[k], route["label"])
+                    for route, k in zip(branch["routes"], cand["arms"])}
+                decisions[branch["id"]] = entry
+                done += 1 + len(entry["routes"])
+                continue
             if not record.prompt_defaulted:
                 new = lookup(branch["prompt"], PROMPT_MAX, "prompt")
                 if new is not None:

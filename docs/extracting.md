@@ -134,7 +134,8 @@ game whose story order differs from its file order read out of order.
   paths share, is read once, as the converter's routes rejoin the line
   they left); a call to it goes on after the call. The ledger counts
   both.
-- **Forks**: an `if`/`elif`/`else` chain, a `while`, and a menu that
+- **Forks**: an `if`/`elif`/`else` chain the converter does not read as
+  a condition (Conditions, below), a `while`, and a menu that
   does not become a decision keep their blocks skipped, as before, but
   the jumps and calls inside are followed: each block's in turn, up to
   the statement every block reaches (the fork's immediate
@@ -143,7 +144,8 @@ game whose story order differs from its file order read out of order.
   rest, as the file-order join usually read them; an `if` with no
   `else`, and a `while`, also go on past the fork. A label inside such a
   block is a place a jump can land. A menu that becomes a decision is
-  read as the next item says.
+  read as the next item says, and a chain read as a condition as a menu
+  is (Conditions, below).
 - **Menus** (docs/plan.md Phase 60 item 4): a menu of two or more plain
   quoted choices becomes a decision (Branches, in
   docs/content-format.md). Each choice block is read as label flow: its
@@ -285,6 +287,97 @@ With several projects `walk` is a list, one object per project with
 its `project` number, each walked from its own `label start`. A
 file-order walk records `{"order": "file names (no label start)"}`.
 
+### Conditions
+
+An `if`/`elif`/`else` chain becomes a decision (docs/plan.md Phase 60
+item 6; `kinetic_extract/conditions.py`) when every test in it reads one
+variable that the game's script sets with `$ x = ...`, `$ x += ...`, `$
+x -= ...`, `default` or `define`, in any script of the project. A test
+is the variable alone (`if met:`), `not` it, or the variable compared
+with a literal: `==`, `!=`, `<`, `<=`, `>`, `>=` (by size only with a
+whole number, and only when every literal the script gives the variable
+is one), `in` and `not in` a tuple or list of literals, `is` and `is
+not` `True`, `False` or `None`; `store.x` is `x`. The chain's arms are
+read as a menu's choices are (Menus, above): each arm's lines, pictures,
+audio, nested menus and chains, `$` lines and the `jump`, `call` or
+`return` it ends in, laid out up to where the arms meet, and every
+route that reaches that join is `"continue"` (an arm that ends the story
+is `"ending"`; one that jumps elsewhere and rejoins away from the join
+keeps the chain linear, reported, as for a menu). An arm with nothing
+of its own, and a missing `else` that becomes a route, is one line: the
+route's label in parentheses, `(If you chose: Leave)`.
+
+What the decision is depends on where the variable is set:
+
+- **follows**: every assignment but one `default` or `define` is a
+  literal `$ x = ...` in the choice blocks of one menu. Each choice
+  gives the variable a value (its block's last assignment, else the
+  default), and takes the first arm whose test that value passes. The
+  decision `follows` that menu's decision (docs/content-format.md,
+  "Branches"), each route's `when` the choices taking its arm, labelled
+  `If you chose: Wake Robin` (several choices `A or B`). A missing `else`
+  that some choice takes has no route: those choices pass the decision
+  at its `continueAt`, unless the decision needs it as its second route
+  (a one-arm chain), when it is a route like any other. When the menu
+  did not become a decision before the chain (it stayed linear, it holds
+  the chain, the asset pass withdrew it) the chain is an ordinary
+  decision with the same labels, every arm a route, or is withdrawn too
+  when it had left out its missing `else`.
+- **ranges**: a counter (`+=` or `-=`, or whole numbers) tested against
+  whole numbers. Each arm's numbers, what its test passes that no
+  earlier arm took, are said as ranges joined by "or": `love 3 or more`,
+  `love 1 or 2` (two numbers in a row), `love 2 to 5`, `love exactly
+  4`, `love under 1`. An `else` whose numbers are more than two ranges
+  is `Otherwise`. An ordinary decision: the reader picks what fits.
+- **words**: any other test, an ordinary decision. An arm that only
+  assignments in menu choices give a value it takes is `If you chose:
+  A or B`; else its test in words: `met_x is set`, `met_x is not set`,
+  `ending is good`, `ending is not good`, an `else` the opposite of the
+  one test before it, else `Otherwise`. A `default` or a `$` line
+  outside a menu counts as such an assignment.
+
+An arm no value takes (a literal no assignment gives, numbers an
+earlier arm took) is dropped with its lines, reported `if arm never
+taken`; a chain left with one arm is read in line, `skipped` in
+`branchDetection` with the arm it took. Everything else stays as before
+and is reported `if chain not converted (why)`, its blocks skipped (the
+audio in them reported), their jumps and calls followed: a test on two
+variables or joined with `and`/`or`, a function call, `persistent.`,
+`renpy.`, `config.` or `preferences.` state, a name starting with `_`,
+a variable no `$` line, `default` or `define` sets (or only Python code
+sets), a comparison by size with what is not a whole number, and a
+`label` inside an arm.
+
+The prompt is `Which fits your story so far?`. The prompt and labels are
+the converter's phrases of the player's catalogue (the `converter.*`
+messages of `player/src/i18n/en.ts`, which `npm run i18n` writes with
+every language's translation into `converter/condition-words.json`; the
+wheel carries a copy). The manifest's are in the game's base language
+(`--base-language`, default English), and each language file gets its
+own language's words (matched as the player matches a reader's
+language: `de-AT` takes `de`), a choice's text inside a label from that
+language's `strings` block. A phrase the catalogue lacks for a language
+is English. `--condition-names FILE` names the variables in the labels:
+a JSON object of variable to words, one string for every language or an
+object of language tag to words (a language without its own takes the
+base language's, else the variable's name):
+
+```json
+{"love": {"en": "Love", "fr": "Amour"}, "met_x": "Robin met"}
+```
+
+A key no chain the converter read tests is a warning on stderr; a file
+that is not such an object stops the run (exit 2).
+
+The ledger's `branchDetection` note for such a decision ends `from a
+condition on love, kind ranges (...)`, and the ledger's `conditions`
+lists each one: `decision`, `source`, `condition` (the chain's heads as
+written), `kind` (`follows`, `ranges` or `words`), `follows` (the
+decision it follows, or null), `labels`, and `englishFor`, the languages
+(the base and each language file written) whose words fell back to
+English. The summary counts them (`conditions: ...`), and `kinetic
+report` lists them (Decisions made from conditions).
+
 ## Several episodes, one game
 
 A game released as several Ren'Py projects (episodes) becomes one
@@ -378,7 +471,7 @@ with the current schema.
 `build-ledger.json` sits beside the manifest; the player and validator
 ignore it. Besides the walk's record (`inputs`, `items`, `report`,
 `branchDetection`, the `rpyc*`/`rpa*` source lists, `slice`, `walk`:
-The walk follows labels, above, the
+The walk follows labels, above, `conditions`: Conditions, above, the
 sound's `audioTracks` and video items' `sound`: Shipping the sound,
 below, `transitions`: Colours and transitions, below, and
 `translations`: Translations, below), it holds

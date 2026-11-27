@@ -4846,6 +4846,19 @@ The orchestrator's choices, within those decisions:
    audio in an arm, a chain inside a route, an unreadable condition),
    each validating `--strict` clean and walking to the end; report
    tests.
+6c. An initial value set in label flow (a lead from item 6). Item 6's
+    follows rule takes a variable whose assignments are all in one
+    menu's choices, plus a `default`; games often reset the variable in
+    label flow instead (`$ choice = ""` early in the story), so their
+    chains become ordinary decisions asking the reader again. A literal
+    `=` assignment outside every menu choice and chain arm that the walk
+    reaches before the menu, with no other assignment of the variable
+    between it and the menu, is its value for the routes that set
+    nothing, as a `default` is; one reached after the menu, or in a
+    loop back to before it, still makes the chain a words decision.
+    Tests: a reset in label flow before the menu (follows), the same
+    with a second reset after the menu (words), a reset in another
+    menu's choice (words).
 6b. The condition phrases in every interface language (item 6 split in
     two, 2026-11-26: item 6 builds the mechanism and the English
     phrases). Every PO file in `player/locales/` translates item 6's
@@ -4919,7 +4932,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

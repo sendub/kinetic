@@ -160,6 +160,7 @@ def test_the_wheel_carries_the_package_data(installed: Installed) -> None:
         modes = {info.filename: info.external_attr >> 16
                  for info in zf.infolist()}
     for name in ["VERSION", "LICENSE", "media-tools.json",
+                 "condition-words.json",
                  "schemas/content-schema.json", "schemas/lang.schema.json",
                  "selftest/sample.png", "vendor/unrpyc/unrpyc.py",
                  "player/index.html", "player/app.js",

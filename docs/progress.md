@@ -6298,9 +6298,77 @@ truthful: an unchecked box means nothing was accepted.
       1919/1919, check clean, smoke 6/6, follows 10/10 on Chrome and
       10/10 on WebKit, branches, playall, continueroute, choicelist,
       branchmap and menus 201/201 on Chrome, at load 31-40.)
-- [ ] Conditions become decisions (item 6). `follows` decisions,
+- [x] Conditions become decisions (item 6). `follows` decisions,
       counter ranges and choice-named labels in every interface
       language; `--condition-names`; the report's section.
+      (2026-11-27: new conditions.py. `parse_project` scans every file's
+      assignments first; at each `if`, `_handle_chain` asks
+      `conditions.read_chain` whether the chain is readable (one
+      variable throughout; bare name, `not`, `==`, `!=`, `<`, `<=`,
+      `>`, `>=` on whole numbers when every literal given the variable
+      is one, `in`/`not in`, `is` True/False/None, `store.x` as `x`;
+      not `persistent.`, `renpy.`, `config.`, `preferences.`, `_`
+      names, variables only Python sets, or a `label` in an arm). A
+      readable chain is a MenuRecord with `.condition` and a fork whose
+      bodies are the arms read as label flow (an absent `else` an empty
+      arm), laid out by item 4's walk and timeline; an unreadable one
+      reports once on its `if` line ("if chain not converted (<why>)")
+      and keeps the old `_chain_fork`. `conditions.prepare` gives each
+      chain its kind before the walk: follows (all assignments but one
+      default literal `=` in one menu's choices, each choice taking the
+      first arm its value passes), ranges (whole-number intervals on a
+      counter), words (the rest); it drops arms no value takes ("if arm
+      never taken"), reads a one-arm chain in line, and writes the base
+      language's prompt and labels. The timeline follows the menu's
+      candidate when it is closed before the chain (else an ordinary
+      decision with the same labels); cli.py writes `follows`/`when`,
+      makes the chain ordinary (or withdraws it) when its followed
+      decision is withdrawn, withdraws one that would pass with no
+      `continueAt`, and gains `--condition-names` (a malformed file
+      exits 2, an unknown key warns). The 14 phrases are
+      `converter.condition.*` keys in player/src/i18n/en.ts;
+      `npm run i18n` writes converter/condition-words.json (stale fails
+      `npm test`; the wheel carries it; `paths.CONDITION_WORDS_FILE`);
+      `auditLocale` skips the untranslated `converter.*` keys until item
+      6b. Language files get each language's words, with choice text
+      from its `strings` block; `match_tag` follows the player's rule.
+      The ledger gains `conditions` and notes "from a condition on X,
+      kind K"; `kinetic report` a "Decisions made from conditions"
+      section (text and JSON) naming languages that fell back to
+      English; a `conditions:` summary line. extracting.md
+      "Conditions", CREATE.md, AGENTS.md, verify-player.md,
+      converter/README.md, a CHANGELOG bullet. Subagent's calls: extra
+      phrases "{name} exactly {n}", "{name} {low} or {high}" for two
+      adjacent numbers ("to" from two apart), "{first} or {second}",
+      "{name} is {value}"/"is not {value}" so every readable chain is
+      worded, "({label})" translatable; the words file lives at
+      converter/condition-words.json (build_wheel refuses a checkout
+      `data/`); a follows decision needs two routes, so a one-arm
+      chain's absent `else` some choice takes stays a route with its
+      `when`; dead arms are dropped with their lines (faithful to the
+      game); the empty arm's line is its label in parentheses. Tests:
+      test_conditions.py 50 end-to-end and unit (follows with and
+      without `else`, `!=`/`in`, a dead arm, arms jumping before
+      rejoining, audio in an arm, a chain in a route and in the menu it
+      reads, three ranges and range wordings, flags set in two menus
+      and in label flow, five unreadable kinds, a French base game with
+      en and de files on a test catalogue, per-language names, a base
+      language the catalogue lacks, the names-file warning and four bad
+      files, `match_tag`, range arithmetic, `read_test`), all failing
+      first; two i18n.mjs tests; test_parser's U+00A0 test expects 2
+      menus. Subagent: converter and tools 2267, npm test 1921, check
+      clean. Orchestrator: converter and tools 2267 passed; npm test
+      1921/1921, check clean. On a reporting agent's game (read-only
+      parse-only walk with `prepare`): 60 decisions (from 35), 114
+      `"continue"`, 25 `"ending"`, 6 `"return"` routes, 1,300 more
+      items (lines in chain arms now kept); but 0 `follows`: 22 chains
+      became ordinary "If you chose" decisions because the game resets
+      each variable in label flow (`$ x = ""`) before the menu that sets
+      it, which the follows rule refuses: item 6c.)
+- [ ] An initial value set in label flow (item 6c, a lead from item 6).
+      A literal assignment reached before the menu, outside every menu
+      and chain, is the variable's value for routes that set nothing,
+      as a `default` is.
 - [ ] The condition phrases in every interface language (item 6b, item
       6 split in two). Every PO file translates item 6's phrases; the
       converter's file regenerated; a test that every language has them.
