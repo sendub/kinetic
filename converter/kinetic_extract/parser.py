@@ -58,10 +58,11 @@ Design notes:
 
 from __future__ import annotations
 
+import ast
 import fnmatch
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -135,7 +136,8 @@ _DEF_RE = re.compile(r"def\s+([A-Za-z_]\w*)\s*\(")
 # block's `x = ...`, a screen's SetVariable or ToggleVariable.
 _SET_OPS = r"(\+=|-=|\*\*=|//=|[*/%&|^@]=|<<=|>>=|=)(?!=)"
 _DOLLAR_SET_RE = re.compile(
-    r"\$\s*(?:store\.)?([A-Za-z_]\w*)\s*" + _SET_OPS + r"\s*(.*)")
+    r"\$\s*(?:(?:renpy\.)?store\.)?([A-Za-z_]\w*)\s*" + _SET_OPS
+    + r"\s*(.*)")
 _STORE_DECL_RE = re.compile(
     r"(default|define)\s+(?:[+-]?\d+\s+)?((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)"
     r"\s*(\+=|\|=|=)(?!=)\s*(.*)")
@@ -143,7 +145,28 @@ _PY_SET_RE = re.compile(r"(?:store\.)?([A-Za-z_]\w*)\s*" + _SET_OPS)
 _PY_BLOCK_RE = re.compile(r"(?:init\s+(?:[+-]?\d+\s+)?)?python\b[^:]*:")
 _INIT_BLOCK_RE = re.compile(r"init(?:\s+[+-]?\d+)?\s*:")
 _ACTION_SET_RE = re.compile(
-    r"""\b(?:SetVariable|ToggleVariable)\(\s*["']([A-Za-z_]\w*)["']""")
+    r"""\b(?:(?:SetVariable|ToggleVariable|VariableInputValue)\(|"""
+    r"""(?:SetField|ToggleField|FieldInputValue)\(\s*store\s*,)"""
+    r"""\s*["']([A-Za-z_]\w*)["']""")
+# Item 9k's places that set a variable the converter does not read: a
+# label's parameters, a call's keyword arguments, a `while` test's names
+# and Python's `for` targets (loop variables), `$ a, b = ...`, and
+# `setattr(store, "x", ...)`.
+_LABEL_PARAMS_RE = re.compile(
+    r"label\s+(" + _LABEL_NAME_RE.pattern + r")\s*\((.*)\)\s*(?:hide\s*)?:")
+_CALL_ARGS_RE = re.compile(
+    r"call\s+(" + _LABEL_NAME_RE.pattern + r")\s*\((.*)\)"
+    r"(?:\s+from\s+\S+)?")
+_WHILE_RE = re.compile(r"while\s+(.+):")
+_FLOW_SITE_RE = re.compile(
+    r"(call|jump)\s+(" + _LABEL_NAME_RE.pattern + r")\s*(?:\((.*)\))?"
+    r"(?:\s+from\s+\S+)?")
+_FOR_RE = re.compile(r"(?:async\s+)?for\s+(.+?)\s+in\s")
+_UNPACK_RE = re.compile(
+    r"\$\s*\(?\s*((?:(?:renpy\.)?store\.)?[A-Za-z_]\w*\s*"
+    r"(?:,\s*(?:(?:renpy\.)?store\.)?[A-Za-z_]\w*\s*)+),?\s*\)?\s*=(?!=)")
+_SETATTR_RE = re.compile(
+    r"""\bsetattr\(\s*(?:renpy\.)?store\s*,\s*["']([A-Za-z_]\w*)["']""")
 # A named menu, `menu name:`, which is also a label.
 _NAMED_MENU_RE = re.compile(r"menu\s+(" + _LABEL_NAME_RE.pattern + r")\s*:")
 # `$ renpy.jump("x")` and `$ renpy.call("x")` with a literal label.
@@ -387,6 +410,10 @@ class FlowStep:
     scope: str | None = None
     menu: int | None = None
     bodies: list[list["Event"]] = field(default_factory=list)
+    # A chain on its label's parameter that every call gives a literal
+    # (docs/plan.md Phase 60 item 9k): the ChainCondition whose arm the
+    # walk takes at each call (``bodies`` the arms), no decision.
+    pick: Any = None
 
 
 @dataclass
@@ -543,6 +570,13 @@ class FileParse:
         default_factory=list)
     known_variables: dict[str, list[conditions.Assignment]] = field(
         default_factory=dict)
+    # Item 9k: each label's parameters (full name -> conditions.Param,
+    # in order) and each `call` or `jump` of a literal label, ``(label,
+    # its argument list or None, source)`` (_scan_labels).
+    label_params: dict[str, list[conditions.Param]] = field(
+        default_factory=dict)
+    call_sites: list[tuple[str, str | None, str]] = field(
+        default_factory=list)
     # Screen name -> its literal `Jump`/`Call` actions as jump and call
     # steps, in order, and the screens it includes with `use`.
     screens: dict[str, tuple[list[FlowStep], list[str]]] = field(
@@ -1094,6 +1128,7 @@ def _handle_chain(raw_lines: list[str], i: int, relname: str, lineno: int,
                     cur_label, cur_global)
         bodies.append(body)
     read.heads = [head for _n, head in heads]
+    read.label = cur_global
     read.written = list(read.heads)
     read.sources = [f"{relname}:{n}" for n, _head in heads]
     if keywords[-1] != "else":
@@ -1501,14 +1536,125 @@ def creator_statement_names(text: str) -> set[str]:
     return names
 
 
+def label_parameters(text: str) -> list[conditions.Param]:
+    """A label's parameter list ``text`` as conditions.Param, in order:
+    each name, its default when that is a literal (else UNKNOWN, and
+    UNKNOWN for none), and whether a positional argument binds it."""
+    try:
+        args = ast.parse(f"def f({text}): pass").body[0].args
+    except (SyntaxError, ValueError, IndexError, AttributeError):
+        return [conditions.Param(name, conditions.UNKNOWN, False)
+                for name in _parameters(text)]
+    positional = args.posonlyargs + args.args
+    defaults = [None] * (len(positional) - len(args.defaults)) \
+        + list(args.defaults)
+    out = [conditions.Param(a.arg, conditions.literal_node(d), True)
+           for a, d in zip(positional, defaults)]
+    out += [conditions.Param(a.arg, conditions.literal_node(d), False)
+            for a, d in zip(args.kwonlyargs, args.kw_defaults)]
+    out += [conditions.Param(a.arg, conditions.UNKNOWN, False)
+            for a in (args.vararg, args.kwarg) if a is not None]
+    return out
+
+
+def _scan_labels(raw_lines: list[str], relname: str,
+                 result: "FileParse | None" = None) -> list[str | None]:
+    """Each line's global label (None outside labels), and into
+    ``result`` the labels' parameters and the `call`/`jump` sites of
+    literal labels (FileParse.label_params, call_sites; item 9k)."""
+    scopes: list[str | None] = []
+    scope: str | None = None
+    py_indent: int | None = None
+    for n, raw in enumerate(raw_lines):
+        text = strip_comment(raw)
+        stripped = text.strip()
+        indent = len(text) - len(text.lstrip(" \t"))
+        if stripped and py_indent is not None and indent <= py_indent:
+            py_indent = None
+        if stripped and indent == 0:
+            m = _LABEL_FULL_RE.match(stripped)
+            scope = (full_label(m.group(1), scope).split(".")[0]
+                     if m else None)
+        scopes.append(scope)
+        if not stripped or result is None or py_indent is not None:
+            continue
+        if _PY_BLOCK_RE.fullmatch(stripped):
+            py_indent = indent
+            continue
+        source = f"{relname}:{n + 1}"
+        m = _LABEL_PARAMS_RE.fullmatch(stripped)
+        if m:
+            result.label_params[full_label(m.group(1), scope)] = \
+                label_parameters(m.group(2))
+            continue
+        m = _FLOW_SITE_RE.fullmatch(stripped)
+        if m and m.group(2) not in ("expression", "screen"):
+            result.call_sites.append((full_label(m.group(2), scope),
+                                      m.group(3), source))
+    return scopes
+
+
+def call_arguments(statement: str) -> str | None:
+    """The argument list of a `call label(...)` statement, None without
+    one."""
+    m = _FLOW_SITE_RE.fullmatch(statement.strip())
+    return m.group(3) if m else None
+
+
+def _parameters(text: str) -> list[str]:
+    """The names a label's parameter list ``text`` binds (`n`, `mood="x"`,
+    `*args`, `**kw`)."""
+    try:
+        args = ast.parse(f"def f({text}): pass").body[0].args
+    except (SyntaxError, ValueError, IndexError, AttributeError):
+        return re.findall(r"(?:^|,)\s*\**([A-Za-z_]\w*)", text)
+    every = args.posonlyargs + args.args + args.kwonlyargs
+    every += [a for a in (args.vararg, args.kwarg) if a is not None]
+    return [a.arg for a in every]
+
+
+def _keywords(text: str) -> list[str]:
+    """The keyword arguments' names of a call's argument list ``text``."""
+    try:
+        call = ast.parse(f"f({text})", mode="eval").body
+    except (SyntaxError, ValueError):
+        return re.findall(r"(?:^|,)\s*([A-Za-z_]\w*)\s*=(?!=)", text)
+    return [k.arg for k in getattr(call, "keywords", []) if k.arg]
+
+
+def _names_read(text: str) -> list[str]:
+    """The variables a test ``text`` reads (not the functions it calls;
+    `store.x` is `x`)."""
+    try:
+        node = ast.parse(text.strip(), mode="eval")
+    except (SyntaxError, ValueError):
+        return []
+    called = {id(n.func) for n in ast.walk(node) if isinstance(n, ast.Call)}
+    out: list[str] = []
+    for n in ast.walk(node):
+        if id(n) in called:
+            continue
+        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) \
+                and n.value.id == "store":
+            out.append(n.attr)
+        elif isinstance(n, ast.Name) and n.id != "store":
+            out.append(n.id)
+    return list(dict.fromkeys(out))
+
+
 def _scan_assignments(raw_lines: list[str], relname: str
                       ) -> list[conditions.Assignment]:
     """Every place the script sets a plain variable, for the `if` chain
     reader (kinetic_extract.conditions): `$ x = ...` (``=``, ``+=``,
-    ``-=``; another operator is ``python``; in an `init:` block a `$ x =`
-    is a ``define``), `default`/`define x = ...`, and as ``python`` an
+    ``-=``; another is ``operator``; in an `init:` block a `$ x =` is a
+    ``define``), `default`/`define x = ...`, and as ``python`` an
     assignment in a Python block (`python:`, `init python:`, functions in
-    them) and a screen's `SetVariable`/`ToggleVariable` action."""
+    them), and the places item 9k names that the converter does not read
+    (conditions.UNREAD_OPS): a label's parameters, a call's keyword
+    arguments, loop variables (a `while` test's names, Python's `for`
+    targets), `$ a, b = ...`, `setattr(store, ...)`, another operator,
+    and a screen's `SetVariable`, `ToggleVariable`, `SetField(store,
+    ...)`, `ToggleField(store, ...)` or input value."""
     out: list[conditions.Assignment] = []
     py_indent: int | None = None
     init_indent: int | None = None
@@ -1524,13 +1670,45 @@ def _scan_assignments(raw_lines: list[str], relname: str
             init_indent = None
         source = f"{relname}:{n + 1}"
         for m in _ACTION_SET_RE.finditer(stripped):
+            out.append(conditions.Assignment(m.group(1), "screen", "",
+                                             source))
+        for m in _SETATTR_RE.finditer(stripped):
             out.append(conditions.Assignment(m.group(1), "python", "",
                                              source))
+        m = _WHILE_RE.fullmatch(stripped)
+        if m:
+            for var in _names_read(m.group(1)):
+                out.append(conditions.Assignment(
+                    var, "loop", conditions.fit(stripped, 60), source))
         if py_indent is not None:
+            m = _FOR_RE.match(stripped)
+            if m:
+                for var in re.findall(r"[A-Za-z_]\w*", m.group(1)):
+                    out.append(conditions.Assignment(
+                        var, "loop", conditions.fit(stripped, 60), source))
             m = _PY_SET_RE.match(stripped)
             if m:
                 out.append(conditions.Assignment(m.group(1), "python",
                                                  stripped, source))
+            continue
+        m = _LABEL_PARAMS_RE.fullmatch(stripped)
+        if m:
+            for var in _parameters(m.group(2)):
+                out.append(conditions.Assignment(var, "parameter",
+                                                 m.group(1), source))
+            continue
+        m = _CALL_ARGS_RE.fullmatch(stripped)
+        if m:
+            for var in _keywords(m.group(2)):
+                out.append(conditions.Assignment(var, "argument",
+                                                 m.group(1), source))
+            continue
+        m = _UNPACK_RE.match(stripped)
+        if m:
+            for var in m.group(1).split(","):
+                out.append(conditions.Assignment(
+                    var.strip().rpartition(".")[2], "unpack", stripped,
+                    source))
             continue
         if _PY_BLOCK_RE.fullmatch(stripped):
             py_indent = indent
@@ -1542,7 +1720,7 @@ def _scan_assignments(raw_lines: list[str], relname: str
         if m:
             whole = _STORE_DECL_RE.fullmatch(
                 _continued(raw_lines, n, stripped, 5000)[0]) or m
-            op = m.group(1) if m.group(3) == "=" else "python"
+            op = m.group(1) if m.group(3) == "=" else "operator"
             out.append(conditions.Assignment(m.group(2), op, whole.group(4),
                                              source))
             continue
@@ -1550,12 +1728,15 @@ def _scan_assignments(raw_lines: list[str], relname: str
         if m:
             whole = _DOLLAR_SET_RE.fullmatch(
                 _continued(raw_lines, n, stripped, 5000)[0]) or m
-            op = m.group(2) if m.group(2) in ("=", "+=", "-=") else "python"
+            op = m.group(2) if m.group(2) in ("=", "+=", "-=") \
+                else "operator"
             if op == "=" and init_indent is not None:
                 op = "define"
             out.append(conditions.Assignment(m.group(1), op, whole.group(3),
                                              source))
-    return out
+    scopes = _scan_labels(raw_lines, relname)
+    return [replace(a, scope=scopes[int(a.source.rpartition(":")[2]) - 1])
+            for a in out]
 
 
 def parse_file(text: str, relname: str,
@@ -1570,6 +1751,7 @@ def parse_file(text: str, relname: str,
                        creator_statements=set(creator_statements))
     raw_lines = script_lines(text)
     result.assignment_scan = _scan_assignments(raw_lines, relname)
+    _scan_labels(raw_lines, relname, result)
     result.known_variables = (variables if variables is not None else
                               conditions.by_variable(result.assignment_scan))
     _scan_settings(raw_lines, relname, result)

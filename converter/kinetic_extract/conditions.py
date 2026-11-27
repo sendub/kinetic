@@ -32,8 +32,19 @@ kind of decision each chain becomes and words its routes:
   "met is not set", "ending is good", "ending is not good", an `else`
   the opposite of the one test before it, else "Otherwise".
 
-An arm no value takes is dropped, reported (`if arm never taken`); a
-chain left with one arm is read in line. An ordinary decision's absent
+A chain on its own label's parameter that every call of the label gives
+a literal is a ``pick`` (item 9k: call_picks): no decision, the walk
+takes at each call the arm its value picks (kinetic_extract.flow). A
+chain on a variable some place the converter does not read sets (a
+label parameter some call gives an expression, a loop, a random roll or
+another call's value, Python code, a screen action: Assignment.unread),
+or on `_return`, is classified as above from what it does read and the
+reader picks; ``unread`` says why (the ledger's `readerPicks`).
+
+An arm no value takes (every place that sets the variable read; for a
+``pick``, no call's value) or, for a counter, whose numbers earlier arms
+take is dropped, reported (`if arm never taken`); a chain left with one
+arm is read in line. An ordinary decision's absent
 `else` is a route whose one line is its label in parentheses. The prompt
 is "Which fits your story so far?". The words are the `converter.*`
 phrases of the player's catalogue (player/src/i18n/en.ts), which `npm run
@@ -79,16 +90,37 @@ UNKNOWN: Any = _Unknown()
 # Assignments
 # --------------------------------------------------------------------------
 
+# The places a variable is set that the converter does not read (item 9k),
+# each with what it says of the variable; ``value`` fills ``{value}``.
+UNREAD_OPS = {
+    "parameter": "is a parameter of label {value}",
+    "argument": "is set by an argument of `call {value}`",
+    "loop": "is a loop variable ({value})",
+    "python": "is set in Python code",
+    "screen": "is set by a screen action",
+    "operator": "is changed with another operator than =, += or -=",
+    "unpack": "is set by unpacking a tuple",
+}
+# Run-time state first when a variable has several (read_chain's reason).
+_FIRST_UNREAD = ("parameter", "argument", "loop")
+
+
 @dataclass(frozen=True)
 class Assignment:
     """One place the script sets a variable: ``op`` is ``=``, ``+=`` or
-    ``-=`` (a `$` line), ``default``, ``define``, or ``python`` (a
-    Python block or function, a screen action, another operator)."""
+    ``-=`` (a `$` line), ``default`` or ``define``, which the converter
+    reads when ``value`` is a literal, or one of UNREAD_OPS: a label's
+    ``parameter`` or a call's keyword ``argument`` (``value`` the label),
+    a ``loop`` variable (Python's `for`, a `while` test), ``python`` (a
+    Python block or function, `setattr(store, ...)`), a ``screen``
+    action or input value, another ``operator``, ``unpack``."""
 
     var: str
     op: str
     value: str
     source: str
+    # The global label whose block the line is in, None outside labels.
+    scope: str | None = None
 
     def literal(self) -> Any:
         """The value it sets when that is a literal, else UNKNOWN."""
@@ -101,9 +133,88 @@ class Assignment:
             return UNKNOWN
         return value if _plain(value) else UNKNOWN
 
+    def unread(self) -> str | None:
+        """None when the converter reads what this sets (a literal `=`,
+        `default` or `define`, `+=`/`-=` of a literal), else what it says
+        of the variable: "is a parameter of label scene", "is set from a
+        call to renpy.random.randint", "starts as a list"."""
+        if self.op in UNREAD_OPS:
+            return UNREAD_OPS[self.op].format(value=self.value)
+        text = self.value.strip()
+        try:
+            value = ast.literal_eval(text)
+        except (ValueError, SyntaxError, TypeError, MemoryError,
+                RecursionError):
+            value = UNKNOWN
+        if value is not UNKNOWN and _plain(value):
+            return None
+        if self.op in ("+=", "-="):
+            return "is changed by an expression, not a literal"
+        if value is not UNKNOWN:
+            kind = type(value).__name__
+            return (f"starts as a {kind}" if self.op != "="
+                    else f"is set to a {kind}") + ", not one value"
+        try:
+            node = ast.parse(text, mode="eval").body
+        except (SyntaxError, ValueError):
+            return "is set from an expression, not a literal"
+        if isinstance(node, ast.Call):
+            return f"is set from a call to {_dotted(node.func) or 'a function'}"
+        if isinstance(node, (ast.Name, ast.Attribute)) and _dotted(node):
+            return f"is set from another variable ({_dotted(node)})"
+        return "is set from an expression, not a literal"
+
 
 def _plain(value: Any) -> bool:
     return value is None or isinstance(value, (bool, int, float, str))
+
+
+def literal_node(node: ast.AST | None) -> Any:
+    """The plain literal ``node`` is, else UNKNOWN (also for None)."""
+    if node is None:
+        return UNKNOWN
+    try:
+        value = ast.literal_eval(node)
+    except (ValueError, SyntaxError, TypeError, MemoryError,
+            RecursionError):
+        return UNKNOWN
+    return value if _plain(value) else UNKNOWN
+
+
+@dataclass(frozen=True)
+class Param:
+    """A label's parameter: its ``default`` when that is a literal, else
+    UNKNOWN (and UNKNOWN for none); ``positional`` when a positional
+    argument binds it (not `*args`, `**kw` or keyword-only)."""
+
+    name: str
+    default: Any
+    positional: bool
+
+
+def call_values(args: str | None, params: list[Param]) -> dict[str, Any]:
+    """Each parameter's value at a `call` (or `jump`: ``args`` None) of
+    a label with ``params``: its literal positional or keyword argument,
+    else its literal default; UNKNOWN for anything else (an expression,
+    `*x` or `**x` in the call)."""
+    out = {p.name: p.default for p in params}
+    if not args or not args.strip():
+        return out
+    try:
+        call = ast.parse(f"f({args})", mode="eval").body
+    except (SyntaxError, ValueError):
+        call = None
+    if not isinstance(call, ast.Call) or any(
+            isinstance(a, ast.Starred) for a in call.args) or any(
+            k.arg is None for k in call.keywords):
+        return {p.name: UNKNOWN for p in params}
+    positional = [p.name for p in params if p.positional]
+    for name, node in zip(positional, call.args):
+        out[name] = literal_node(node)
+    for keyword in call.keywords:
+        if keyword.arg in out:
+            out[keyword.arg] = literal_node(keyword.value)
+    return out
 
 
 def by_variable(assignments: list[Assignment]
@@ -143,6 +254,16 @@ _NOT_STORY = {
     "preferences": "the reader's preferences",
     "_preferences": "the reader's preferences",
     "achievement": "Ren'Py's achievements",
+}
+# Ren'Py's own run-time names a chain reads (item 9k): `_return` is a
+# variable the reader picks the value of (RETURNED), the rest stay
+# unconverted.
+RETURNED = "is the value a call or `call screen` returned"
+_RUN_TIME = {
+    "_in_replay": "is whether a replay is playing (the label a gallery "
+                  "replays)",
+    "_args": "is the arguments of the call that reached the label",
+    "_kwargs": "is the arguments of the call that reached the label",
 }
 
 
@@ -244,6 +365,10 @@ def _variable(node: ast.AST) -> tuple[str | None, str | None]:
         return None, f"calls {func or 'a function'}"
     else:
         return None, "tests an expression, not one variable"
+    if name == "_return":
+        return name, None
+    if name in _RUN_TIME:
+        return None, f"{name} {_RUN_TIME[name]}: run-time state"
     if name.startswith("_"):
         return None, f"{name} starts with _ (Ren'Py's own or private state)"
     if name in _NOT_STORY:
@@ -351,6 +476,12 @@ class ChainCondition:
     # The languages (base and language files) whose words for this
     # decision fell back to English for a phrase.
     english_for: set[str] = field(default_factory=set)
+    # Why the reader picks the arm, when a place the converter does not
+    # read sets the variable (unread_reason; item 9k), else None.
+    unread: str | None = None
+    # The global label the chain is in (the parser sets it): a chain on
+    # its parameter that every call gives a literal is a ``pick``.
+    label: str | None = None
 
     def arm_of(self, value: Any) -> int:
         """The arm a value takes: the first whose test holds."""
@@ -378,8 +509,10 @@ def read_chain(conditions: list[str | None],
                ) -> ChainCondition | str:
     """The chain whose arms' conditions are ``conditions`` (None for an
     `else`), or why it stays as before: a test the converter does not
-    read, more than one variable, a variable the script does not set (or
-    sets only in Python), a test by size on what is not a whole number."""
+    read, more than one variable, a variable the script does not set, a
+    test by size on what is not a whole number. A chain on a variable
+    some place the converter does not read sets, or on `_return`, has
+    ``unread`` (unread_reason; item 9k)."""
     tests: list[Test | None] = []
     for text in conditions:
         if text is None:
@@ -395,9 +528,8 @@ def read_chain(conditions: list[str | None],
                 "a condition on one variable")
     var = names[0]
     sets = variables.get(var, [])
-    if not any(a.op != "python" for a in sets):
-        if sets:
-            return f"{var} is set only in Python code"
+    reason = unread_reason(var, sets)
+    if not sets and reason is None:
         return f"{var} is not set by the script ($, default or define)"
     for test in tests:
         if test is None or test.op not in ORDERING:
@@ -410,7 +542,26 @@ def read_chain(conditions: list[str | None],
         if other is not UNKNOWN:
             return (f"compares {var} by size, but the script also sets it "
                     f"to {other!r}")
-    return ChainCondition(var, tests, [], [], False)
+    return ChainCondition(var, tests, [], [], False, unread=reason)
+
+
+def unread_reason(var: str, sets: list[Assignment]) -> str | None:
+    """Why the reader, not the script as the converter reads it, picks
+    ``var``'s arm (item 9k): `_return`, or the first place that sets it
+    the converter does not read (Assignment.unread; a label parameter, an
+    argument or a loop first), with its source and how many more; None
+    when every place is read."""
+    if var == "_return":
+        return f"_return {RETURNED}"
+    unread = [(a, why) for a in sets if (why := a.unread()) is not None]
+    if not unread:
+        return None
+    unread.sort(key=lambda pair: pair[0].op not in _FIRST_UNREAD)
+    first, why = unread[0]
+    more = len(unread) - 1
+    return (f"{var} {why} at {first.source}"
+            + (f", and {more} more place{'s' if more > 1 else ''} the "
+               "converter does not read set it" if more else ""))
 
 
 # --------------------------------------------------------------------------
@@ -802,6 +953,87 @@ def classify(cond: ChainCondition, sets: list[Assignment],
     return dead
 
 
+def call_picks(cond: ChainCondition, sets: list[Assignment],
+               params_of: dict[str, list[Param]],
+               sites_of: dict[str, list[tuple[str | None, str]]]
+               ) -> list[Any] | str | None:
+    """The values every call (or jump) of the chain's label gives its
+    variable, when it is that label's parameter, each is a literal (an
+    argument or the parameter's default) and nothing else in the label's
+    block sets it (item 9k): the walk then takes, at each call, the arm
+    its value picks. Why not, for a call that gives no literal (the
+    reader picks: a words decision); None for a chain on anything but
+    its label's parameter."""
+    var, label = cond.variable, cond.label or ""
+    params = params_of.get(label)
+    if params is None or not any(p.name == var for p in params):
+        return None
+    if any(a.scope == cond.label and a.op not in ("parameter", "argument")
+           for a in sets):
+        return None
+    values = []
+    for args, source in sites_of.get(label) or [(None, "")]:
+        value = call_values(args, params)[var]
+        if value is UNKNOWN:
+            text = _argument_text(args, params, var)
+            why = (Assignment(var, "=", text, source).unread() if text
+                   else f"is a parameter of label {label} that the call "
+                        "gives no literal")
+            return f"{var} {why} at {source or 'a call of ' + label}"
+        values.append(value)
+    return values
+
+
+def _argument_text(args: str | None, params: list[Param], var: str
+                   ) -> str | None:
+    """The expression a call's argument list ``args`` gives parameter
+    ``var``, as written, None when it gives none."""
+    try:
+        call = ast.parse(f"f({args or ''})", mode="eval").body
+    except (SyntaxError, ValueError):
+        return None
+    if not isinstance(call, ast.Call):
+        return None
+    for keyword in call.keywords:
+        if keyword.arg == var:
+            return ast.unparse(keyword.value)
+    positional = [p.name for p in params if p.positional]
+    if var in positional and positional.index(var) < len(call.args):
+        node = call.args[positional.index(var)]
+        if not isinstance(node, ast.Starred):
+            return ast.unparse(node)
+    return None
+
+
+def pick(cond: ChainCondition, values: list[Any]) -> list[int]:
+    """Make ``cond`` a ``pick`` (call_picks gave ``values``); the arms no
+    call's value takes, which the caller drops."""
+    count = len(cond.tests)
+    cond.kind = "pick"
+    cond.unread = None
+    cond.drop_when_following = [False] * count
+    cond.phrases = [("otherwise",)] * count
+    taken = {cond.arm_of(value) for value in values}
+    return [k for k in range(count) if k not in taken]
+
+
+def never_taken(cond: ChainCondition, places: int) -> str:
+    """Why an arm classify found dead never runs: a counter's arm whose
+    numbers the arms before it took, else one no value takes, which
+    read_chain allows only when it read every place that sets the
+    variable (item 9k)."""
+    if cond.kind == "ranges":
+        return "the arms before it take every whole number it tests"
+    if cond.kind == "pick":
+        return (f"no call of label {cond.label} gives {cond.variable} a "
+                "value it takes")
+    every = f"all {places}" if places > 1 else "the one"
+    plural = "s" if places > 1 else ""
+    return (f"{every} place{plural} that set{'' if plural else 's'} "
+            f"{cond.variable} {'are' if plural else 'is'} read, and none "
+            "gives a value it takes")
+
+
 def _dead_records(events: list[Any], parsed: Any, reason: str) -> None:
     for event in events:
         flow = getattr(event, "flow", None)
@@ -837,6 +1069,16 @@ def prepare(parses: list[tuple[str, Any]], base: str | None = None,
                 for source in sources:
                     choice_of[source] = (record, k)
 
+    # Item 9k: each label's parameters, and each label's `call`/`jump`
+    # sites' argument lists (None: none).
+    params_of: dict[str, list[Param]] = {}
+    sites_of: dict[str, list[tuple[str | None, str]]] = {}
+    for _rel, parsed in parses:
+        for label, params in getattr(parsed, "label_params", {}).items():
+            params_of.setdefault(label, params)
+        for label, args, source in getattr(parsed, "call_sites", []):
+            sites_of.setdefault(label, []).append((args, source))
+
     resets: list[Resets] = []
 
     def before(record: Any, sets: dict[str, Any],
@@ -857,15 +1099,26 @@ def prepare(parses: list[tuple[str, Any]], base: str | None = None,
             if cond is not None and not cond.prepared:
                 cond.prepared = True
                 cond.base, cond.names = base, names
-                dead = classify(cond, every.get(cond.variable, []),
-                                choice_of, before)
+                sets = every.get(cond.variable, [])
+                values = call_picks(cond, sets, params_of, sites_of)
+                if isinstance(values, str):
+                    cond.unread, values = values, None
+                if values is not None:
+                    dead = pick(cond, values)
+                else:
+                    if cond.unread:
+                        # The reader picks: no value is known, so every
+                        # arm is one some value takes.
+                        sets = sets + [Assignment(cond.variable, "python",
+                                                  "", "")]
+                    dead = classify(cond, sets, choice_of, before)
                 for k in reversed(dead):
                     if cond.heads[k]:
                         parsed.reports.append(Report(
                             cond.sources[k], cond.heads[k],
-                            f"if arm never taken: no value the script "
-                            f"gives {cond.variable} takes it; its lines "
-                            "left out"))
+                            "if arm never taken: "
+                            + never_taken(cond, len(sets))
+                            + "; its lines left out"))
                     _dead_records(flow.bodies[k], parsed,
                                   "inside an if arm never taken")
                     for column in (flow.bodies, record.choices,
@@ -877,10 +1130,25 @@ def prepare(parses: list[tuple[str, Any]], base: str | None = None,
                         del cond.when[k]
                 if len(flow.bodies) == 1:
                     head = cond.heads[0] or "the absent else"
+                    giver = (f"call of label {cond.label} gives"
+                             if cond.kind == "pick" else
+                             "value the script gives")
                     record.skip_reason = (
-                        f"every value the script gives {cond.variable} "
-                        f"takes one arm ({head}): read in line")
+                        f"every {giver} {cond.variable} takes one arm "
+                        f"({head}): read in line")
                     out += process(flow.bodies[0], parsed)
+                    continue
+                if cond.kind == "pick":
+                    record.skip_reason = (
+                        f"each call of label {cond.label} takes the arm "
+                        f"its {cond.variable} picks: no decision")
+                    out.append(type(event)(
+                        "fork", event.source, text=event.text,
+                        flow=type(flow)(
+                            "fork", flow.source, flow.statement,
+                            bodies=[process(body, parsed)
+                                    for body in flow.bodies],
+                            pick=cond)))
                     continue
                 prompt, labels, asides, fell = cond.render(base)
                 record.prompt, record.choices = prompt, labels

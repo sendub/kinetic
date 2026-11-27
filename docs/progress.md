@@ -6867,7 +6867,32 @@ truthful: an unchecked box means nothing was accepted.
       shared, branches, follows and branchmap 166/166 Chrome; shared
       and branches 91/91 WebKit; converter and validator tests 688
       passed.)
-- [ ] Conditions only on story state (item 9k).
+- [x] Conditions only on story state (item 9k).
+      (2026-11-27: parser.py records every place a variable is set that
+      the converter cannot read (`UNREAD_OPS`, `Assignment.unread()`: a
+      label or call parameter, a loop, Python code, screen actions,
+      `setattr`, other operators, unpacking, a non-literal value), and
+      label parameters and call sites. A chain on its own label's
+      parameter whose every `call`/`jump` gives a literal (or the
+      literal default) takes, at each call, the arm that value picks:
+      no decision (flow.py's pick fork; a later call reads only the arms
+      not yet read). Any other unreadable variable (Python, loops,
+      screens, random, input, `_return`, another variable, expressions)
+      is a decision the reader picks, as before, so its lines stay; the
+      reason is in the `branchDetection` note, the ledger's
+      `conditions[].readerPicks` and `kinetic report`'s conditions
+      section. An arm is dropped as never taken only when every setter
+      is read ("all 3 places that set x are read, and none gives a value
+      it takes"). `persistent.`, `config.`, `preferences.`,
+      `store.x.y`, `_in_replay` stay unconverted. Orchestrator's call:
+      the plan's "stays unconverted" lost text on run-time state (about
+      3,450 items on one corpus game), so run-time state became a
+      reader's pick with its reason instead. test_report.py's
+      shared-span expectation corrected (item 9i2 made those items
+      reachable). Corpus recount (5 games, read-only), text items
+      kept: 54966 -> 55122, 49387 = 49387, 5213 -> 11296, 3936 = 3936,
+      12772 -> 12843. Tests: test_condition_state.py (29 failed first).
+      Orchestrator: full converter/ 1342 passed.)
 - [ ] Joins through calls and returns (item 9l).
 - [ ] Say statements as Ren'Py reads them (item 9m).
 - [ ] Pictures resolved as Ren'Py resolves them (item 9n).

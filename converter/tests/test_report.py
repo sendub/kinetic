@@ -377,16 +377,18 @@ def test_shared_spans_count_once_and_per_route_with_then(
         "schemaVersion": 1, "width": 10, "height": 10, "items": items,
         "branches": shape["branches"]}, ["s0.jpg"])
     timing = report.build_report(folder)["timing"]
-    # y0, w0, k0 and b2 are never shown (sneak/x leaves fight/b).
-    assert timing["unreachable"] == ["y0", "w0", "k0", "b2"]
-    assert timing["everything"] == {"items": 13, "ms": 13 * 1500}
+    # Every item is shown: the end of fight's span after sneak/x offers
+    # sneak again (Phase 60 item 9i2), as `kinetic routes` says.
+    assert timing["unreachable"] == []
+    assert timing["everything"] == {"items": 17, "ms": 17 * 1500}
     assert timing["mainLine"] == {"items": 3, "ms": 3 * 1500}
     # fight/a then fail: s0, a0, a1, f0, f1.
     assert timing["shortestMs"] == 5 * 1500
     fight, sneak, look = timing["decisions"]
     a, b, _c = fight["routes"]
     assert (a["then"], a["items"], a["ms"]) == ("fail", 4, 4 * 1500)
-    assert (b["then"], b["items"]) == (None, 2)
+    # b0, sneak's routes x0, y0, w0, k0 nested in it, and b2.
+    assert (b["then"], b["items"]) == (None, 6)
     assert fight["shared"] == [{
         "id": "fail", "start": "f0", "end": "f1", "result": "ending",
         "reachedFrom": ["fight/a", "sneak/x"], "items": 2, "ms": 3000}]
@@ -399,7 +401,7 @@ def test_shared_spans_count_once_and_per_route_with_then(
     lines = out.splitlines()
     for expected in [
         '    route a "Attack" (a0..a1, ending, then fail): 6 s, 4 items',
-        '    route b "Sneak" (b0..b2, continue): 3 s, 2 items; holds '
+        '    route b "Sneak" (b0..b2, continue): 9 s, 6 items; holds '
         'decision sneak',
         "    shared span fail (f0..f1, ending): 3 s, 2 items; reached from "
         "routes fight/a, sneak/x",

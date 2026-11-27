@@ -827,7 +827,9 @@ def conditions_section(folder: Path, manifest: dict[str, Any]
         if isinstance(branches, list) else set()
     keys = ("decision", "source", "condition", "kind", "follows", "labels",
             "englishFor", "startingValue")
-    return [{key: record.get(key) for key in keys}
+    return [{**{key: record.get(key) for key in keys},
+             **({"readerPicks": record["readerPicks"]}
+                if isinstance(record.get("readerPicks"), str) else {})}
             for record in records if isinstance(record, dict)
             and record.get("decision") in ids] \
         if isinstance(records, list) else []
@@ -1011,6 +1013,8 @@ def format_text(report: dict[str, Any]) -> str:
             add("    the choices that set nothing start as "
                 f"{json.dumps(start.get('value'), ensure_ascii=False)} from "
                 + conditions.start_sources(start))
+        if c.get("readerPicks"):
+            add(f"    {c['readerPicks']}: the reader picks")
         if c["englishFor"]:
             add(f"    English words for: {', '.join(c['englishFor'])}")
 

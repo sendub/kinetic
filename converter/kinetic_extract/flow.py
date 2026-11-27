@@ -57,6 +57,13 @@ story events in that order, each statement once:
   of its own gets its label in parentheses as its line
   (MenuRecord.line_of, the marker's ``arm``), and an arm whose path leads
   back to the chain keeps it linear.
+- A chain on its label's parameter that every call gives a literal
+  (docs/plan.md Phase 60 item 9k; parser.FlowStep.pick) is no menu: each
+  task carries the values of the call it is in, and the walk goes into
+  the arm they pick (outside a call, the parameters' defaults). A later
+  call of a label already walked reads, of each such chain the walk
+  passed, the arm its values pick that no earlier call read, then
+  returns, as the callee's path would.
 
 After the story the walk can go on from more labels: each `--also-label`
 (a Ren'Py entry label such as `splashscreen` the walk never runs, say),
@@ -77,7 +84,9 @@ from typing import Any
 import itertools
 import re
 
-from .parser import Event, FileParse, FlowStep, Report, code_literals
+from . import conditions
+from .parser import (Event, FileParse, FlowStep, Report, call_arguments,
+                     code_literals)
 
 _FLOW_KINDS = frozenset({"jump", "call", "return", "fork", "screen"})
 # Story events whose file counts as reached or not.
@@ -116,6 +125,9 @@ class _Op:
     # the op index each alternative's block ends at (its `goto`).
     menu: int | None = None
     alt_ends: list[int] = field(default_factory=list)
+    # A chain whose arm each call of its label picks (docs/plan.md Phase
+    # 60 item 9k; parser.FlowStep.pick): its ChainCondition.
+    pick: Any = None
 
 
 @dataclass
@@ -174,14 +186,16 @@ def _program(parses: list[tuple[str, FileParse]], sets: bool = False
             actions = _screen_actions(screens, step.target or "")
             alternatives = [[a] for a in actions] + [[]]
             kind = "fork" if actions else "goto"
-        if kind == "fork" and step.menu is not None:
+        if kind == "fork" and (step.menu is not None
+                               or step.pick is not None):
             alternatives = step.bodies
         if kind == "fork":
             pending.append((len(ops), alternatives))
         ops.append(_Op(kind, f, event, step.source, step.statement,
                        step.target, to=len(ops) + 1,
                        candidates=list(step.candidates), scope=step.scope,
-                       menu=step.menu if kind == "fork" else None))
+                       menu=step.menu if kind == "fork" else None,
+                       pick=step.pick if kind == "fork" else None))
 
     def add_event(event: Event, f: int) -> None:
         if event.kind == "set":
@@ -602,6 +616,36 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             steps += 1
         return None
 
+    # Item 9k: each label's parameters, and the forks whose arm each call
+    # of their label picks (FlowStep.pick), by label. A task carries the
+    # values of the call it is in (``bind``: the label and its
+    # parameters' values, conditions.call_values), None outside one.
+    params_of: dict[str, list[Any]] = {}
+    for parsed in parsed_of:
+        for name, params in parsed.label_params.items():
+            params_of.setdefault(name, params)
+    picks_in: dict[str, list[int]] = {}
+    for n, op in enumerate(ops):
+        if op.kind == "fork" and op.pick is not None:
+            picks_in.setdefault(op.pick.label or "", []).append(n)
+    Bind = tuple[str, dict[str, Any]] | None
+
+    def call_bind(op: _Op) -> Bind:
+        params = params_of.get(op.target or "")
+        if params is None:
+            return None
+        return (op.target or "", conditions.call_values(
+            call_arguments(op.statement), params))
+
+    def pick_arm(cond: Any, bind: Bind) -> int | None:
+        """The arm of a pick fork the values ``bind`` holds take (its
+        label's defaults outside a call of it), None when unknown."""
+        if bind is None or bind[0] != cond.label:
+            bind = (cond.label, conditions.call_values(
+                None, params_of.get(cond.label or "", [])))
+        value = bind[1].get(cond.variable, conditions.UNKNOWN)
+        return None if value is conditions.UNKNOWN else cond.arm_of(value)
+
     def run(entries: list[tuple[int, frozenset[int], int]],
             cands: dict[int, list[int]], ipdom: list[int],
             visited: bytearray, final: bool) -> dict[str, Any]:
@@ -648,6 +692,19 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 out["unfollowed"].append({
                     "source": op.source, "statement": op.statement,
                     "reason": reason})
+
+        def unread_arms(label: str, callee: Bind) -> list[int]:
+            """At a call of ``label`` already walked: the first op of each
+            arm its values pick, of a pick fork walked before, that no
+            earlier call read (item 9k)."""
+            found: list[int] = []
+            for p in picks_in.get(label, ()):
+                if not visited[p]:
+                    continue
+                k = pick_arm(ops[p].pick, callee)
+                if k is not None and not visited[ops[p].alts[k]]:
+                    found.append(ops[p].alts[k])
+            return found
 
         def target_of(op: _Op) -> int | None:
             if op.target not in labels:
@@ -1084,10 +1141,10 @@ def follow_labels(parses: list[tuple[str, FileParse]],
 
         for entry in entries:
             tasks: list[tuple[int, frozenset[int], int, Ctx, int,
-                              tuple[Any, ...] | None]] = [
-                (*entry, (), 0, None)]
+                              tuple[Any, ...] | None, Bind]] = [
+                (*entry, (), 0, None, None)]
             while tasks:
-                n, stops, site, ctx, floor, mark = tasks.pop()
+                n, stops, site, ctx, floor, mark, bind = tasks.pop()
                 if final:
                     pops.append((len(events), len(ends_log), len(tasks)))
                 if mark is not None:
@@ -1142,30 +1199,42 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                         if op.kind == "call":
                             if found:
                                 tasks.append((n + 1, stops, -1, ctx, floor,
-                                              None))
+                                              None, bind))
                             tasks += [(c, frozenset(), n, ctx, len(ctx),
-                                       None) for c in reversed(found)]
+                                       None, None) for c in reversed(found)]
                             if found:
                                 ended = ""
                                 break
                             n += 1
                         else:
-                            tasks += [(c, stops, n, ctx, floor, None)
+                            tasks += [(c, stops, n, ctx, floor, None, None)
                                       for c in reversed(found)]
                             ended = "" if found else "unfollowed"
                             break
                     elif op.kind == "call":
                         to = target_of(op)
+                        callee = call_bind(op)
                         if to is not None and visited[to]:
                             if final:
                                 out["not_repeated"].append({
                                     "source": op.source,
                                     "statement": op.statement})
+                            # Item 9k: the arms this call's arguments pick
+                            # that no earlier call read.
+                            arms = unread_arms(op.target or "", callee)
+                            if arms:
+                                tasks.append((n + 1, stops, -1, ctx, floor,
+                                              None, bind))
+                                tasks += [(a, frozenset(), -1, ctx, len(ctx),
+                                           None, callee)
+                                          for a in reversed(arms)]
+                                ended = ""
+                                break
                         elif to is not None:
                             tasks.append((n + 1, stops, -1, ctx, floor,
-                                          None))
+                                          None, bind))
                             tasks.append((to, frozenset(), -1, ctx,
-                                          len(ctx), None))
+                                          len(ctx), None, callee))
                             ended = ""
                             break
                         n += 1
@@ -1208,24 +1277,30 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                             events.append((parsed_of[op.file], Event(
                                 "menu-open", op.source, name=str(op.menu))))
                         if has_join and join not in stops:
-                            tasks.append((join, stops, -1, ctx, floor, None))
+                            tasks.append((join, stops, -1, ctx, floor, None,
+                                          bind))
                         tasks.append((-1, stops, -1, ctx, floor,
-                                      ("close", n)))
+                                      ("close", n), bind))
                         for k in reversed(range(len(op.alts))):
                             frame = (*ctx, (n, k, inner))
                             tasks.append((op.alts[k], inner, -1, frame,
-                                          floor, None))
+                                          floor, None, bind))
                             tasks.append((-1, inner, -1, frame, floor,
-                                          ("open", n, k)))
+                                          ("open", n, k), bind))
                         ended = ""
                         break
+                    elif op.kind == "fork" and op.pick is not None \
+                            and (k := pick_arm(op.pick, bind)) is not None:
+                        # Item 9k: the arm this call's value picks.
+                        n = op.alts[k]
                     elif op.kind == "fork":
                         join = ipdom[n]
                         inner = stops
                         if 0 <= join < exit_:
-                            tasks.append((join, stops, -1, ctx, floor, None))
+                            tasks.append((join, stops, -1, ctx, floor, None,
+                                          bind))
                             inner = stops | {join}
-                        tasks += [(alt, inner, -1, ctx, floor, None)
+                        tasks += [(alt, inner, -1, ctx, floor, None, bind)
                                   for alt in reversed(op.alts)]
                         ended = ""
                         break

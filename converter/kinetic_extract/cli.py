@@ -629,6 +629,8 @@ def _condition_note(cond: Any, decision: dict[str, Any]) -> str:
                  + conditions.start_sources(start))
     if cond.passes and "follows" in decision:
         note += "; the choices there no arm takes pass it at continueAt"
+    if cond.unread:
+        note += f"; {cond.unread}: the reader picks"
     return note + ")"
 
 
@@ -650,7 +652,9 @@ def condition_ledger(candidates: list[dict[str, Any]], base: str,
     the languages (the base, the language files written) whose words
     fell back to English and, for one that follows a menu whose choices
     that set nothing keep a value label flow reset, that value and the
-    resets (and `default`) it came from (`startingValue`, else null)."""
+    resets (and `default`) it came from (`startingValue`, else null),
+    and, when a place the converter does not read sets the variable, why
+    the reader picks (`readerPicks`, item 9k; left out otherwise)."""
     out: list[dict[str, Any]] = []
     for cand in candidates:
         branch = cand.get("branch")
@@ -668,6 +672,8 @@ def condition_ledger(candidates: list[dict[str, Any]], base: str,
                                  if tag == base or tag in written),
             "startingValue": starting_value(cond, branch),
         })
+        if cond.unread:
+            out[-1]["readerPicks"] = cond.unread
     return out
 
 

@@ -131,6 +131,22 @@ something more of an author.
   `if chain not converted (why)`. The ledger's `conditions` and a new
   `kinetic report` section list each such decision with the languages
   whose words fell back to English (docs/extracting.md, "Conditions").
+- A chain on its own label's parameter (`label scene(n):` then `if n ==
+  1:`) is no decision when every call of the label gives the parameter
+  a literal (an argument or the default): at each call the story reads
+  the arm that call's value picks. A chain on a variable set where the
+  converter cannot read the value (a label parameter some call gives an
+  expression, a loop variable, a random roll or another call's value,
+  `renpy.input`, `_return`, another variable, Python code, a screen
+  action) is a decision as before, and its `branchDetection` note, the
+  ledger's `conditions` (`readerPicks`) and `kinetic report` say why the
+  reader picks (`r is set from a call to renpy.random.randint at
+  game/script.rpy:12`). An arm is left out as never taken only when the
+  converter read every place that sets the variable, and the report says
+  so; before, a label parameter or a value set in Python could drop an
+  arm the game takes, with its lines, or read a chain in line on one
+  arm. `_return` chains were left unconverted before and are now such
+  decisions.
 - Animation timing: two new optional fields on an `animation` item.
   `frameSeconds`, one display time in seconds per frame, times the
   frames unevenly in place of `fps`, and one loop lasts their sum;

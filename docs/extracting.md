@@ -344,8 +344,9 @@ file-order walk records `{"order": "file names (no label start)"}`.
 
 An `if`/`elif`/`else` chain becomes a decision (docs/plan.md Phase 60
 item 6; `kinetic_extract/conditions.py`) when every test in it reads one
-variable that the game's script sets with `$ x = ...`, `$ x += ...`, `$
-x -= ...`, `default` or `define`, in any script of the project. A test
+variable that the game's script sets, in any script of the project
+(`$ x = ...`, `$ x += ...`, `$ x -= ...`, `default`, `define`, or a
+place the converter does not read, below), or `_return`. A test
 is the variable alone (`if met:`), `not` it, or the variable compared
 with a literal: `==`, `!=`, `<`, `<=`, `>`, `>=` (by size only with a
 whole number, and only when every literal the script gives the variable
@@ -404,17 +405,63 @@ What the decision is depends on where the variable is set:
   one test before it, else `Otherwise`. A `default` or a `$` line
   outside a menu counts as such an assignment.
 
-An arm no value takes (a literal no assignment gives, numbers an
-earlier arm took) is dropped with its lines, reported `if arm never
-taken`; a chain left with one arm is read in line, `skipped` in
-`branchDetection` with the arm it took. Everything else stays as before
-and is reported `if chain not converted (why)`, its blocks skipped (the
-audio in them reported), their jumps and calls followed: a test on two
-variables or joined with `and`/`or`, a function call, `persistent.`,
-`renpy.`, `config.` or `preferences.` state, a name starting with `_`,
-a variable no `$` line, `default` or `define` sets (or only Python code
-sets), a comparison by size with what is not a whole number, and a
-`label` inside an arm.
+The converter reads a place that sets the variable when it is `$ x =
+literal`, `$ x += literal`, `$ x -= literal`, or a `default` or `define`
+of one literal (a string, number, `True`, `False` or `None`). Item 9k
+names the places it does not read:
+
+- a label's parameter (`label scene(n):`), or a keyword argument of a
+  `call` (`call scene(n=2)`);
+- a loop: a name a `while` test reads, or the target of Python's `for`;
+- a `$` line whose value is not a literal: a call (`$ r =
+  renpy.random.randint(1, 3)`, `$ name = renpy.input(...)`), another
+  variable, any other expression, a list or other collection (a
+  `default x = []` the script may change in place), `+=` or `-=` of an
+  expression, another operator (`*=`), or unpacking (`$ a, b = 1, 2`);
+- Python code: an assignment in a `python:` or `init python:` block or a
+  function in one, `setattr(store, "x", ...)`;
+- a screen: `SetVariable`, `ToggleVariable`, `SetField(store, ...)`,
+  `ToggleField(store, ...)`, `VariableInputValue` or `FieldInputValue(store,
+  ...)`.
+
+A chain on its own label's parameter is no decision when every `call`
+and `jump` of the label gives the parameter a literal (a positional or
+keyword argument, else the parameter's literal default) and nothing in
+the label's block sets it otherwise: at each call the walk reads the arm
+that call's value picks, and no other (`label scene(n=1):` called with
+`1` and then `n=2` reads the first arm at the first call, the second at
+the second). The walk lays each statement out once, so a later call
+reads only the arm no earlier call read. `branchDetection` says `skipped
+(each call of label scene takes the arm its n picks: no decision)`, and
+an arm no call's value takes is dropped, `if arm never taken: no call of
+label scene gives n a value it takes`.
+
+Any other chain on a variable a place the converter does not read sets
+(a parameter some call gives an expression too), and one on `_return`,
+is a decision as above, its kind found from the places it does read: the
+reader picks. Its `branchDetection` note ends with why, `r is set from a
+call to renpy.random.randint at game/script.rpy:12: the reader picks`
+(the first such place, a parameter, argument or loop first, and how many
+more), and so do the ledger's `conditions` (`readerPicks`) and `kinetic
+report`.
+
+An arm no value takes is dropped with its lines, reported `if arm never
+taken`: for a counter, one whose numbers the arms before it take (`the
+arms before it take every whole number it tests`); else one no literal
+of the variable's assignments gives, which can only be when the
+converter read every place that sets it (`all 3 places that set x are
+read, and none gives a value it takes`): one it does not read could give
+any value, so then no arm is dropped. A chain left with one arm is read
+in line, `skipped` in `branchDetection` with the arm it took.
+
+Everything else stays as before and is reported `if chain not converted
+(why)`, its blocks skipped (the audio in them reported), their jumps and
+calls followed: a test on two variables or joined with `and`/`or`, a
+function call, `persistent.`, `renpy.`, `config.` or `preferences.`
+state, an attribute of `store` (`store.x.y`), `_in_replay` and any other
+name starting with `_` but `_return`, a variable nothing sets, a
+comparison by size with what is not a whole number, and a `label` inside
+an arm.
 
 The prompt is `Which fits your story so far?`. The prompt and labels are
 the converter's phrases of the player's catalogue (the `converter.*`
@@ -444,7 +491,8 @@ lists each one: `decision`, `source`, `condition` (the chain's heads as
 written), `kind` (`follows`, `ranges` or `words`), `follows` (the
 decision it follows, or null), `labels`, `englishFor`, the languages
 (the base and each language file written) whose words fell back to
-English, and `startingValue`. That is null unless the decision follows a
+English, `readerPicks` when the reader picks (above; left out
+otherwise), and `startingValue`. That is null unless the decision follows a
 menu some choice of which sets nothing and label flow resets the
 variable before that menu; then it is the value those choices keep with
 where it came from, `{"value": "", "resets": ["game/script.rpy:94"],
