@@ -5114,6 +5114,16 @@ The orchestrator's choices, within those decisions:
     the player (Chrome and WebKit), the last frame as the still for
     rewind, skip and thumbnails. Tests: validator cases, machine and
     render tests, a scenario part on both engines, the converter case.
+9n4b. The walk's time on very large games (the user, 2026-11-27: 9n5
+    waits for it and then gets its full recount). Item 9n5's recount
+    left three episodes of the corpus's largest game walking for over an
+    hour each, at HEAD as with 9n5's changes, where earlier recounts
+    finished all games. Find the commit and code that made the walk
+    slow, fix it so the walk takes about what it took before, and guard
+    it with a test that does not depend on machine load (a count of the
+    work done, or a scaling check on a generated large script). Tests:
+    that guard; the converter suite; the three episodes timed before and
+    after.
 9n5. Solid colours in the last places (leads from item 9n3). A bare
     `scene` shows black whatever a game's own `image black` is, as
     Ren'Py clears the layer; ATL frame lists whose frames are solid
@@ -5185,7 +5195,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n5 -> 9n6 -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 
