@@ -13,7 +13,7 @@ parsed JSON and tolerates a malformed one: the schema reports that.
 from __future__ import annotations
 
 import heapq
-from typing import Any, Iterator
+from typing import Any, Iterator, NamedTuple
 
 
 def audio_tracks(manifest: Any) -> dict[str, Any]:
@@ -83,12 +83,24 @@ def item_media_paths(items: list[Any]) -> Iterator[tuple[str, Any]]:
                 yield f"{base}.{field}", item[field]
 
 
+class SharedSpan(NamedTuple):
+    """A decision's `shared` span resolved to item indices
+    (docs/content-format.md, "Branches"): `index` is its entry's place in
+    the decision's `shared` list."""
+
+    start: int
+    end: int
+    result: str
+    id: str
+    index: int
+
+
 class Decision:
     """A decision resolved to item indices, as machine.ts `ResolvedDecision`."""
 
     __slots__ = ("index", "id", "after", "routes", "continuing",
                  "continue_at", "parent", "region_end", "branch", "follows",
-                 "takes")
+                 "takes", "shared", "thens")
 
     def __init__(self, index: int, branch_id: Any, after: int,
                  routes: list[tuple[int, int, str]], continuing: int,
@@ -107,6 +119,11 @@ class Decision:
         # where none does and the decision passes on (`_resolve_follows`).
         self.follows = -1
         self.takes: list[int] = []
+        # Its `shared` spans that resolve (`_resolve_shared`), and for each
+        # route the span its `then` names, as (decision index, place in
+        # that decision's `shared`), None without one that resolves.
+        self.shared: list[SharedSpan] = []
+        self.thens: list[tuple[int, int] | None] = [None] * len(routes)
 
 
 def resolve_decisions(items: list[Any], branches: list[Any]
@@ -114,7 +131,9 @@ def resolve_decisions(items: list[Any], branches: list[Any]
     """The decisions the player plays, as machine.ts `resolveDecisions`:
     one with an unresolvable reference, an inverted span, fewer than two
     routes, half a continuingRoute/continueAt pair or a `"continue"`
-    route without a join is dropped, so its items play as plain ones."""
+    route without a join is dropped, so its items play as plain ones.
+    Each kept decision carries its `shared` spans and its routes' `then`
+    (`_resolve_shared`)."""
     by_id: dict[str, int] = {}
     for i, item in enumerate(items):
         if isinstance(item, dict) and isinstance(item.get("id"), str):
@@ -152,9 +171,59 @@ def resolve_decisions(items: list[Any], branches: list[Any]
             continue
         resolved.append(Decision(len(resolved), branch.get("id"), after,
                                   spans, continuing, continue_at, bi))
+        resolved[-1].shared = _shared_spans(branch, ref, continue_at)
     _resolve_nesting(resolved)
     _resolve_follows(resolved, branches)
+    _resolve_thens(resolved, branches)
     return resolved
+
+
+def _shared_spans(branch: dict[str, Any], ref: Any, continue_at: int
+                  ) -> list[SharedSpan]:
+    """A decision's `shared` spans that resolve: both ends name items in
+    order, with an id, and a `"continue"` one has a join. Any other is
+    left out, so a route naming it reads as one without `then`."""
+    shared = branch.get("shared")
+    spans: list[SharedSpan] = []
+    for si, span in enumerate(shared if isinstance(shared, list) else []):
+        if not isinstance(span, dict) or not isinstance(span.get("id"), str):
+            continue
+        start, end = ref(span.get("start")), ref(span.get("end"))
+        result = span.get("result", "ending")
+        if start < 0 or end < 0 or start > end \
+                or result not in ("ending", "return", "continue") \
+                or (result == "continue" and continue_at < 0):
+            continue
+        spans.append(SharedSpan(start, end, result, span["id"], si))
+    return spans
+
+
+def _resolve_thens(decisions: list[Decision], branches: list[Any]) -> None:
+    """Set each decision's `thens`: a route's `then` names a span of its
+    own decision or, failing that, of the nearest enclosing decision that
+    has one of that id (up the `parent` chain). The continuing route's
+    names only a `"continue"` span of its own decision. Any other `then`
+    reads as absent, as a player older than 1.15.0 reads every one."""
+    for decision in decisions:
+        routes = branches[decision.branch]["routes"]
+        for ri, route in enumerate(routes):
+            name = route.get("then")
+            if not isinstance(name, str):
+                continue
+            holder, depth = decision, 0
+            while True:
+                at = next((k for k, span in enumerate(holder.shared)
+                           if span.id == name), -1)
+                if at >= 0 or holder.parent < 0 or depth >= len(decisions):
+                    break
+                holder, depth = decisions[holder.parent], depth + 1
+            if at < 0:
+                continue
+            if ri == decision.continuing and (
+                    holder is not decision
+                    or holder.shared[at].result != "continue"):
+                continue
+            decision.thens[ri] = (holder.index, at)
 
 
 def _resolve_follows(decisions: list[Decision], branches: list[Any]
@@ -217,7 +286,9 @@ def span_problems(decisions: list[Decision]) -> list[str]:
     docs/content-format.md "Branches", worded as tools/validate_content.py
     words them: a route that does not start after its decision's `after`
     item, two routes of one decision that overlap, a `continueAt` not
-    after every route end. A manifest with any has no well-defined
+    after every route end, and the same of a decision's `shared` spans
+    (one not after `after`, one overlapping a route or another span, one
+    not ending before `continueAt`). A manifest with any has no well-defined
     reading (a join can lead backwards), so `kinetic report`, `routes`
     and `export` and the validator's reach warnings skip it. Entries the
     player drops (an unresolvable reference and the like) are not among
@@ -249,7 +320,74 @@ def span_problems(decisions: list[Decision]) -> list[str]:
                 f"{base}.continueAt: must resolve to an item after every "
                 f"route end items[{decision.region_end}] (found "
                 f"items[{decision.continue_at}])")
+        problems += _shared_span_problems(decision, base)
     return problems
+
+
+def _shared_span_problems(decision: Decision, base: str) -> list[str]:
+    """`span_problems` for a decision's resolved `shared` spans."""
+    problems: list[str] = []
+    after = decision.after
+    for span in decision.shared:
+        sbase = f"{base}.shared[{span.index}]"
+        if span.start <= after:
+            where = (f"shared span items[{span.start}]..items[{span.end}] "
+                     f"contains the decision's after item items[{after}]"
+                     if after <= span.end else
+                     f"shared span must start after the decision's after "
+                     f"item items[{after}] (found items[{span.start}])")
+            problems.append(f"{sbase}.start: {where}")
+        others = [(start, end, f"routes[{ri}]") for ri, (start, end, _r)
+                  in enumerate(decision.routes)]
+        others += [(other.start, other.end, f"shared[{other.index}]")
+                   for other in decision.shared if other.index < span.index]
+        for start, end, where in others:
+            if max(span.start, start) <= min(span.end, end):
+                problems.append(
+                    f"{sbase}: shared span items[{span.start}].."
+                    f"items[{span.end}] overlaps the span items[{start}].."
+                    f"items[{end}] of branches[{decision.branch}].{where}")
+        if 0 <= decision.continue_at <= span.end:
+            problems.append(
+                f"{sbase}.end: shared span must end before the decision's "
+                f"continueAt items[{decision.continue_at}] (found "
+                f"items[{span.end}])")
+    return problems
+
+
+def enclosing_parents(items: list[Any], branches: list[Any]
+                      ) -> dict[int, int]:
+    """For the validator: each `branches` entry's index -> the index of the
+    entry enclosing it (the narrowest route span holding its `after`
+    item, as `_resolve_nesting`), over every entry whose `after` and at
+    least one route resolve, kept or not by `resolve_decisions`, so a
+    rule on nesting is checked however the rest of an entry breaks."""
+    by_id: dict[str, int] = {}
+    for i, item in enumerate(items):
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            by_id.setdefault(item["id"], i)
+
+    def ref(value: Any) -> int:
+        return by_id.get(value, -1) if isinstance(value, str) else -1
+
+    loose: list[Decision] = []
+    for bi, branch in enumerate(branches):
+        if not isinstance(branch, dict):
+            continue
+        after = ref(branch.get("after"))
+        routes = branch.get("routes")
+        spans = [(start, end, "ending")
+                 for route in (routes if isinstance(routes, list) else [])
+                 if isinstance(route, dict)
+                 for start, end in [(ref(route.get("start")),
+                                     ref(route.get("end")))]
+                 if 0 <= start <= end]
+        if after >= 0 and spans:
+            loose.append(Decision(len(loose), branch.get("id"), after,
+                                  spans, -1, -1, bi))
+    _resolve_nesting(loose)
+    return {d.branch: loose[d.parent].branch for d in loose
+            if d.parent >= 0}
 
 
 def _resolve_nesting(decisions: list[Decision]) -> None:

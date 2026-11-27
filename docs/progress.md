@@ -6706,7 +6706,32 @@ truthful: an unchecked box means nothing was accepted.
       heldRepick failed first). Orchestrator: npm test 1932 passed,
       check clean, smoke 6/6, media, branches and follows 123/123 on
       Chrome and 123/123 on WebKit.)
-- [ ] Shared spans in the format (docs/plan.md Phase 60, item 9e).
+- [x] Shared spans in the format (docs/plan.md Phase 60, item 9e).
+      (2026-11-27: docs/content-schema.json gains a decision's `shared`
+      (`$defs/sharedSpan`: `id`, `start`, `end`, `result` default
+      `"ending"`) and a route's `then`; docs/content-format.md's
+      Branches bullet states the reading and rules 28 to 30;
+      validate_content.py checks them (`_shared_span_rules`,
+      `shared_problems`); folder_model.py carries `Decision.shared` and
+      `Decision.thens` and words span problems as the validator does;
+      the player's types accept both (behaviour is item 9f). Subagent's
+      calls: rule 28 span soundness (ids unique among routes and spans,
+      after `after`, disjoint from routes and spans, before
+      `continueAt`, `"continue"` needs the join); rule 29 a span holds no
+      decision (a scene with its own menu stays each route's content);
+      rule 30 `then` names a span of its decision or an enclosing one,
+      nearest wins, and the continuing route's `then` only its own
+      decision's `"continue"` span; a route leaving through an
+      enclosing span leaves its enclosing routes uncompleted; a span
+      completed with `"continue"` counts as a completed `"continue"`
+      route for the passed rules, the return row still opening only on
+      the continuing route's own completion; an older player ignores
+      both fields. Lead for 9f: the validator's reach walk
+      (`shown_by_play_all`) ignores spans, so their items warn "never
+      shown" until 9f ports the span flow there. Tests: 31 validator and
+      schema tests and 4 folder-model tests failing first. Orchestrator:
+      the validator, assemble, spans, scale, malformed, report, routes,
+      export and schema tests 672 passed; npm test 1932, check clean.)
 - [ ] Shared spans in the player (item 9f).
 - [ ] The read-already pill in every interface language (item 9g).
 - [ ] Shared spans on the branch map and in the tools (item 9h).

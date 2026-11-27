@@ -305,6 +305,29 @@ export interface Route {
    * no other route names.
    */
   when?: readonly string[];
+  /**
+   * Id of a shared span read after this route's end (docs/content-format.md,
+   * "Branches"): a span of this route's decision or of one enclosing it. The
+   * span's `result` then acts in place of this route's. Ignored for now
+   * (Phase 60 item 9f plays it), as a player older than 1.15.0 ignores it:
+   * the route acts on its own `result`.
+   */
+  then?: string;
+}
+
+/**
+ * A stretch of items several routes read after their ends, laid out once
+ * (docs/content-format.md, "Branches"): a decision's `shared` entry.
+ */
+export interface SharedSpan {
+  /** Unique among its decision's route and span ids. */
+  id: string;
+  /** Id of the span's first item. */
+  start: string;
+  /** Id of the span's last item. */
+  end: string;
+  /** What happens at the span's end, as a route's result; `"ending"` by default. */
+  result?: RouteResult;
 }
 
 /**
@@ -333,6 +356,8 @@ export interface Branch {
    * an ordinary choice (the match played last).
    */
   follows?: string;
+  /** Spans its routes (or those of decisions it encloses) read via `then`. */
+  shared?: readonly SharedSpan[];
 }
 
 export interface Manifest {

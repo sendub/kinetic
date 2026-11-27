@@ -1778,6 +1778,296 @@ def test_follows_must_be_an_id(branch_folder: Path) -> None:
     assert problems[0].startswith("manifest.json: branches[1].follows:")
 
 
+# Shared spans (docs/content-format.md § Branches, rules 28 to 30;
+# docs/plan.md Phase 60 item 9e).
+
+def shared_manifest(folder: Path) -> dict[str, Any]:
+    """The branch fixture's 11 items with one decision, `fork`, off item 1:
+    routes a at 2 (then the span `fall`), b at 3 (then `rest`) and c at 4,
+    the continuing route, joining at 8; shared spans `fall` at 5..6
+    ("continue") and `rest` at 7 ("ending")."""
+    manifest = read_manifest(folder)
+    ids = [item["id"] for item in manifest["items"]]
+    manifest["branches"] = [{
+        "id": "fork", "after": ids[1], "prompt": "Which way?",
+        "routes": [
+            {"id": "a", "label": "A", "start": ids[2], "end": ids[2],
+             "result": "return", "then": "fall"},
+            {"id": "b", "label": "B", "start": ids[3], "end": ids[3],
+             "then": "rest"},
+            {"id": "c", "label": "C", "start": ids[4], "end": ids[4]},
+        ],
+        "shared": [
+            {"id": "fall", "start": ids[5], "end": ids[6],
+             "result": "continue"},
+            {"id": "rest", "start": ids[7], "end": ids[7],
+             "result": "ending"},
+        ],
+        "continuingRoute": "c", "continueAt": ids[8],
+    }]
+    return manifest
+
+
+def nested_shared_manifest(folder: Path) -> dict[str, Any]:
+    """`outer` off item 0 (o1 at 1..5, o2 at 6, the continuing route,
+    joining at 9; the span `fall` at 7..8, "continue"), and `inner` off
+    item 2 inside o1 (i1 at 3, then `fall`, the outer decision's span; i2
+    at 4, the continuing route, joining at 5)."""
+    manifest = read_manifest(folder)
+    ids = [item["id"] for item in manifest["items"]]
+    manifest["branches"] = [
+        {
+            "id": "outer", "after": ids[0], "prompt": "Outer?",
+            "routes": [
+                {"id": "o1", "label": "O1", "start": ids[1], "end": ids[5]},
+                {"id": "o2", "label": "O2", "start": ids[6], "end": ids[6]},
+            ],
+            "shared": [{"id": "fall", "start": ids[7], "end": ids[8],
+                        "result": "continue"}],
+            "continuingRoute": "o2", "continueAt": ids[9],
+        },
+        {
+            "id": "inner", "after": ids[2], "prompt": "Inner?",
+            "routes": [
+                {"id": "i1", "label": "I1", "start": ids[3], "end": ids[3],
+                 "then": "fall"},
+                {"id": "i2", "label": "I2", "start": ids[4], "end": ids[4]},
+            ],
+            "continuingRoute": "i2", "continueAt": ids[5],
+        },
+    ]
+    return manifest
+
+
+def shared_problems(folder: Path, manifest: dict[str, Any]) -> list[str]:
+    write_manifest(folder, manifest)
+    return problems_of(folder)
+
+
+def test_shared_spans_after_the_routes_pass(branch_folder: Path) -> None:
+    manifest = shared_manifest(branch_folder)
+    assert shared_problems(branch_folder, manifest) == []
+
+
+@pytest.mark.parametrize("result", ["ending", "return", "continue", None])
+def test_each_span_result_passes(branch_folder: Path,
+                                 result: str | None) -> None:
+    manifest = shared_manifest(branch_folder)
+    span = manifest["branches"][0]["shared"][0]
+    if result is None:
+        del span["result"]  # "ending", the default
+    else:
+        span["result"] = result
+    assert shared_problems(branch_folder, manifest) == []
+
+
+def test_span_result_defaults_to_ending() -> None:
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    result = schema["$defs"]["sharedSpan"]["properties"]["result"]
+    assert result["default"] == "ending"
+    assert result["enum"] == ["return", "ending", "continue"]
+
+
+def test_a_nested_route_may_name_an_enclosing_span(
+        branch_folder: Path) -> None:
+    manifest = nested_shared_manifest(branch_folder)
+    assert shared_problems(branch_folder, manifest) == []
+
+
+def test_the_continuing_route_may_name_its_own_continue_span(
+        branch_folder: Path) -> None:
+    manifest = shared_manifest(branch_folder)
+    manifest["branches"][0]["routes"][2]["then"] = "fall"
+    assert shared_problems(branch_folder, manifest) == []
+
+
+def test_a_pure_choice_may_share_an_ending_span(branch_folder: Path) -> None:
+    manifest = shared_manifest(branch_folder)
+    decision = manifest["branches"][0]
+    del decision["continuingRoute"]
+    del decision["continueAt"]
+    decision["shared"][0]["result"] = "ending"
+    assert shared_problems(branch_folder, manifest) == []
+
+
+def test_a_span_id_may_not_repeat_a_route_id(branch_folder: Path) -> None:
+    manifest = shared_manifest(branch_folder)
+    decision = manifest["branches"][0]
+    decision["shared"][1]["id"] = "a"
+    del decision["routes"][1]["then"]
+    assert shared_problems(branch_folder, manifest) == [
+        "manifest.json: branches[0].shared[1].id: duplicate span id 'a' "
+        "(first used by branches[0].routes[0])"]
+
+
+def test_span_ids_are_unique(branch_folder: Path) -> None:
+    manifest = shared_manifest(branch_folder)
+    decision = manifest["branches"][0]
+    decision["shared"][1]["id"] = "fall"
+    del decision["routes"][1]["then"]
+    assert shared_problems(branch_folder, manifest) == [
+        "manifest.json: branches[0].shared[1].id: duplicate span id 'fall' "
+        "(first used by branches[0].shared[0])"]
+
+
+def test_a_span_start_must_resolve(branch_folder: Path) -> None:
+    manifest = shared_manifest(branch_folder)
+    manifest["branches"][0]["shared"][0]["start"] = "ghost"
+    assert shared_problems(branch_folder, manifest) == [
+        "manifest.json: branches[0].shared[0].start: no item has id "
+        "'ghost'"]
+
+
+def test_a_span_start_may_not_follow_its_end(branch_folder: Path) -> None:
+    manifest = shared_manifest(branch_folder)
+    ids = [item["id"] for item in manifest["items"]]
+    span = manifest["branches"][0]["shared"][0]
+    span["start"], span["end"] = ids[6], ids[5]
+    assert shared_problems(branch_folder, manifest) == [
+        "manifest.json: branches[0].shared[0].start: shared span start "
+        "items[6] must not come after its end items[5] in array order"]
+
+
+@pytest.mark.parametrize("span, why", [
+    ((0, 0), "shared span must start after the decision's after item "
+             "items[1] (found items[0])"),
+    ((0, 1), "shared span items[0]..items[1] contains the decision's after "
+             "item items[1]"),
+])
+def test_a_span_comes_after_the_decisions_after_item(
+        branch_folder: Path, span: tuple[int, int], why: str) -> None:
+    manifest = shared_manifest(branch_folder)
+    ids = [item["id"] for item in manifest["items"]]
+    rest = manifest["branches"][0]["shared"][1]
+    rest["start"], rest["end"] = ids[span[0]], ids[span[1]]
+    assert shared_problems(branch_folder, manifest) == [
+        f"manifest.json: branches[0].shared[1].start: {why}"]
+
+
+@pytest.mark.parametrize("span, other", [
+    ((4, 4), "items[4]..items[4] of branches[0].routes[2]"),
+    ((6, 7), "items[5]..items[6] of branches[0].shared[0]"),
+])
+def test_a_span_overlaps_no_route_or_span(
+        branch_folder: Path, span: tuple[int, int], other: str) -> None:
+    manifest = shared_manifest(branch_folder)
+    ids = [item["id"] for item in manifest["items"]]
+    rest = manifest["branches"][0]["shared"][1]
+    rest["start"], rest["end"] = ids[span[0]], ids[span[1]]
+    assert shared_problems(branch_folder, manifest) == [
+        f"manifest.json: branches[0].shared[1]: shared span "
+        f"items[{span[0]}]..items[{span[1]}] overlaps the span {other}"]
+
+
+@pytest.mark.parametrize("at", [8, 9])
+def test_a_span_ends_before_continue_at(branch_folder: Path,
+                                        at: int) -> None:
+    manifest = shared_manifest(branch_folder)
+    ids = [item["id"] for item in manifest["items"]]
+    rest = manifest["branches"][0]["shared"][1]
+    rest["start"] = rest["end"] = ids[at]
+    assert shared_problems(branch_folder, manifest) == [
+        f"manifest.json: branches[0].shared[1].end: shared span must end "
+        f"before the decision's continueAt items[8] (found items[{at}])"]
+
+
+def test_a_continue_span_needs_the_join(branch_folder: Path) -> None:
+    manifest = shared_manifest(branch_folder)
+    decision = manifest["branches"][0]
+    del decision["continuingRoute"]
+    del decision["continueAt"]
+    assert shared_problems(branch_folder, manifest) == [
+        "manifest.json: branches[0].shared[0].result: \"continue\" needs "
+        "the decision's continuingRoute and continueAt: without them there "
+        "is no join to continue to"]
+
+
+def test_a_span_holds_no_decision(branch_folder: Path) -> None:
+    manifest = shared_manifest(branch_folder)
+    ids = [item["id"] for item in manifest["items"]]
+    decision = manifest["branches"][0]
+    del decision["shared"][1]
+    del decision["routes"][1]["then"]
+    decision["shared"][0]["end"] = ids[7]
+    manifest["branches"].append({
+        "id": "inside", "after": ids[5], "prompt": "Inside?",
+        "routes": [
+            {"id": "x", "label": "X", "start": ids[6], "end": ids[6]},
+            {"id": "y", "label": "Y", "start": ids[7], "end": ids[7]},
+        ],
+    })
+    assert shared_problems(branch_folder, manifest) == [
+        "manifest.json: branches[0].shared[0]: shared span "
+        "items[5]..items[7] holds decision 'inside' (its after item "
+        "items[5]): a shared span holds no decision"]
+
+
+@pytest.mark.parametrize("name", ["ghost", "c"])
+def test_then_names_a_span(branch_folder: Path, name: str) -> None:
+    manifest = shared_manifest(branch_folder)
+    manifest["branches"][0]["routes"][0]["then"] = name
+    assert shared_problems(branch_folder, manifest) == [
+        f"manifest.json: branches[0].routes[0].then: names no shared span "
+        f"of this decision or of one enclosing it ({name!r})"]
+
+
+def test_then_may_not_name_a_span_of_a_decision_not_enclosing_it(
+        branch_folder: Path) -> None:
+    manifest = shared_manifest(branch_folder)
+    ids = [item["id"] for item in manifest["items"]]
+    manifest["branches"].append({
+        "id": "later", "after": ids[8], "prompt": "Later?",
+        "routes": [
+            {"id": "p", "label": "P", "start": ids[9], "end": ids[9],
+             "then": "fall"},
+            {"id": "q", "label": "Q", "start": ids[10], "end": ids[10]},
+        ],
+    })
+    assert shared_problems(branch_folder, manifest) == [
+        "manifest.json: branches[1].routes[0].then: names no shared span "
+        "of this decision or of one enclosing it ('fall')"]
+
+
+def test_the_continuing_routes_span_must_continue(
+        branch_folder: Path) -> None:
+    manifest = shared_manifest(branch_folder)
+    manifest["branches"][0]["routes"][2]["then"] = "rest"
+    assert shared_problems(branch_folder, manifest) == [
+        "manifest.json: branches[0].routes[2].then: the continuing route's "
+        "then must name a shared span of its own decision whose result is "
+        "\"continue\" (found 'rest', whose result is \"ending\")"]
+
+
+def test_the_continuing_route_may_not_name_an_enclosing_span(
+        branch_folder: Path) -> None:
+    manifest = nested_shared_manifest(branch_folder)
+    manifest["branches"][1]["routes"][1]["then"] = "fall"
+    assert shared_problems(branch_folder, manifest) == [
+        "manifest.json: branches[1].routes[1].then: the continuing route's "
+        "then must name a shared span of its own decision whose result is "
+        "\"continue\" (found 'fall' of decision 'outer')"]
+
+
+@pytest.mark.parametrize("change, field", [
+    (lambda d: d.__setitem__("shared", []), "branches[0].shared"),
+    (lambda d: d["shared"][0].__setitem__("label", "Fall"),
+     "branches[0].shared[0]"),
+    (lambda d: d["shared"][0].pop("end"), "branches[0].shared[0]"),
+    (lambda d: d["shared"][0].__setitem__("result", "loop"),
+     "branches[0].shared[0].result"),
+    (lambda d: d["routes"][0].__setitem__("then", 3),
+     "branches[0].routes[0].then"),
+])
+def test_shared_and_then_shapes_are_the_schemas(
+        branch_folder: Path, change: Any, field: str) -> None:
+    manifest = shared_manifest(branch_folder)
+    change(manifest["branches"][0])
+    problems = shared_problems(branch_folder, manifest)
+    assert problems, problems
+    assert any(p.startswith(f"manifest.json: {field}") for p in problems), \
+        problems
+
+
 # ---------------------------------------------------------------------------
 # storyId (docs/plan.md Phase 21): optional, a lowercase slug when present
 # ---------------------------------------------------------------------------

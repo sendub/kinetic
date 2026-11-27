@@ -64,8 +64,9 @@ its routes, a decision that never fires, and what lies past a route end
 the walk reaches with no decision open. A manifest without branches
 prints none, nor does one whose decisions break the span rules
 (`folder_model.span_problems`: a route not after its `after` item,
-overlapping routes, a `continueAt` not past every route end), which are
-problems and leave no reading to walk.
+overlapping routes, a `continueAt` not past every route end, a shared
+span breaking the same rules), which are problems and leave no reading
+to walk.
 
 Audio warnings, `audio_warnings`, need no flag: one `warning: <file>:
 <location>: <reason>` line on stderr per Ogg track file, per looping track
@@ -121,7 +122,8 @@ invariants:
    compared exactly; docs/content-format.md § Video segments); a fade
    `transition` has `out` or `in` above 0; the optional
    `branches` table obeys its reference, span, continuingRoute/
-   continueAt, `"continue"` result, and `follows`/`when` rules
+   continueAt, `"continue"` result, `follows`/`when`, and `shared`/`then`
+   rules
    (docs/content-format.md § Branches); the optional audio obeys its track range, id, ambience
    and `videoSound` length rules, and each track file and each voice's
    reference clip has its script beside it holding the file's bytes, or
@@ -139,6 +141,7 @@ invariants:
 from __future__ import annotations
 
 import argparse
+import bisect
 import heapq
 import json
 import re
@@ -516,7 +519,8 @@ def branches_problems(manifest: Any) -> list[str]:
     it, and resolves to an item after every route `end`; a route whose
     `result` is `"continue"` needs that pair on its decision (a pure choice
     has no join to continue to); `prompt` is shorter than 200 characters
-    and every route `label` shorter than 120. An unresolvable or
+    and every route `label` shorter than 120; and the decision's own
+    `shared` spans obey rule 28 (`_shared_span_rules`). An unresolvable or
     non-string reference is reported once, and the checks that would
     compare it are skipped.
     """
@@ -631,6 +635,7 @@ def branches_problems(manifest: Any) -> list[str]:
         continuing = branch.get("continuingRoute")
         continue_loc = f"{base}.continueAt"
         has_continue_at = "continueAt" in branch
+        continue_idx = None
         if isinstance(continuing, str):
             if continuing not in route_ids:
                 problems.append(_line(
@@ -655,13 +660,184 @@ def branches_problems(manifest: Any) -> list[str]:
                     continue_loc,
                     f"must resolve to an item after every route end "
                     f"items[{max(ends)}] (found items[{continue_idx}])"))
-        if not (isinstance(continuing, str) and has_continue_at):
+        joins = isinstance(continuing, str) and has_continue_at
+        if not joins:
             for rbase in continue_routes:
                 problems.append(_line(
-                    f"{rbase}.result",
-                    '"continue" needs the decision\'s continuingRoute and '
-                    "continueAt: without them there is no join to continue "
-                    "to"))
+                    f"{rbase}.result", _CONTINUE_NEEDS_A_JOIN))
+        problems += _shared_span_rules(
+            branch, base, route_ids, spans, after_idx, continue_idx, joins,
+            resolve)
+    return problems
+
+
+_CONTINUE_NEEDS_A_JOIN = (
+    '"continue" needs the decision\'s continuingRoute and continueAt: '
+    "without them there is no join to continue to")
+
+
+def _shared_span_rules(branch: dict[str, Any], base: str,
+                       route_ids: dict[str, int],
+                       route_spans: list[tuple[int, int, str]],
+                       after_idx: int | None, continue_idx: int | None,
+                       joins: bool, resolve: Any) -> list[str]:
+    """One decision's `shared` spans (docs/content-format.md § Branches,
+    rule 28): ids unique among its route and span ids, `start`/`end`
+    resolving in order, each span after `after`, overlapping none of its
+    routes or other spans, ending before `continueAt`, and a
+    `"continue"` result only with the join. `resolve` reports a
+    reference that does not resolve, once."""
+    shared = branch.get("shared")
+    if not isinstance(shared, list):
+        return []  # absent, or the schema reports a non-array
+    problems: list[str] = []
+    first_use = {route_id: f"{base}.routes[{ri}]"
+                 for route_id, ri in route_ids.items()}
+    laid: list[tuple[int, int, str]] = []
+    for si, span in enumerate(shared):
+        if not isinstance(span, dict):
+            continue  # the schema reports non-object spans
+        sbase = f"{base}.shared[{si}]"
+        span_id = span.get("id")
+        if isinstance(span_id, str):
+            if span_id in first_use:
+                problems.append(_line(
+                    f"{sbase}.id",
+                    f"duplicate span id {span_id!r} (first used by "
+                    f"{first_use[span_id]})"))
+            else:
+                first_use[span_id] = sbase
+        if span.get("result") == "continue" and not joins:
+            problems.append(_line(f"{sbase}.result", _CONTINUE_NEEDS_A_JOIN))
+        start_idx = resolve(span.get("start"), f"{sbase}.start")
+        end_idx = resolve(span.get("end"), f"{sbase}.end")
+        if start_idx is None or end_idx is None:
+            continue
+        if start_idx > end_idx:
+            problems.append(_line(
+                f"{sbase}.start",
+                f"shared span start items[{start_idx}] must not come after "
+                f"its end items[{end_idx}] in array order"))
+        if after_idx is not None and start_idx <= after_idx:
+            problems.append(_line(
+                f"{sbase}.start",
+                f"shared span items[{start_idx}]..items[{end_idx}] contains "
+                f"the decision's after item items[{after_idx}]"
+                if after_idx <= end_idx else
+                f"shared span must start after the decision's after item "
+                f"items[{after_idx}] (found items[{start_idx}])"))
+        for other_s, other_e, other_loc in route_spans + laid:
+            if max(start_idx, other_s) <= min(end_idx, other_e):
+                problems.append(_line(
+                    sbase,
+                    f"shared span items[{start_idx}]..items[{end_idx}] "
+                    f"overlaps the span items[{other_s}]..items[{other_e}] "
+                    f"of {other_loc}"))
+        laid.append((start_idx, end_idx, sbase))
+        if continue_idx is not None and continue_idx <= end_idx:
+            problems.append(_line(
+                f"{sbase}.end",
+                f"shared span must end before the decision's continueAt "
+                f"items[{continue_idx}] (found items[{end_idx}])"))
+    return problems
+
+
+def shared_problems(manifest: Any) -> list[str]:
+    """The rules on shared spans that look past one decision
+    (docs/content-format.md § Branches, rules 29 and 30): a span holds no
+    decision's `after` item, and a route's `then` names a span of its own
+    decision or of one enclosing it (the nearest with that id), on the
+    continuing route a `"continue"` span of its own decision. A span or
+    `then` the schema or `branches_problems` reports for its own shape
+    is passed over here."""
+    if not isinstance(manifest, dict):
+        return []
+    branches = manifest.get("branches")
+    items = manifest.get("items")
+    if not isinstance(branches, list) or not isinstance(items, list):
+        return []
+    item_index: dict[str, int] = {}
+    for i, item in enumerate(items):
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            item_index.setdefault(item["id"], i)
+
+    def index_of(value: Any) -> int | None:
+        return item_index.get(value) if isinstance(value, str) else None
+
+    def spans_of(branch: Any) -> list[dict[str, Any]]:
+        shared = branch.get("shared") if isinstance(branch, dict) else None
+        return [span for span in shared if isinstance(span, dict)] \
+            if isinstance(shared, list) else []
+
+    problems: list[str] = []
+    afters = sorted((index, bi) for bi, branch in enumerate(branches)
+                    if isinstance(branch, dict)
+                    and (index := index_of(branch.get("after"))) is not None)
+    keys = [index for index, _bi in afters]
+    for bi, branch in enumerate(branches):
+        if not isinstance(branch, dict):
+            continue
+        shared = branch.get("shared")
+        for si, span in enumerate(shared if isinstance(shared, list)
+                                  else []):
+            if not isinstance(span, dict):
+                continue
+            start, end = index_of(span.get("start")), index_of(
+                span.get("end"))
+            if start is None or end is None or start > end:
+                continue
+            for at in range(bisect.bisect_left(keys, start),
+                            bisect.bisect_right(keys, end)):
+                index, held = afters[at]
+                if held == bi:
+                    continue  # its own after: branches_problems says so
+                problems.append(_line(
+                    f"branches[{bi}].shared[{si}]",
+                    f"shared span items[{start}]..items[{end}] holds "
+                    f"decision {branches[held].get('id')!r} (its after item "
+                    f"items[{index}]): a shared span holds no decision"))
+
+    parents: dict[int, int] | None = None
+    for bi, branch in enumerate(branches):
+        if not isinstance(branch, dict) \
+                or not isinstance(branch.get("routes"), list):
+            continue
+        for ri, route in enumerate(branch["routes"]):
+            if not isinstance(route, dict) \
+                    or not isinstance(route.get("then"), str):
+                continue  # absent, or the schema reports a non-id
+            name = route["then"]
+            if parents is None:
+                parents = folder_model.enclosing_parents(items, branches)
+            holder, found, depth = bi, None, 0
+            while found is None:
+                found = next((span for span in spans_of(branches[holder])
+                              if span.get("id") == name), None)
+                if found is not None or holder not in parents \
+                        or depth >= len(branches):
+                    break
+                holder, depth = parents[holder], depth + 1
+            loc = f"branches[{bi}].routes[{ri}].then"
+            if found is None:
+                problems.append(_line(
+                    loc,
+                    f"names no shared span of this decision or of one "
+                    f"enclosing it ({name!r})"))
+                continue
+            if route.get("id") != branch.get("continuingRoute"):
+                continue
+            result = found.get("result", "ending")
+            if holder != bi:
+                why = (f"found {name!r} of decision "
+                       f"{branches[holder].get('id')!r}")
+            elif result != "continue":
+                why = f"found {name!r}, whose result is {json.dumps(result)}"
+            else:
+                continue
+            problems.append(_line(
+                loc,
+                f"the continuing route's then must name a shared span of "
+                f'its own decision whose result is "continue" ({why})'))
     return problems
 
 
@@ -2211,6 +2387,7 @@ def _validate(content_dir: Path, schema_path: Path,
         problems += transition_problems(manifest)
         problems += branches_problems(manifest)
         problems += following_problems(manifest)
+        problems += shared_problems(manifest)
         problems += audio_problems(manifest)
         problems += audio_script_problems(content_dir, manifest, schema_locs)
 

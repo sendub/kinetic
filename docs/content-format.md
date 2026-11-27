@@ -673,6 +673,60 @@ and items always use ids, never array positions.
   as any decision's, and a route's `result` acts at its end as ever. A
   player older than 1.15.0 ignores both fields and shows an ordinary
   choice.
+- `shared` and `then` (optional, since 1.15.0): a scene that several
+  routes go on to (a failure scene, say, reached from a choice and from
+  a choice nested in another route), laid out once. `shared` is a
+  non-empty array of span objects: an `id` unique among the decision's
+  route ids and span ids; `start`/`end`, an inclusive, contiguous span
+  of items in array order, as a route's; and an optional `result`,
+  `"ending"` (the default), `"return"` or `"continue"`. Each span lies
+  after the decision's `after` item, overlaps none of the decision's
+  routes and none of its other spans, and ends before its `continueAt`
+  when it has one; the usual place is after the last route. A span
+  holds no decision: no decision's `after` item lies inside one, so a
+  scene with its own menu stays each route's own content. A route's
+  `then` names a span of its own decision or of a decision enclosing it
+  (one whose route span holds this route's decision, and so on
+  outwards), the nearest one with that id. The continuing route's
+  `then` names a span of its own decision whose `result` is
+  `"continue"`, so that the continuing route still joins at
+  `continueAt`.
+
+  After the end of a route with `then`, flow enters the span in place
+  of acting on the route's `result`. At the span's end the span's
+  `result` acts as the result of a route of the span's decision would:
+  `"ending"`, the span's last item is the ending and the overlay offers
+  that decision's routes again; `"return"`, the same with the return
+  row by its rule; `"continue"`, flow proceeds to that decision's
+  `continueAt`, and under `Play all routes` the choice is offered again
+  first while a route of that decision is unplayed this pass, as at a
+  `"continue"` route's end. A route naming an enclosing decision's span
+  leaves its own decision and the enclosing routes holding it there:
+  the span's `result` acts at the span's decision, and those enclosing
+  routes are left, not completed. Through the span the reader stays in
+  the route they picked: the "Route: <label>" pill, `u`, the PLAYED
+  mark and completion are that route's. A span adds no row to the
+  choice screen and has no mark of its own; its items are ordinary
+  items, seen when shown. A route with `then` completes when its span
+  completes, stepping off the span's last item having entered it from
+  that route, and its own `result` is moot (give it the result an older
+  player should act on). For every "flow has passed this decision" rule
+  (`u`, the end card) a span completed with `"continue"` counts at its
+  decision as a completed `"continue"` route does; the return row still
+  opens only on the continuing route's own completion. A pure choice's
+  menu region runs to its last route or span end, and its close
+  continues past both.
+
+  Under `Play all routes` the first route of a pass to reach a span
+  reads it. A later route of the same pass reaching it runs a skip
+  through it on its own, as Tab does (Space stops it), under a pill
+  saying it was read already, and then the span's `result` acts. The
+  wheel walks a span after the last-picked route that reaches it, and a
+  save, reload, bookmark or resume inside a span keeps the route that
+  led in. A player older than 1.15.0 ignores both fields: a route with
+  `then` acts on its own `result`, and flow never enters a span, whose
+  items only a bookmark or `u` reaches, except that a pure choice's
+  close past its last route falls through into a span laid after it.
 
 Player-side notes, the format's promises (machine rules in
 docs/plan.md Phase 13):
@@ -1749,6 +1803,24 @@ The validator checks the schema plus these invariants:
     that pick, so it needs `continuingRoute` and `continueAt`. The
     schema keeps `when` a non-empty array of distinct ids; a `follows`
     that breaks 26 is reported alone, its `when` entries not compared.
+28. A decision's `shared` spans (Branches) are sound: each span `id` is
+    unique among the decision's route ids and span ids; `start` and
+    `end` name existing item ids, `start` not after `end`; each span
+    starts after the decision's `after` item, overlaps none of the
+    decision's route spans and none of its other spans, and ends before
+    its `continueAt` when it has one; and a span whose `result` is
+    `"continue"` needs the decision's `continuingRoute` and
+    `continueAt`, as a route's does (12). The schema keeps `shared` a
+    non-empty array of objects with `id`, `start`, `end` and an
+    optional `result`, one of a route's, and no other keys.
+29. A shared span holds no decision: no other decision's `after` item
+    lies inside it (its own decision's is 28's).
+30. A route's `then` names a span of its own decision or of a decision
+    enclosing it: the decision whose narrowest route span holds this
+    decision's `after` item, then the one enclosing that, and so on,
+    the nearest with a span of that id taken. The continuing route's
+    `then` names a span of its own decision whose `result` is
+    `"continue"`. The schema keeps `then` an id.
 
 The validator also warns about three things that are not problems: an
 Ogg track file (Audio says why), a looping track in a format that is
@@ -1784,7 +1856,8 @@ decision's route), where the story ends (Branches). The warning leaves
 stdout alone, as every warning does, and a manifest without branches
 prints none, nor does one where a decision the player keeps breaks the
 span rules (a route not after its `after` item, two routes of one
-decision overlapping, a `continueAt` not after every route end): those
+decision overlapping, a `continueAt` not after every route end, or a
+shared span breaking the same rules, 28): those
 are problems, and such a manifest has no reading to replay.
 `check-game` finds the same items by walking (exit 3, "never shown").
 

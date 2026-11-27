@@ -45,6 +45,14 @@ something more of an author.
   follows and which pick each route takes. The validator checks both
   fields (docs/content-format.md, "Branches", rules 26 and 27). An
   older player ignores them and shows an ordinary choice.
+- Shared spans in the format: a decision's optional `shared` lists
+  spans of items laid out once, each with an `id`, `start`, `end` and
+  a `result` as a route's, and a route's optional `then` names one of
+  them, of its own decision or of one enclosing it, to read after the
+  route's end, the span's `result` then acting in place of the
+  route's. The validator checks both (docs/content-format.md,
+  "Branches", rules 28 to 30). An older player ignores them: a route
+  with `then` acts on its own `result`.
 - The converter makes a decision of a menu whose choices set variables
   and `jump` (or `call`, or `return`) elsewhere, the commonest Ren'Py
   menu, where it used to keep it linear (`jump inside a choice block`).
