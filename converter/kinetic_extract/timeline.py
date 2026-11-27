@@ -376,6 +376,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     # Decisions whose `continueAt` is the join's first item, not yet seen:
     # each (candidate, item count at its `menu-close`).
     awaiting: list[tuple[dict[str, Any], int]] = []
+    # Those a linear `if` chain held and let wait on (item 9l).
+    released: set[int] = set()
     # The item the last say statement's text went to, which an `extend`
     # line continues; None at a menu's boundaries (a route's line never
     # continues the lead-in's) and before the first line.
@@ -657,15 +659,35 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         """The decisions waiting for their join's first item get it when
         an item came since their `menu-close`, else none. A menu opening
         (``follows``) right after one that got none would hang off that
-        one's last route: it stays linear."""
+        one's last route: it stays linear. An `if` chain doing so also
+        holds the waiting decision (docs/plan.md Phase 60 item 9l), whose
+        join's first item is then the first that follows: the chain's,
+        or its join's."""
         for cand, count in awaiting:
             if len(result.items) > count:
                 cand["continue_idx"] = count
+            elif follows is not None and id(cand) in released:
+                pass   # it gives up there: the menu stays a decision
             elif follows is not None:
                 follows["reject"] = (
                     f"the menu follows the menu at "
                     f"{cand['record'].source} with no line between")
+                if follows["record"].condition is not None:
+                    follows.setdefault("held", []).append((cand, count))
         awaiting.clear()
+
+    def release_held(ms: dict[str, Any], outcome: dict[str, Any] | None
+                     ) -> None:
+        """At a linear menu's close, the decisions it held (above) take
+        its first item, else wait on with its join's path when the walk
+        lays that out next (the outcome's ``awaits``), giving up at a
+        menu that path meets before any item."""
+        for cand, count in ms.get("held", ()):
+            if len(result.items) > count:
+                cand["continue_idx"] = count
+            elif (outcome or {}).get("awaits"):
+                awaiting.append((cand, count))
+                released.add(id(cand))
 
     def close_menu(parsed: FileParse, ms: dict[str, Any],
                    outcome: dict[str, Any] | None) -> None:
@@ -1031,6 +1053,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     resolve_awaiting()
                     end_route(menu_stack[-1])
                     close_menu(parsed, menu_stack[-1], event.outcome)
+                    release_held(menu_stack[-1], event.outcome)
                     cues.menu_close()
                     menu_stack.pop()
             elif event.kind == "audio":

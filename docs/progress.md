@@ -6893,7 +6893,31 @@ truthful: an unchecked box means nothing was accepted.
       kept: 54966 -> 55122, 49387 = 49387, 5213 -> 11296, 3936 = 3936,
       12772 -> 12843. Tests: test_condition_state.py (29 failed first).
       Orchestrator: full converter/ 1342 passed.)
-- [ ] Joins through calls and returns (item 9l).
+- [x] Joins through calls and returns (item 9l).
+      (2026-11-27: the walk keeps the call stack: a `return` in a called
+      label goes back after its `call`, in a menu's choice too; only a
+      `return` with no call under way ends the story. A menu's join is
+      found through returns, so it can lie past the `call` (walked with
+      the caller's state). A join opening with a `call` of a label that
+      shows nothing, an unconverted `if` whose blocks show nothing, or a
+      linear `if` chain straight after the menu takes the first item
+      after it as `continueAt`. `call expression` candidates: each
+      candidate's `return` goes on into the next, the last after the
+      site; a choice's own `return` in a candidate other than the last
+      meets the others only when the join returns at once, else it is
+      `"ending"` (treating candidates alike lost lines). "A menu straight
+      after a menu" kept as it was, for item 9o. A menu the walk never
+      lays out now says why (`not reached: ...` or `inside a block the
+      walk does not read`); "(slice)" is left for `--max-items`. Corpus
+      recount (5 games, read-only): one game's ending routes mid-story
+      544 -> 64 and its 242 "region not completed" all became "not
+      reached" (dead code after a `jump`/`return`); pure choices 1051 ->
+      1006, 422 -> 291, 770 -> 362; script lines kept identical in all
+      5, text items fell only by choice-text placeholders routes no
+      longer need. Lead for item 9m: say strings spanning several lines
+      are mis-parsed (a continuation line read as `return`). Tests:
+      test_call_joins.py, 15 (12 failed first). Orchestrator: converter/
+      1357 passed, test_validate_content.py 536 passed.)
 - [ ] Say statements as Ren'Py reads them (item 9m).
 - [ ] Pictures resolved as Ren'Py resolves them (item 9n).
 - [ ] Menus no longer kept linear (item 9o).

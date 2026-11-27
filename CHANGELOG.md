@@ -197,6 +197,19 @@ something more of an author.
   as before. The validator's never-shown
   warning for an item in a shared span no route reaches says so
   (docs/extracting.md, "The walk follows labels").
+- The converter follows a `return` back to its `call`: a choice that
+  returns from a called label goes on in the caller instead of ending
+  the story, and a menu's choices meet where they meet through returns.
+  A menu at the end of a called label, whose choices meet at its
+  `return`, and one whose choices `call` scenes that `return`, continue
+  at the caller's next line instead of being pure choices; so does a
+  decision whose join opens with a `call` of a label that shows nothing
+  or with an `if` that shows nothing, and one in a `call expression`
+  candidate, which goes on into the next candidate. Only a `return`
+  with no call under way ends the story. A menu the walk reaches the
+  label of but never lays out says why in `branchDetection` (after a
+  `jump` or `return`, or inside a block the walk does not read) instead
+  of "menu region not completed".
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds` and `holdLastFrame` once
   upgraded. Converting a Ren'Py game again with this release gains its

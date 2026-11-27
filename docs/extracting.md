@@ -137,7 +137,11 @@ game whose story order differs from its file order read out of order.
   (`menu name:`) are labels too, as are literal `$ renpy.jump("x")` and
   `$ renpy.call("x")`. The end of a file returning is a deliberate
   difference: in Ren'Py, falling off the end of a file inside a call
-  ends the game, while the walk keeps the content after the call.
+  ends the game, while the walk keeps the content after the call. The
+  walk keeps the call stack (docs/plan.md Phase 60 item 9l): a `return`
+  inside a called label goes back after its `call`, in a menu's choice
+  too, so only a `return` with no call under way, in the main flow,
+  ends the story.
 - **Each statement once**: a label reached a second time is not walked
   again. A jump to it ends that path there (a loop back, or a scene two
   paths share, is read once, as the converter's routes rejoin the line
@@ -169,14 +173,29 @@ game whose story order differs from its file order read out of order.
   path in turn up to where the choices meet, then that join once, as for
   any fork; the join is the post-dominator of the choices that do not
   loop back to the menu, read past each choice's own block, or, when one
-  choice ends the story, where the others meet. What a choice's path
+  choice ends the story, where the others meet. It is read through
+  returns (item 9l): a choice leaving a called label by its `return`
+  meets the others in the caller, past the `call`. So a menu whose
+  choices `call` scenes that `return` (`call lake from _call_lake`) is
+  a decision whose routes are the scenes, joining after the menu; a
+  menu at the end of a called label, whose choices meet at its
+  `return`, joins at the caller's line after the `call`; and a choice
+  that returns early beside one reading the label's last lines meets it
+  back in the caller. What a choice's path
   reads is its route, and its `result` is how the path ended: at the
   join `"continue"`, back at the menu (its label, a named menu, a
   label that reaches it with no line between, or content already read
   from which straight-line code reaches it: the question before a
   refusal, re-read but not laid out again) `"return"`, at the story's
   end `"ending"`. The last choice reaching the join is the
-  `continuingRoute`, and the join's first item the `continueAt`; a menu
+  `continuingRoute`, and the first item the join's path reaches the
+  `continueAt`, past a `call` of a label that shows nothing, an `if`
+  the walk does not convert whose blocks show nothing, and an `if`
+  chain straight after the menu that stays linear (it shows nothing, or
+  follows the menu with no line between: the `continueAt` is then its
+  first line). A menu the join's path meets past such a `return` or
+  `if` before any item leaves the decision a pure choice and stays a
+  decision itself, as a menu reached there did before; a menu
   nested in a route whose choices meet where the enclosing menu's do
   (a jump there, or falling through at the end of the enclosing
   choice's block) takes the enclosing `continueAt`, past its route's
@@ -205,8 +224,9 @@ game whose story order differs from its file order read out of order.
   `jumps back to the menu`, `jumps back to the menu through its
   lead-in at game/script.rpy:40`, `reaches the story's end`), and its
   `continuingRoute` and `continueAt` or that it is a pure choice. A
-  `return` in a choice is read as the story's end, even in a label
-  reached by `call`.
+  route whose path left a called label by its `return` says so
+  (`reaches the join at game/script.rpy:12 through a return to its
+  caller`).
 
   **Shared tails** (Phase 60 item 9i): content that two or more choices
   of one menu go on to before the join (a failure scene two choices
@@ -254,7 +274,12 @@ game whose story order differs from its file order read out of order.
   `label` inside a choice block, any line between choices other
   than a caption, and a nested menu with no item of its route before
   it (the route's lines dropped with an unresolved visual). Such a menu's blocks are skipped as for an `if`, their
-  jumps and calls followed.
+  jumps and calls followed. A menu in a label the walk reaches that it
+  never lays out is `skipped` with why: `not reached: no path of the
+  walk reaches it` (it follows a `jump` or `return` in its label) or
+  `inside a block the walk does not read` (an `if` chain not converted,
+  a loop); `menu region not completed in the walked flow (slice)` is
+  left for a menu a `--max-items` slice cut off.
 - **Screens**: `show screen x` and `call screen x` are a fork of the
   screen's literal `Jump("label")` and `Call("label")` actions, and
   those of the screens it `use`s, in the screen's order, and of going
@@ -284,7 +309,12 @@ game whose story order differs from its file order read out of order.
   order, even ones literal flow reaches), then its share, then the
   labels nobody owns, each group in file order, and walks those not
   walked yet: a `call expression` calls each in turn, returning to the
-  site after each, and goes on; a `jump expression` reads each as a path
+  site after each, and goes on (each candidate's `return` goes on into
+  the next, as they are laid out, the last's after the site, so a
+  decision whose choices meet at a candidate's `return` continues
+  there; a choice's own `return` in a candidate other than the last
+  meets the others only when their join returns at once, else it is
+  `"ending"`); a `jump expression` reads each as a path
   of its own, one after another (a fork whose paths share no join), and
   its own path ends after them, as a jump's does. Each site is reported
   with how many candidates it had and walked; one with none is reported

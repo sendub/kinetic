@@ -27,6 +27,13 @@ story events in that order, each statement once:
 - The end of a file returns, as a `return` does. (In Ren'Py falling off
   the end of a file inside a call ends the game; a return keeps the
   content after the call.)
+- The walk keeps the call stack (docs/plan.md Phase 60 item 9l): a
+  `return` inside a called label goes on after the `call` (_Cont), only
+  one with no call under way ending the story. A computed call's
+  candidates return each into the next, as they are laid out, the last
+  after the call. A menu's choices meet through returns (_menu_join's
+  ``ups``): a choice leaving a called label meets the others in the
+  caller, and a join past the call is walked as the caller's next task.
 - A menu that becomes a decision (docs/plan.md Phase 60 item 4) is a
   fork whose blocks are its choices: each choice's path is walked in turn
   up to where the choices meet (_menu_join), between `menu-open`,
@@ -92,6 +99,11 @@ _FLOW_KINDS = frozenset({"jump", "call", "return", "fork", "screen"})
 # Story events whose file counts as reached or not.
 _STORY_KINDS = frozenset({"dialogue", "visual", "video"})
 NOT_REACHED = "not reached from label {start}"
+NOT_WALKED = ("not reached: no path of the walk reaches it (what comes "
+              "before it in its label jumps, calls or returns elsewhere)")
+NOT_LAID_OUT = ("inside a block the walk does not read (an if chain not "
+                "converted, a loop or another statement's block): its "
+                "lines are not laid out")
 # Markers a shared tail's run may not hold (docs/plan.md Phase 60 item
 # 9i): a span holds no decision.
 _MARKER_KINDS = frozenset({"menu-open", "choice-open", "menu-close",
@@ -128,6 +140,24 @@ class _Op:
     # A chain whose arm each call of its label picks (docs/plan.md Phase
     # 60 item 9k; parser.FlowStep.pick): its ChainCondition.
     pick: Any = None
+
+
+class _Cont:
+    """Where the walk goes on after a `call` (docs/plan.md Phase 60 item
+    9l): ``task``, the walk's task for the statement after the call (or
+    the next computed candidate, or the next arm a later call reads),
+    whose mark names this object; ``done`` once a path took the callee's
+    `return` there or a menu's join was walked in its place, so the task
+    is not walked again. ``call``: the statement after the call, where
+    Ren'Py's `return` goes; not the next label a computed call walks,
+    which only the walk's layout puts next."""
+
+    __slots__ = ("task", "done", "call")
+
+    def __init__(self, call: bool = True) -> None:
+        self.task: tuple[Any, ...] = ()
+        self.done = False
+        self.call = call
 
 
 @dataclass
@@ -234,56 +264,74 @@ _CHAIN_MAX = 5000
 # How many ops a jump back to a menu may pass on its way there (a lead-in
 # of story lines, or a run of labels and jumps).
 _LEAD_IN_MAX = 5000
+# How many calls out a menu's join is looked for (item 9l).
+_UP_MAX = 64
 
 
-def _menu_join(ops: list[_Op], n: int, ipdom: list[int]) -> int:
+def _menu_join(ops: list[_Op], n: int, ipdom: list[int],
+               ups: list[int] | tuple[int, ...] = ()) -> tuple[int, int]:
     """Where the choices of the menu fork ``n`` meet (docs/plan.md Phase
-    60 item 4), -1 for nowhere. Each choice's post-dominator chain is
-    read from its block's start, the block's own ops left out (a choice
-    that falls through meets the others after the menu, not in its own
-    lines); a choice whose chain passes the menu itself loops back to
-    it and is left out. The join is the first op common to the most
-    remaining chains: the fork's immediate post-dominator when every
-    choice gets there; otherwise where most of them meet, so a choice
-    that ends the story leaves the others their join. A lone remaining
-    choice, or one with a chain beside choices that end at once, meets
-    the story at the first op past its block."""
+    60 item 4): ``(op, level)``, ``(-1, 0)`` for nowhere. Each choice's
+    post-dominator chain is read from its block's start, the block's own
+    ops left out (a choice that falls through meets the others after the
+    menu, not in its own lines); a choice whose chain passes the menu
+    itself loops back to it and is left out. The join is the first op
+    common to the most remaining chains: the fork's immediate
+    post-dominator when every choice gets there; otherwise where most of
+    them meet, so a choice that ends the story leaves the others their
+    join. A lone remaining choice, or one with a chain beside choices
+    that end at once, meets the story at the first op past its block.
+
+    The graph's exit is a `return` (or a file's end) as much as the
+    story's end. Inside a call (item 9l) ``ups`` are the ops the walk
+    returns to, innermost first: a chain reaching the exit goes on at
+    the next of them, a level up, so choices meet past the `call` when
+    they leave the called label. ``level`` is how many calls the join
+    lies outside the menu's own."""
     exit_ = len(ops)
     fork = ops[n]
     blocks = list(zip(fork.alts, fork.alt_ends))
     common = ipdom[n]
     if 0 <= common < exit_ and not any(lo <= common <= hi
                                        for lo, hi in blocks):
-        return common   # every choice gets there: the usual case
-    chains: list[list[int]] = []
+        return common, 0   # every choice gets there: the usual case
+    chains: list[list[tuple[int, int]]] = []
     for lo, hi in blocks:
-        chain: list[int] = []
-        m, looping, steps = lo, False, 0
-        while 0 <= m < exit_ and steps <= _CHAIN_MAX:
-            if m == n:
+        chain: list[tuple[int, int]] = []
+        m, level, looping, steps = lo, 0, False, 0
+        while steps <= _CHAIN_MAX:
+            if m == exit_ and level < len(ups):
+                # A return: on in the caller, after its call.
+                m, level = ups[level], level + 1
+                chain.append((m, level))
+                m, steps = ipdom[m], steps + 1
+                continue
+            if not 0 <= m < exit_:
+                break
+            if m == n and level == 0:
                 looping = True
                 break
-            if not lo <= m <= hi:
-                chain.append(m)
+            if level or not lo <= m <= hi:
+                chain.append((m, level))
             m = ipdom[m]
             steps += 1
         if not looping:
             chains.append(chain)
     if len(chains) == 1:
-        return chains[0][0] if chains[0] else -1
-    count: dict[int, int] = {}
+        return chains[0][0] if chains[0] else (-1, 0)
+    count: dict[tuple[int, int], int] = {}
     for chain in chains:
         for m in set(chain):
             count[m] = count.get(m, 0) + 1
     best = max(count.values(), default=0)
     if best < 2:
         reaching = [chain for chain in chains if chain]
-        return reaching[0][0] if len(reaching) == 1 else -1
+        return reaching[0][0] if len(reaching) == 1 else (-1, 0)
     for chain in chains:
         for m in chain:
             if count[m] == best:
                 return m
-    return -1
+    return -1, 0
 
 
 def lay_out_spans(events: list[tuple[FileParse, Event]],
@@ -659,8 +707,13 @@ def follow_labels(parses: list[tuple[str, FileParse]],
         `menu-close` (its ``outcome``: how each path ended) and the join
         once. A task carries the menu choices it is inside (``ctx``, each
         ``(fork op, choice, stops at the choice's start)``, outermost
-        first) and how many of them a call inside cuts off (``floor``:
-        where a callee's path ends says nothing of the choice's)."""
+        first), how many of them a call inside cuts off (``floor``:
+        where a callee's path ends says nothing of the choice's) and the
+        calls it is inside (``rets``, each a _Cont, innermost last; item
+        9l): a `return` goes on after the call, as the callee's own task
+        when the caller's next task is that, and as the choice's path in
+        a choice of a menu opened in the callee, so only a `return` with
+        no call under way ends the story."""
         out: dict[str, Any] = {"events": [], "rejoins": 0,
                                "not_repeated": [], "unfollowed": [],
                                "walked": {}, "sites": []}
@@ -668,9 +721,17 @@ def follow_labels(parses: list[tuple[str, FileParse]],
         menus: dict[int, dict[str, Any]] = {}
         # Each menu fork walked -> where its choices meet.
         menu_joins: dict[int, int] = {}
-        # True from a decision's `menu-close` until its join's path shows
-        # a story event, opens a menu or ends (a `path-end` marker).
-        awaiting = [False]
+        # From a decision's `menu-close` until its join's path shows a
+        # story event, opens a menu or ends (a `path-end` marker): the
+        # joins of the `if` forks met on the join's path since, else None.
+        # A block of such an `if` stopping at its join, walked next, does
+        # not end the join's path (item 9l).
+        awaiting: list[set[int] | None] = [None]
+        # Whether the join's path went on through a `return`, or past a
+        # block of an `if` on it (item 9l): a menu it then meets before
+        # any item ends it, as before those rules, so that menu stays a
+        # decision.
+        crossed = [False]
         Ctx = tuple[tuple[int, int, frozenset[int]], ...]
         # Shared tails (docs/plan.md Phase 60 item 9i), final walk only:
         # every path end (``n``, ``kind``, ``ctx``, ``floor`` and ``got``,
@@ -714,14 +775,24 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             return labels[op.target]
 
         def path_end(kind: str, n: int, stops: frozenset[int], ctx: Ctx,
-                     floor: int) -> None:
+                     floor: int, returned: bool = False,
+                     in_call: bool = False) -> None:
             """A path ended at op ``n``: a ``stop`` (a join or an op
             already walked), an ``exit`` (a return, a file's end) or
-            ``unfollowed``. Each menu choice it is inside notes how."""
+            ``unfollowed``. Each menu choice it is inside notes how
+            (``returned``: the path left a called label by its `return`
+            on the way). A return inside a call (``in_call``) from a
+            choice of a menu whose join returns at once, nothing shown
+            between, reaches the join (item 9l: a computed call's
+            candidate, which goes on into the next)."""
             if not final:
                 return
-            if awaiting[0]:
-                awaiting[0] = False
+            pending = awaiting[0]
+            if pending is not None and kind == "stop" and n in pending \
+                    and not visited[n]:
+                crossed[0] = True
+            elif pending is not None:
+                awaiting[0] = None
                 events.append((parsed_of[ops[min(n, exit_ - 1)].file],
                                Event("path-end", "")))
             steps = 0
@@ -738,7 +809,9 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 fork, k, frame_stops = ctx[depth]
                 info = menus[fork]
                 got = kind
-                if kind == "stop":
+                if kind == "exit" and in_call and info["join_returns"]:
+                    got = "join"
+                elif kind == "stop":
                     if n == info["join"]:
                         got = "join"
                     elif (way := way_to_menu(n, fork)) is not None:
@@ -753,6 +826,8 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                     else:
                         got = "rejoin"
                 record["got"][depth] = got
+                if got == "join" and returned:
+                    info["returned"][k] = True
                 info["ends"][k].append(len(ends_log) - 1)
                 info["endings"][k].add(got)
                 if got in ("rejoin", "unfollowed") \
@@ -851,8 +926,13 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             events.append((parsed_of[op.file],
                            Event("menu-close", op.source,
                                  name=str(op.menu), outcome=info["outcome"])))
-            if info["walk_join"] and not visited[info["join"]]:
-                awaiting[0] = True
+            # Whether the join's path is walked next (a decision held by
+            # this one waits on it: kinetic_extract.timeline).
+            info["outcome"]["awaits"] = bool(
+                info["walk_join"] and not visited[info["join"]])
+            if info["outcome"]["awaits"]:
+                awaiting[0] = set()
+                crossed[0] = False
             region.append(fork)
             if not ctx:
                 resolve_region()
@@ -1068,7 +1148,9 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             for k, (ends, lead) in enumerate(zip(endings, info["lead"])):
                 if "join" in ends:
                     results.append("continue")
-                    how.append(f"reaches the join at {join_source}")
+                    how.append(f"reaches the join at {join_source}" + (
+                        " through a return to its caller"
+                        if info["returned"][k] else ""))
                 elif "menu" in ends:
                     results.append("return")
                     how.append("jumps back to the menu" + (
@@ -1139,15 +1221,80 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 "open": (parsed, Event("shared-open", ops[x].source,
                                        name=plan["key"]))})
 
+        def up_conts(rets: tuple[_Cont, ...]) -> list[_Cont]:
+            """The calls a path is inside, innermost first, each to the
+            place its `return` goes on (item 9l); up to the first that is
+            a computed call's next label."""
+            ups: list[_Cont] = []
+            while rets and len(ups) < _UP_MAX and rets[-1].call:
+                ups.append(rets[-1])
+                rets = rets[-1].task[7]
+            return ups
+
+        def push_calls(after: tuple[Any, ...],
+                       starts: list[tuple[int, int, Bind]],
+                       ctx: Ctx, rets: tuple[_Cont, ...]) -> None:
+            """A call's tasks: ``after`` (the statement after it, without
+            its mark) and each label it walks in turn (``starts``: the
+            op, the site, the values bound), the first on top. Each
+            callee returns to the next, the last to ``after``, so a
+            callee's `return` goes on where the walk goes next (a menu's
+            choices only to ``after``, where Ren'Py's `return` goes)."""
+            nxt = _Cont()
+            nxt.task = (*after[:5], ("ret", nxt), *after[6:])
+            tasks.append(nxt.task)
+            for k in reversed(range(len(starts))):
+                m, site_k, bind_k = starts[k]
+                task = (m, frozenset(), site_k, ctx, len(ctx), None, bind_k,
+                        (*rets, nxt))
+                if k:
+                    nxt = _Cont(call=False)
+                    nxt.task = (*task[:5], ("ret", nxt), *task[6:])
+                    task = nxt.task
+                tasks.append(task)
+
+        def returns_at_once(m: int) -> bool:
+            """Whether the walk from op ``m`` reaches a `return` (or a
+            file's end) with no story event, flow or fork between."""
+            steps = 0
+            while 0 <= m < exit_ and steps < _LEAD_IN_MAX:
+                op = ops[m]
+                if op.kind in ("return", "end"):
+                    return True
+                if op.kind == "goto":
+                    m = op.to
+                elif op.kind == "label" or (
+                        op.kind == "emit" and op.event is not None
+                        and op.event.kind not in _STORY_KINDS):
+                    m += 1
+                else:
+                    return False
+                steps += 1
+            return False
+
+        def next_cont() -> _Cont | None:
+            """The call continuation the walk takes up next, past those
+            already taken, or None when its next task is another."""
+            for task in reversed(tasks):
+                mark = task[5]
+                if mark is None or mark[0] != "ret":
+                    return None
+                if not mark[1].done:
+                    return mark[1]
+            return None
+
         for entry in entries:
-            tasks: list[tuple[int, frozenset[int], int, Ctx, int,
-                              tuple[Any, ...] | None, Bind]] = [
-                (*entry, (), 0, None, None)]
+            tasks: list[tuple[Any, ...]] = [(*entry, (), 0, None, None, ())]
             while tasks:
-                n, stops, site, ctx, floor, mark, bind = tasks.pop()
+                n, stops, site, ctx, floor, mark, bind, rets = tasks.pop()
                 if final:
                     pops.append((len(events), len(ends_log), len(tasks)))
-                if mark is not None:
+                if mark is not None and mark[0] == "ret":
+                    # Where a call goes on, unless a path went on there.
+                    if mark[1].done:
+                        continue
+                    mark[1].done = True
+                elif mark is not None:
                     if final and mark[0] == "open":
                         _kind, fork, k = mark
                         if k > 0:
@@ -1162,7 +1309,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                         finish_choice(fork, len(ops[fork].alts) - 1)
                         close_menu(fork, ctx)
                     continue
-                jumped = False
+                jumped = returned = False
                 if site >= 0 and n != exit_ and n not in stops \
                         and not visited[n]:
                     out["walked"][site] = out["walked"].get(site, 0) + 1
@@ -1179,14 +1326,14 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                     if final and targetable[n]:
                         visit_at[n] = (len(events), len(ends_log),
                                        len(tasks), len(pops), ctx,
-                                       awaiting[0])
+                                       awaiting[0] is not None)
                     op = ops[n]
                     jumped = False
                     if op.kind in ("emit", "label"):
                         if op.event is not None and final:
                             events.append((parsed_of[op.file], op.event))
                             if op.event.kind in _STORY_KINDS:
-                                awaiting[0] = False
+                                awaiting[0] = None
                                 for fork, k, _s in ctx:
                                     menus[fork]["story"][k] = True
                                     menus[fork]["story_n"][k] += 1
@@ -1198,17 +1345,16 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                         found = cands.get(n, [])
                         if op.kind == "call":
                             if found:
-                                tasks.append((n + 1, stops, -1, ctx, floor,
-                                              None, bind))
-                            tasks += [(c, frozenset(), n, ctx, len(ctx),
-                                       None, None) for c in reversed(found)]
-                            if found:
+                                push_calls(
+                                    (n + 1, stops, -1, ctx, floor, None,
+                                     bind, rets),
+                                    [(c, n, None) for c in found], ctx, rets)
                                 ended = ""
                                 break
                             n += 1
                         else:
-                            tasks += [(c, stops, n, ctx, floor, None, None)
-                                      for c in reversed(found)]
+                            tasks += [(c, stops, n, ctx, floor, None, None,
+                                       rets) for c in reversed(found)]
                             ended = "" if found else "unfollowed"
                             break
                     elif op.kind == "call":
@@ -1223,18 +1369,17 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                             # that no earlier call read.
                             arms = unread_arms(op.target or "", callee)
                             if arms:
-                                tasks.append((n + 1, stops, -1, ctx, floor,
-                                              None, bind))
-                                tasks += [(a, frozenset(), -1, ctx, len(ctx),
-                                           None, callee)
-                                          for a in reversed(arms)]
+                                push_calls(
+                                    (n + 1, stops, -1, ctx, floor, None,
+                                     bind, rets),
+                                    [(a, -1, callee) for a in arms], ctx,
+                                    rets)
                                 ended = ""
                                 break
                         elif to is not None:
-                            tasks.append((n + 1, stops, -1, ctx, floor,
-                                          None, bind))
-                            tasks.append((to, frozenset(), -1, ctx,
-                                          len(ctx), None, callee))
+                            push_calls((n + 1, stops, -1, ctx, floor, None,
+                                        bind, rets), [(to, -1, callee)],
+                                       ctx, rets)
                             ended = ""
                             break
                         n += 1
@@ -1247,14 +1392,31 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                     elif op.kind == "goto":
                         n = op.to
                     elif op.kind == "fork" and op.menu is not None:
-                        join = enclosing_join(_menu_join(ops, n, ipdom),
-                                              ctx)
+                        ups = up_conts(rets)
+                        join, level = _menu_join(
+                            ops, n, ipdom, [c.task[0] for c in ups])
+                        join = enclosing_join(join, ctx)
+                        # A join past the call the menu is in (item 9l):
+                        # walked as the caller's next task would be.
+                        up = ups[level - 1] if level else None
+                        jstops = stops if up is None else stops | up.task[1]
                         menu_joins[n] = join
                         has_join = 0 <= join < exit_
                         inner = stops | {join} if has_join else stops
+                        walk_join = has_join and join not in jstops
+                        if walk_join and up is not None:
+                            jtask = (join, up.task[1], up.task[2], ctx,
+                                     up.task[4], None, up.task[6],
+                                     up.task[7])
+                        elif walk_join:
+                            jtask = (join, stops, -1, ctx, floor, None,
+                                     bind, rets)
+                        if has_join and up is not None:
+                            for c in ups[:level]:
+                                c.done = True
                         if final:
                             link = None
-                            if has_join and join in stops:
+                            if has_join and join in jstops:
                                 link = next((f for f, _k, _s in
                                              reversed(ctx)
                                              if menus[f]["join"] == join),
@@ -1262,31 +1424,36 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                             count = len(op.alts)
                             menus[n] = {
                                 "join": join if has_join else -1,
-                                "walk_join": has_join and join not in stops,
+                                "walk_join": walk_join,
+                                "join_returns": has_join and level == 0
+                                and returns_at_once(join),
                                 "link": link,
                                 "endings": [set() for _ in range(count)],
                                 "where": [None] * count,
                                 "lead": [None] * count,
+                                "returned": [False] * count,
                                 "story": [False] * count, "texts": [],
                                 "story_n": [0] * count,
                                 "ends": [[] for _ in range(count)],
                                 "open_at": len(events), "depth": len(ctx),
                                 "ctx": ctx}
-                            awaiting[0] = False
+                            if awaiting[0] is not None and crossed[0]:
+                                events.append((parsed_of[op.file],
+                                               Event("path-end", "")))
+                            awaiting[0] = None
                             menus[n]["route_lead"] = route_lead(ctx)
                             events.append((parsed_of[op.file], Event(
                                 "menu-open", op.source, name=str(op.menu))))
-                        if has_join and join not in stops:
-                            tasks.append((join, stops, -1, ctx, floor, None,
-                                          bind))
+                        if walk_join:
+                            tasks.append(jtask)
                         tasks.append((-1, stops, -1, ctx, floor,
-                                      ("close", n), bind))
+                                      ("close", n), bind, rets))
                         for k in reversed(range(len(op.alts))):
                             frame = (*ctx, (n, k, inner))
                             tasks.append((op.alts[k], inner, -1, frame,
-                                          floor, None, bind))
+                                          floor, None, bind, rets))
                             tasks.append((-1, inner, -1, frame, floor,
-                                          ("open", n, k), bind))
+                                          ("open", n, k), bind, rets))
                         ended = ""
                         break
                     elif op.kind == "fork" and op.pick is not None \
@@ -1298,16 +1465,40 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                         inner = stops
                         if 0 <= join < exit_:
                             tasks.append((join, stops, -1, ctx, floor, None,
-                                          bind))
+                                          bind, rets))
                             inner = stops | {join}
-                        tasks += [(alt, inner, -1, ctx, floor, None, bind)
-                                  for alt in reversed(op.alts)]
+                            if awaiting[0] is not None:
+                                awaiting[0].add(join)
+                        tasks += [(alt, inner, -1, ctx, floor, None, bind,
+                                   rets) for alt in reversed(op.alts)]
                         ended = ""
                         break
+                    elif rets and len(ctx) > floor and rets[-1].call:
+                        # A return (or a file's end) in a choice of a menu
+                        # opened in this call (item 9l): the choice's
+                        # path goes on after the call, in the caller.
+                        cont = rets[-1]
+                        cont.done = returned = True
+                        (m, c_stops, c_site, _ctx, floor, _mark, bind,
+                         rets) = cont.task
+                        stops = stops | c_stops
+                        if c_site >= 0 and m not in stops and not visited[m]:
+                            out["walked"][c_site] = \
+                                out["walked"].get(c_site, 0) + 1
+                        n = m
                     else:
+                        # A return, a file's end. The caller's next task
+                        # walks on after the call: this path goes on there
+                        # (item 9l), so a join reached through the return
+                        # is not cut short.
+                        if rets and not rets[-1].done \
+                                and next_cont() is rets[-1]:
+                            ended = ""
+                            crossed[0] = True
                         break
                 if ended:
-                    path_end(ended, n, stops, ctx, floor)
+                    path_end(ended, n, stops, ctx, floor, returned,
+                             bool(rets))
         if region:
             resolve_region()
         if moves:
@@ -1502,6 +1693,19 @@ def follow_labels(parses: list[tuple[str, FileParse]],
         for menu in parsed.menus:
             if in_unreached_label(menu.source):
                 menu.skip_reason = reason
+    # A menu in a label the walk reaches that it never lays out says why
+    # (docs/plan.md Phase 60 item 9l), not "region not completed".
+    forks: set[int] = set()
+    for n, op in enumerate(ops):
+        if op.kind == "fork" and op.menu is not None:
+            menu = parsed_of[op.file].menus[op.menu]
+            forks.add(id(menu))
+            if not visited[n] and menu.skip_reason is None:
+                menu.skip_reason = NOT_WALKED
+    for parsed in parsed_of:
+        for menu in parsed.menus:
+            if id(menu) not in forks and menu.skip_reason is None:
+                menu.skip_reason = NOT_LAID_OUT
 
     record: dict[str, Any] = {
         "start": start_desc,
