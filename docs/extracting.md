@@ -310,19 +310,34 @@ route's label in parentheses, `(If you chose: Leave)`.
 What the decision is depends on where the variable is set:
 
 - **follows**: every assignment but one `default` or `define` is a
-  literal `$ x = ...` in the choice blocks of one menu. Each choice
-  gives the variable a value (its block's last assignment, else the
-  default), and takes the first arm whose test that value passes. The
-  decision `follows` that menu's decision (docs/content-format.md,
-  "Branches"), each route's `when` the choices taking its arm, labelled
-  `If you chose: Wake Robin` (several choices `A or B`). A missing `else`
-  that some choice takes has no route: those choices pass the decision
-  at its `continueAt`, unless the decision needs it as its second route
-  (a one-arm chain), when it is a route like any other. When the menu
-  did not become a decision before the chain (it stayed linear, it holds
-  the chain, the asset pass withdrew it) the chain is an ordinary
-  decision with the same labels, every arm a route, or is withdrawn too
-  when it had left out its missing `else`.
+  literal `$ x = ...` in the choice blocks of one menu, or in label flow
+  before that menu (below). Each choice gives the variable a value (its
+  block's last assignment, else the value it had as the menu opened),
+  and takes the first arm whose test that value passes. The decision
+  `follows` that menu's decision (docs/content-format.md, "Branches"),
+  each route's `when` the choices taking its arm, labelled `If you
+  chose: Wake Robin` (several choices `A or B`). A missing `else` that
+  some choice takes has no route: those choices pass the decision at its
+  `continueAt`, unless the decision needs it as its second route (a
+  one-arm chain), when it is a route like any other. When the menu did
+  not become a decision before the chain (it stayed linear, it holds the
+  chain, the asset pass withdrew it) the chain is an ordinary decision
+  with the same labels, every arm a route, or is withdrawn too when it
+  had left out its missing `else`.
+
+  A literal `$ x = ...` in label flow (outside every menu choice and
+  `if` arm), such as `$ pick = ""` early in the story, is the value as
+  the menu opens, as the default is (item 6c), when the walk's program
+  proves it: every way from `label start` (or `--label`) to the menu
+  passes such lines, the last before the menu on each way giving one
+  and the same value (a way that passes none gives the default), and no
+  way from the menu leads to one again (a line later in the story, or in
+  a loop back to before the menu). The program places them as the walk
+  goes, not in file order: a `jump` goes to its label, a `call` into its
+  label and on past it, a computed one to every label the game's code
+  names, so a reset in a label written after the menu but jumped to
+  before it counts. Otherwise, or with no `label start`, the chain is a
+  words decision.
 - **ranges**: a counter (`+=` or `-=`, or whole numbers) tested against
   whole numbers. Each arm's numbers, what its test passes that no
   earlier arm took, are said as ranges joined by "or": `love 3 or more`,
@@ -356,8 +371,9 @@ wheel carries a copy). The manifest's are in the game's base language
 (`--base-language`, default English), and each language file gets its
 own language's words (matched as the player matches a reader's
 language: `de-AT` takes `de`), a choice's text inside a label from that
-language's `strings` block. A phrase the catalogue lacks for a language
-is English. `--condition-names FILE` names the variables in the labels:
+language's `strings` block. Every interface language of the player has
+every phrase; a game language the catalogue lacks gets English (`kinetic
+report` says so). `--condition-names FILE` names the variables in the labels:
 a JSON object of variable to words, one string for every language or an
 object of language tag to words (a language without its own takes the
 base language's, else the variable's name):

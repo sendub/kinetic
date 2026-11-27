@@ -10,8 +10,11 @@ choices (kinetic_extract.flow). Before the walk, prepare() decides what
 kind of decision each chain becomes and words its routes:
 
 - **follows**: every assignment of the variable but its `default` or
-  `define` is a literal in the choice blocks of one menu. Each choice
-  gives the variable a value (its last assignment, else the default);
+  `define` is a literal in the choice blocks of one menu, or in label
+  flow before it (item 6c: the walk's program proves one value as the
+  menu opens, kinetic_extract.flow.Resets). Each choice gives the
+  variable a value (its last assignment, else that value or the
+  default);
   each arm's routes are the choices whose value takes it (the first arm
   whose test holds), labelled "If you chose: A or B", and the decision
   `follows` that menu's (kinetic_extract.timeline checks it became one;
@@ -653,10 +656,14 @@ def names_option(text: str) -> dict[str, Any]:
 
 def _followed(var: str, sets: list[Assignment],
               choice_of: dict[str, tuple[Any, int]],
+              before: Callable[[Any, dict[str, Any], Any], list[Any] | None]
+              | None = None,
               ) -> tuple[Any, list[Any]] | None:
     """(the menu record, each choice's value) when every assignment of
-    ``var`` but one `default`/`define` is a literal in that one menu's
-    choice blocks; else None."""
+    ``var`` but one `default`/`define` is a literal, in that one menu's
+    choice blocks or in label flow before it (item 6c: ``before``, the
+    walk's Resets.values_before, gives the one value those leave as the
+    menu opens, which the choices that set nothing keep); else None."""
     defaults = [a for a in sets if a.op in ("default", "define")]
     others = [a for a in sets if a.op not in ("default", "define")]
     if len(defaults) > 1 or not others:
@@ -664,30 +671,40 @@ def _followed(var: str, sets: list[Assignment],
     default = defaults[0].literal() if defaults else None
     if default is UNKNOWN:
         return None
-    menus = {id(choice_of[a.source][0]) if a.source in choice_of else None
-             for a in others}
-    if len(menus) != 1 or None in menus:
+    chosen = [a for a in others if a.source in choice_of]
+    resets = [a for a in others if a.source not in choice_of]
+    if not chosen or len({id(choice_of[a.source][0]) for a in chosen}) != 1:
         return None
     if any(a.op != "=" or a.literal() is UNKNOWN for a in others):
         return None
-    record = choice_of[others[0].source][0]
+    record = choice_of[chosen[0].source][0]
     if getattr(record, "condition", None) is not None:
         return None
-    values = [default] * len(record.choices)
-    for a in others:
+    initial = default
+    if resets:
+        got = None if before is None else before(
+            record, {a.source: a.literal() for a in resets}, default)
+        if not got or len(got) != 1:
+            return None
+        initial = got[0]
+    values = [initial] * len(record.choices)
+    for a in chosen:
         values[choice_of[a.source][1]] = a.literal()
     return record, values
 
 
 def classify(cond: ChainCondition, sets: list[Assignment],
-             choice_of: dict[str, tuple[Any, int]]) -> list[int]:
+             choice_of: dict[str, tuple[Any, int]],
+             before: Callable[[Any, dict[str, Any], Any], list[Any] | None]
+             | None = None) -> list[int]:
     """Set ``cond``'s kind and phrases (and for `follows` its record and
-    `when`); the arms no value takes, which the caller drops."""
+    `when`); the arms no value takes, which the caller drops. ``before``
+    as for _followed."""
     var = cond.variable
     count = len(cond.tests)
     cond.drop_when_following = [False] * count
     cond.phrases = [("otherwise",)] * count
-    followed = _followed(var, sets, choice_of)
+    followed = _followed(var, sets, choice_of, before)
     if followed is not None:
         record, values = followed
         taken: list[list[int]] = [[] for _ in range(count)]
@@ -762,11 +779,16 @@ def _dead_records(events: list[Any], parsed: Any, reason: str) -> None:
 
 
 def prepare(parses: list[tuple[str, Any]], base: str | None = None,
-            names: dict[str, Any] | None = None) -> None:
+            names: dict[str, Any] | None = None,
+            start_label: str | None = None) -> None:
     """Classify every chain the parser read (classify), drop the arms no
     value takes (reported) and read a chain left with one arm in line;
     word the rest in the ``base`` language (default English) with the
-    ``names`` file's words. Runs once per chain."""
+    ``names`` file's words. Label flow's resets before a menu are placed
+    by the walk's program from ``start_label`` (default `start`;
+    kinetic_extract.flow.Resets, built once, when a chain needs it).
+    Runs once per chain."""
+    from .flow import Resets
     from .parser import Report
 
     base = base or ENGLISH
@@ -781,6 +803,14 @@ def prepare(parses: list[tuple[str, Any]], base: str | None = None,
                 for source in sources:
                     choice_of[source] = (record, k)
 
+    resets: list[Resets] = []
+
+    def before(record: Any, sets: dict[str, Any],
+               initial: Any) -> list[Any] | None:
+        if not resets:
+            resets.append(Resets(parses, start_label))
+        return resets[0].values_before(record, sets, initial)
+
     def process(events: list[Any], parsed: Any) -> list[Any]:
         out: list[Any] = []
         for event in events:
@@ -794,7 +824,7 @@ def prepare(parses: list[tuple[str, Any]], base: str | None = None,
                 cond.prepared = True
                 cond.base, cond.names = base, names
                 dead = classify(cond, every.get(cond.variable, []),
-                                choice_of)
+                                choice_of, before)
                 for k in reversed(dead):
                     if cond.heads[k]:
                         parsed.reports.append(Report(

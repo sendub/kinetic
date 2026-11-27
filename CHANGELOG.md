@@ -38,7 +38,9 @@ something more of an author.
   `unrecognized statement` and drop their lines and sound. The arms
   become routes that go on where they meet. A variable only one menu's
   choices set gives a decision that `follows` that menu, its routes
-  labelled `If you chose: Wake Robin`; a counter gives an ordinary
+  labelled `If you chose: Wake Robin`, also when label flow gives it a
+  starting value before the menu (`$ pick = ""`) that nothing sets
+  again after it; a counter gives an ordinary
   decision labelled by ranges (`love 3 or more`, `love 1 or 2`, `love
   under 1`); any other test one labelled by the choices that set it or
   in words (`met is set`); the prompt is `Which fits your story so

@@ -222,7 +222,8 @@ an English language file); `--no-translations` leaves translations out.
 
 An `if`/`elif`/`else` chain on one variable the script sets becomes a
 decision (docs/plan.md Phase 60 item 6), one that `follows` the menu
-whose choices alone set it or an ordinary one labelled by ranges or in
+whose choices alone set it (with a starting value in label flow before
+that menu, item 6c) or an ordinary one labelled by ranges or in
 words, in the base language and each language file's words (the
 player's catalogue, `converter/condition-words.json`). `--condition-names
 FILE` (a JSON object of variable to reader words, one string or an

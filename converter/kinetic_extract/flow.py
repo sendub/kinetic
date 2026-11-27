@@ -129,13 +129,14 @@ def _screen_actions(screens: dict[str, tuple[list[FlowStep], list[str]]],
     return out
 
 
-def _program(parses: list[tuple[str, FileParse]]
+def _program(parses: list[tuple[str, FileParse]], sets: bool = False
              ) -> tuple[list[_Op], dict[str, int]]:
     """The scripts as one program: each file's events in order then its
     ``end``; fork blocks after all files, each ending in a ``goto`` back
     after its fork. A shown screen with `Jump`/`Call` actions is a fork
     of those, and of going on past it. Labels map to their op (the
-    first, in walk order, of a name defined twice)."""
+    first, in walk order, of a name defined twice). The parser's ``set``
+    events are ``set`` ops with ``sets`` (Resets), else left out."""
     ops: list[_Op] = []
     labels: dict[str, int] = {}
     screens: dict[str, tuple[list[FlowStep], list[str]]] = {}
@@ -164,7 +165,10 @@ def _program(parses: list[tuple[str, FileParse]]
                        menu=step.menu if kind == "fork" else None))
 
     def add_event(event: Event, f: int) -> None:
-        if event.kind == "label":
+        if event.kind == "set":
+            if sets:
+                ops.append(_Op("set", f, event, event.source))
+        elif event.kind == "label":
             labels.setdefault(event.name or "", len(ops))
             ops.append(_Op("label", f, event, event.source))
         elif event.kind in _FLOW_KINDS and event.flow is not None:
@@ -391,7 +395,7 @@ def _in_file_order(parsed: FileParse, stream: list[Event],
                          "how": ["read in file order (no label start): no "
                                  "walk proves a join"] * len(flow.bodies),
                          "join": None, "link": None})))
-        elif event.kind not in _FLOW_KINDS:
+        elif event.kind not in _FLOW_KINDS and event.kind != "set":
             out.append((parsed, event))
             story = story or event.kind in _STORY_KINDS
     return story
@@ -1106,3 +1110,130 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             + ", ".join(entries_unreached)
             + " (--also-label NAME walks one after the story)")
     return Walk(events, record, summary)
+
+
+class Resets:
+    """Where the story walk meets each `$ x = ...` line of label flow
+    (the parser's ``set`` events), for an `if` chain whose variable label
+    flow sets before the menu whose choices set it (docs/plan.md Phase 60
+    item 6c; kinetic_extract.conditions._followed). It runs before the
+    walk, as conditions.prepare does, on the walk's program with those
+    lines in it: a graph of where each statement may go next, a `jump`
+    to its label, a `call` into its label and past it (the callee
+    returns), a computed one to the labels its own expression names and
+    every label a string literal of the game names (more than the walk
+    tries), a fork to each block, a `return` or a file's end nowhere,
+    except after the menu (below). Graph paths, not one walk's visiting
+    order: a line the walk reaches first may still run again after the
+    menu (a loop), and two ways to the menu may set different values."""
+
+    def __init__(self, parses: list[tuple[str, FileParse]],
+                 start_label: str | None = None) -> None:
+        ops, labels = _program(parses, sets=True)
+        self.ops = ops
+        self.start = labels.get(start_label or "start")
+        literals: set[str] = set().union(*(p.literals for _r, p in parses))
+        named = [n for name, n in labels.items() if name in literals]
+        self.succ: list[list[int]] = []
+        # Each call op's callees.
+        self.callees: dict[int, list[int]] = {}
+        self.set_at: dict[str, int] = {}
+        self.menu_at: dict[int, int] = {}
+        for n, op in enumerate(ops):
+            if op.kind in ("emit", "label", "set"):
+                nexts = [n + 1]
+            elif op.kind in ("jump", "call"):
+                if op.target is None:
+                    to = [labels[x] for x in op.candidates
+                          if x in labels] + named
+                else:
+                    to = [labels[op.target]] if op.target in labels else []
+                nexts = list(dict.fromkeys(to))
+                if op.kind == "call":
+                    self.callees[n] = list(nexts)
+                    nexts.append(n + 1)
+            elif op.kind == "goto":
+                nexts = [op.to]
+            elif op.kind == "fork":
+                nexts = list(op.alts)
+            else:
+                nexts = []   # a return, a file's end
+            self.succ.append([m for m in nexts if 0 <= m < len(ops)])
+            if op.kind == "set":
+                self.set_at[op.source] = n
+            if op.kind == "fork" and op.menu is not None:
+                record = parses[op.file][1].menus[op.menu]
+                self.menu_at[id(record)] = n
+        self.preds: list[list[int]] = [[] for _ in ops]
+        for n, nexts in enumerate(self.succ):
+            for m in nexts:
+                self.preds[m].append(n)
+        self.from_start = self._closure(
+            [] if self.start is None else [self.start], self.succ)
+
+    @staticmethod
+    def _closure(roots: list[int], edges: list[list[int]]) -> bytearray:
+        seen = bytearray(len(edges))
+        todo = list(roots)
+        for n in todo:
+            seen[n] = 1
+        while todo:
+            n = todo.pop()
+            for m in edges[n]:
+                if not seen[m]:
+                    seen[m] = 1
+                    todo.append(m)
+        return seen
+
+    def values_before(self, record: Any, resets: dict[str, Any],
+                      initial: Any) -> list[Any] | None:
+        """The values the variable may have as the walk reaches the menu
+        ``record`` when label flow sets it only at ``resets`` (source ->
+        literal) and it starts as ``initial`` (its `default`): the last
+        reset on each way from the story's start to the menu, ``initial``
+        on a way that passes none. None when that is not proven: no
+        `label start`, the menu or a reset not on the way from it, or a
+        reset that may run again after the menu (later in the story, or
+        in a loop back to before the menu), or one the walk has no place
+        for (in a choice block or an `if` arm, or skipped)."""
+        menu = self.menu_at.get(id(record))
+        if menu is None or self.start is None or not self.from_start[menu]:
+            return None
+        to_menu = self._closure([menu], self.preds)
+        at: dict[int, Any] = {}
+        for source, value in resets.items():
+            n = self.set_at.get(source)
+            if n is None or not self.from_start[n] or not to_menu[n]:
+                return None
+            at[n] = value
+        # After the menu, a return or a file's end goes back past each
+        # call whose callee leads to the menu (one that may be under way
+        # there): more than Ren'Py may, never less.
+        back = [c + 1 for c, callees in self.callees.items()
+                if any(to_menu[t] for t in callees) and c + 1 < len(self.ops)]
+        after_edges = [nexts if nexts or self.ops[n].kind == "jump"
+                       else back for n, nexts in enumerate(self.succ)]
+        after = self._closure(self.succ[menu], after_edges)
+        if any(after[n] for n in at):
+            return None
+        # The values reaching the menu, along the ways that lead to it.
+        values: dict[int, list[Any]] = {self.start: [initial]}
+        todo = [self.start]
+        while todo:
+            n = todo.pop()
+            out = [at[n]] if n in at else values[n]
+            for m in self.succ[n]:
+                if not to_menu[m]:
+                    continue
+                have = values.setdefault(m, [])
+                fresh = [v for v in out if not _among(v, have)]
+                if fresh:
+                    have += fresh
+                    todo.append(m)
+        return values.get(menu)
+
+
+def _among(value: Any, values: list[Any]) -> bool:
+    """Whether ``value`` is one of ``values``, by type and value (`1` is
+    not `True`)."""
+    return any(type(v) is type(value) and v == value for v in values)

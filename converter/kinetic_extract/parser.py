@@ -411,7 +411,10 @@ class Event:
                          # menu-open | choice-open | menu-close | audio |
                          # with (a bare `with`) | interact (a `pause`, or
                          # the implicit `with None` of a hide's clause) |
-                         # jump | call | return | fork (``flow`` set)
+                         # jump | call | return | fork (``flow`` set) |
+                         # set (a `$ x = ...` line of label flow, ``name``
+                         # the variable; only kinetic_extract.flow's
+                         # Resets reads it)
     source: str
     text: str = ""       # dialogue text (dialogue events)
     speaker: str | None = None
@@ -1643,6 +1646,12 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
                 events.append(Event(step.kind, source, text=line,
                                            flow=step))
                 continue
+            assigned = _DOLLAR_SET_RE.fullmatch(line)
+            if assigned and events is result.events:
+                # Where label flow sets a variable, for the walk order of
+                # an if chain's initial value (docs/plan.md Phase 60 item
+                # 6c); the walk itself passes over it.
+                events.append(Event("set", source, name=assigned.group(1)))
             _audio_event(result, events, source, line, read_python(line))
             continue
         if keyword == "default":

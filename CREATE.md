@@ -378,7 +378,8 @@ Ren'Py runs the story in and what Ren'Py draws:
   kept as routes that go on where the arms meet. A variable only one
   menu's choices set gives a decision that follows that menu: with Play
   all routes off the reader's pick there decides, and its routes read
-  `If you chose: Wake Robin`. A counter gives an ordinary decision
+  `If you chose: Wake Robin`. A `$ x = ""` in label flow before that menu
+  (and never again after it) is the starting value, as a `default` is. A counter gives an ordinary decision
   labelled by ranges (`love 3 or more`, `love 1 or 2`, `love under 1`),
   and any other test one labelled by the choices that set the value or
   in words (`met is set`), so the reader picks what fits their story; the

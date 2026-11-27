@@ -539,6 +539,171 @@ def test_a_flag_set_in_label_flow_is_said_in_words(tmp_path: Path) -> None:
     check_folder(tmp_path, out, manifest)
 
 
+# --- an initial value set in label flow (item 6c) ----------------------------
+
+# A menu whose choices set `pick` (Shrug sets nothing), and a chain on it:
+# the value Shrug leaves is the one `pick` had before the menu.
+ASK = ('label ask:\n'
+       '    "Ask."\n'
+       '    menu:\n'
+       '        "Stay":\n'
+       '            $ pick = "stay"\n'
+       '            jump stay\n'
+       '        "Leave":\n'
+       '            $ pick = "leave"\n'
+       '            jump leave\n'
+       '        "Shrug":\n'
+       '            jump after\n'
+       'label stay:\n'
+       '    "You stay."\n'
+       '    jump after\n'
+       'label leave:\n'
+       '    "You leave."\n'
+       '    jump after\n'
+       'label after:\n'
+       '    "Later."\n')
+CHAIN = ('    if pick == "stay":\n'
+         '        "You stayed."\n'
+         '    elif pick == "none":\n'
+         '        "You shrugged."\n'
+         '    else:\n'
+         '        "You left."\n'
+         '    "The end."\n'
+         '    return\n')
+FOLLOWING = [
+    ("If you chose: Stay", "You stayed.", "You stayed.", "continue",
+     ["Stay"]),
+    ("If you chose: Shrug", "You shrugged.", "You shrugged.", "continue",
+     ["Shrug"]),
+    ("If you chose: Leave", "You left.", "You left.", "continue",
+     ["Leave"])]
+
+
+def condition_kinds(ledger: dict) -> list[tuple[str, str | None]]:
+    return [(c["kind"], c["follows"]) for c in ledger.get("conditions", [])]
+
+
+def test_a_reset_in_label_flow_before_the_menu_is_its_value(
+        tmp_path: Path) -> None:
+    """`$ pick = "none"` before the menu is the value of the choices that
+    set nothing, as a `default` is: the chain follows the menu."""
+    script = (LEAD + '    $ pick = "none"\n    jump ask\n' + ASK + CHAIN)
+    out, manifest, ledger, _err = extract(tmp_path, script)
+    shape = decision_shape(manifest)
+    assert shape["follows"] == 0
+    assert shape["routes"] == FOLLOWING
+    assert shape["continueAt"] == "The end."
+    assert condition_kinds(ledger) == [
+        ("follows", manifest["branches"][0]["id"])]
+    check_folder(tmp_path, out, manifest)
+
+
+def test_several_resets_before_the_menu_take_the_last(
+        tmp_path: Path) -> None:
+    """Resets one after another before the menu: the last is the value."""
+    script = (LEAD + '    $ pick = "stay"\n    "Wake."\n'
+              '    $ pick = "none"\n    $ pick = "none"\n    jump ask\n'
+              + ASK + CHAIN)
+    out, manifest, _ledger, _err = extract(tmp_path, script)
+    shape = decision_shape(manifest)
+    assert shape["follows"] == 0
+    assert shape["routes"] == FOLLOWING
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_reset_in_an_earlier_label_reached_by_a_jump(
+        tmp_path: Path) -> None:
+    """The reset's label comes after the menu in the file, but the walk
+    reaches it first: walk order, not file order, counts."""
+    script = (LEAD + '    jump prologue\n' + ASK + CHAIN +
+              'label prologue:\n'
+              '    $ pick = "none"\n'
+              '    "Prologue."\n'
+              '    jump ask\n')
+    out, manifest, ledger, _err = extract(tmp_path, script)
+    shape = decision_shape(manifest)
+    assert shape["follows"] == 0
+    assert shape["routes"] == FOLLOWING
+    assert condition_kinds(ledger)[0][0] == "follows"
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_second_reset_after_the_menu_is_words(tmp_path: Path) -> None:
+    script = (LEAD + '    $ pick = "none"\n    jump ask\n' + ASK
+              + '    $ pick = "none"\n' + CHAIN)
+    out, manifest, ledger, _err = extract(tmp_path, script)
+    assert decision_shape(manifest)["follows"] is None
+    assert condition_kinds(ledger) == [("words", None)]
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_reset_in_another_menus_choice_is_words(tmp_path: Path) -> None:
+    script = (LEAD + '    $ pick = "none"\n'
+              '    menu:\n'
+              '        "Forget":\n'
+              '            $ pick = "none"\n'
+              '            "You forget."\n'
+              '        "Remember":\n'
+              '            "You remember."\n'
+              '    jump ask\n' + ASK + CHAIN)
+    out, manifest, ledger, _err = extract(tmp_path, script)
+    assert decision_shape(manifest)["follows"] is None
+    assert condition_kinds(ledger) == [("words", None)]
+    check_folder(tmp_path, out, manifest)
+
+
+def test_resets_that_differ_on_the_way_to_the_menu_are_words(
+        tmp_path: Path) -> None:
+    """One way to the menu passes a second reset, the other does not:
+    the value before the menu is not one literal."""
+    script = (LEAD + '    $ pick = "none"\n'
+              '    menu:\n'
+              '        "Detour":\n'
+              '            jump detour\n'
+              '        "Straight":\n'
+              '            "Straight on."\n'
+              '    jump ask\n'
+              'label detour:\n'
+              '    $ pick = "stay"\n'
+              '    "A detour."\n'
+              '    jump ask\n' + ASK + CHAIN)
+    out, manifest, ledger, _err = extract(tmp_path, script)
+    assert decision_shape(manifest)["follows"] is None
+    assert condition_kinds(ledger) == [("words", None)]
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_reset_in_a_loop_that_runs_again_after_the_menu_is_words(
+        tmp_path: Path) -> None:
+    script = (LEAD + 'label again:\n'
+              '    $ pick = "none"\n'
+              '    "Ask."\n'
+              '    menu:\n'
+              '        "Stay":\n'
+              '            $ pick = "stay"\n'
+              '            "You stay."\n'
+              '        "Leave":\n'
+              '            $ pick = "leave"\n'
+              '            "You leave."\n'
+              '    "Later."\n'
+              '    if pick == "stay":\n'
+              '        "You stayed."\n'
+              '    else:\n'
+              '        "You left."\n'
+              '    menu:\n'
+              '        "Again":\n'
+              '            "Once more."\n'
+              '            jump again\n'
+              '        "Done":\n'
+              '            "Done."\n'
+              '    "The end."\n'
+              '    return\n')
+    out, manifest, ledger, _err = extract(tmp_path, script)
+    (cond,) = ledger["conditions"]
+    assert (cond["kind"], cond["follows"]) == ("words", None)
+    check_folder(tmp_path, out, manifest)
+
+
 @pytest.mark.parametrize(("condition", "why"), [
     ("renpy.random.randint(1, 2) == 1", "renpy"),
     ('met == "robin" and seen', "one variable"),
@@ -666,7 +831,8 @@ def test_a_french_game_and_its_language_files(tmp_path: Path) -> None:
     assert [en["decisions"][chain["id"]]["routes"][r["id"]]["text"]
             for r in chain["routes"]] == ["If you chose: Wake Robin",
                                           "If you chose: Leave"]
-    # German is not in the catalogue: English words, German choices.
+    # German is not in this fixture's catalogue (en and fr only):
+    # English words, German choices.
     assert [de["decisions"][chain["id"]]["routes"][r["id"]]["text"]
             for r in chain["routes"]] == ["If you chose: Robin wecken",
                                           "If you chose: Gehen"]
@@ -700,8 +866,11 @@ def test_a_line_in_an_arm_keeps_its_translation(tmp_path: Path) -> None:
                  if i.get("text") == "Robin waves.")
     assert de["items"][waves]["text"] == "Robin winkt."
     chain = manifest["branches"][-1]
+    table = json.loads(paths.CONDITION_WORDS_FILE.read_text("utf-8"))
+    chose = table["languages"]["de"]["converter.condition.chose"]
     assert de["decisions"][chain["id"]]["routes"][
-        chain["routes"][0]["id"]]["text"] == "If you chose: Robin wecken"
+        chain["routes"][0]["id"]]["text"] == chose.replace(
+            "{choice}", "Robin wecken")
     check_translated(tmp_path, out, manifest)
 
 

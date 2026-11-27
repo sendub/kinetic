@@ -24,9 +24,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def story(parsed) -> list[tuple]:
-    """The parse's events as (kind, speaker or flow target, text)."""
+    """The parse's events as (kind, speaker or flow target, text); the
+    `set` events the walk passes over (Phase 60 item 6c) left out."""
     out = []
     for e in parsed.events:
+        if e.kind == "set":
+            continue
         if e.kind == "dialogue":
             out.append(("dialogue", e.speaker, e.text))
         elif e.flow is not None:

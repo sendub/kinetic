@@ -1083,7 +1083,8 @@ def _walk_project(project: Path, args: argparse.Namespace
               file=sys.stderr)
         return None
     # The if chains' kinds and words, before the walk lays them out.
-    conditions.prepare(parses, args.base_language, args.condition_names)
+    conditions.prepare(parses, args.base_language, args.condition_names,
+                       args.label)
     implicit = ImplicitImages(game_dir, asset_archives)
     result = build_timeline(parses, image_defs, characters, game_dir,
                             start_label=args.label, max_items=args.max_items,

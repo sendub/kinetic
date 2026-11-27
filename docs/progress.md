@@ -6365,10 +6365,45 @@ truthful: an unchecked box means nothing was accepted.
       became ordinary "If you chose" decisions because the game resets
       each variable in label flow (`$ x = ""`) before the menu that sets
       it, which the follows rule refuses: item 6c.)
-- [ ] An initial value set in label flow (item 6c, a lead from item 6).
+- [x] An initial value set in label flow (item 6c, a lead from item 6).
       A literal assignment reached before the menu, outside every menu
       and chain, is the variable's value for routes that set nothing,
       as a `default` is.
+      (2026-11-27: parser.py adds a `set` event for a top-level `$ x =
+      ...` in label flow; `flow._program(sets=False)` and the file-order
+      walk leave them out, so the walk, joins and timeline are
+      unchanged. New `flow.Resets` builds the program with them as a
+      graph run the way Ren'Py runs (a jump to its label, a call into
+      its label and past it, a computed one to its named labels and
+      every label a literal names, a return or file end nowhere);
+      `values_before` counts a reset only when it is reachable from the
+      start and leads to the menu, none is reachable from the menu (a
+      return or file end also going back past each call whose callee
+      leads to the menu), and the values reaching the menu on every
+      way come down to one (a way passing none giving the default).
+      conditions.py's `prepare` gains `start_label` (cli.py passes
+      `--label`), builds Resets once and lazily, and `_followed`/
+      `classify` take its answer; every doubt gives a words decision.
+      Subagent's calls: the graph, not one walk's visit order, since a
+      walk visits each line once and cannot see a reset running again
+      after the menu or two ways setting different values; a choice
+      that sets the variable and loops back to the menu is still not
+      tracked (item 6's limit); the branchDetection note does not say
+      the start value came from a reset. Tests (test_conditions.py,
+      each through check_folder): a reset before the menu (the choice
+      that sets nothing takes its arm), several resets taking the last,
+      a reset in an earlier label reached by a jump, all failing first;
+      a second reset after the menu, a reset in another menu's choice,
+      resets differing on the way, a reset in a loop that runs again
+      after the menu, all staying words (guards, each shown to turn
+      `follows` without its cause in a probe outside the repo); item
+      6b's German label read from the words file, the French test's
+      comment corrected; test_one_choice_menu's helper skips `set`
+      events. extracting.md, CREATE.md, converter/README.md, the
+      CHANGELOG bullet, the module docstring. Subagent: converter and
+      tools 2274. Orchestrator: converter and tools 2274 passed; on a
+      reporting agent's game (read-only parse-only walk) 65 decisions,
+      16 of them `follows`.)
 - [x] The condition phrases in every interface language (item 6b, item
       6 split in two). Every PO file translates item 6's phrases; the
       converter's file regenerated; a test that every language has them.
