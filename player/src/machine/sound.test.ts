@@ -698,11 +698,12 @@ describe("arrival kinds", () => {
     expect(m.arrival()).toBe(before);
   });
 
-  it("leaves transition as it was: u advance, a pick nav", () => {
+  it("leaves transition as it was: u advance, a branch-map pick nav", () => {
     const m = canon();
     readTo(m, 1);
     m.advance();
-    m.choose(0);
+    m.choose(0, "map");
+    expect(m.arrival().kind).toBe("jump");
     expect(m.getState().transition).toBe("nav");
     m.wheelBack();
     m.wheelBack();

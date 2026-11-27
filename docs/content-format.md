@@ -1015,8 +1015,11 @@ content:
   still of the visual it displays.
 - Media plays again on a forward advance. The player records how the
   current item was reached: a forward step - a space press or the auto
-  timer moving one item on - is an `advance`; every other arrival - the
-  wheel, a bookmark jump or restore, an `e` landing, a route entry, skip's
+  timer moving one item on, or onto the join, close or route entry that
+  step reaches (a route's end at `continueAt`, a decision passing on, a
+  route picked on the choice screen, Play all routes' pick, a following
+  decision's route) - is an `advance`; every other arrival - the wheel,
+  a bookmark jump or restore, an `e` landing, a branch-map jump, skip's
   dwell step, the load landing - is `nav`. An advance plays its media
   wherever the cursor sits, so content read once replays when the
   reader advances back over it, and the visual under a `text` item it

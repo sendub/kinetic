@@ -6,7 +6,7 @@
 // Playback is derived from machine state alone:
 //   playing = !skipping && (cursor >= frontier - 1 || the step that arrived
 //   was a forward advance). Skip and a NAV arrival below the seen edge — the
-//   wheel scrub, a bookmark, an `e` landing, a route entry — show stills
+//   wheel scrub, a bookmark, an `e` landing, a branch-map jump — show stills
 //   (animation `frames[0]`, or its last frame on the lines after an
 //   animation that holds it, `holdLastFrame`; video poster); an ADVANCE
 //   (space or the auto timer) replays its media wherever the cursor sits,
@@ -92,8 +92,9 @@ export type PlaybackMode = "still" | "loop-once" | "loop-forever";
  * Pure chain/still decision. The visual plays while skip mode is off, and
  * either the cursor is at the frontier (`cursor >= frontier - 1`) or the step
  * that made it current was a forward `advance`: a `nav` arrival below the
- * seen edge — the wheel scrub, a bookmark, an `e` landing, a route entry —
- * shows stills, while advancing forward over already-seen content plays it
+ * seen edge — the wheel scrub, a bookmark, an `e` landing, a branch-map
+ * jump — shows stills, while reading forward over already-seen content
+ * (a step, a join, a route entered by a pick) plays it
  * again (docs/content-format.md, "Timing"). It plays continuously —
  * `loop-forever`, media end ignored — while the cursor item is `text` or the
  * next manifest item is: the chain's visual loops under the whole chain.

@@ -6683,7 +6683,29 @@ truthful: an unchecked box means nothing was accepted.
       reloadWalkedChoicePlayAll (both failed first in Chrome).
       Orchestrator: npm test 1925 passed, check clean, smoke 6/6,
       branches 82/82 Chrome and 82/82 WebKit.)
-- [ ] An animation read again plays again (item 9d).
+- [x] An animation read again plays again (item 9d).
+      (2026-11-27: the machine classed every join as a `nav` arrival:
+      `join()` and `closeIfPureAndComplete()` showed `continueAt` with
+      `"nav"`, so below the seen edge `playbackModeFor` gave a still and
+      the demo's candle, after its decision's join, showed `frames[0]`;
+      videos after a join were stills too (a Phase 16.11 default). Now
+      `flowTransition(flow)` makes a read step `advance` and a skip step
+      `nav`: a route's end at `continueAt`, a following decision passing
+      on, play-all's resolve and the all-played pure-choice close; and
+      `enterRoute` makes a reading arrival `advance` (a pick on the choice
+      screen, play-all's auto-pick on the countdown or Space, a following
+      decision's entry on Space). Jumps stay `nav`: a branch-map pick,
+      the wheel, bookmarks, `e`, `#start=`, a resume, skip's steps; `u`
+      keeps its existing `advance` (it lands on unseen content).
+      Decisions: answering the return row (`chooseContinue`) arrives as
+      an advance. docs/content-format.md "Timing" and the CHANGELOG say
+      so. Tests: machine tests on joins, passing on, the pure close,
+      choose(), the auto-pick and the following entry below the seen
+      edge (each failed first), skip's step staying `nav`; media
+      scenario parts heldReplay, heldJoin and heldRepick (heldJoin and
+      heldRepick failed first). Orchestrator: npm test 1932 passed,
+      check clean, smoke 6/6, media, branches and follows 123/123 on
+      Chrome and 123/123 on WebKit.)
 - [ ] Shared spans in the format (docs/plan.md Phase 60, item 9e).
 - [ ] Shared spans in the player (item 9f).
 - [ ] The read-already pill in every interface language (item 9g).

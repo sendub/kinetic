@@ -5,14 +5,16 @@
 // a holdSeconds WebM, and the "Play videos in full" skip option (a burst plays the
 // floor clip out; Space cuts it short and the burst goes on), and an
 // animation timed per frame that holds its last frame under its lines
-// (docs/plan.md Phase 60 item 7). Each part starts from its own fresh
-// browser.
+// (docs/plan.md Phase 60 item 7), played again when read forward onto over
+// seen items, at a join or a route picked again too (item 9d). Each part
+// starts from its own fresh browser.
 
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
   CHAIN_PROBE,
+  choiceOpen,
   clickCenter,
   closeSettings,
   demoDir,
@@ -24,6 +26,7 @@ import {
   openSettings,
   PAGE_STATE,
   pressA,
+  pressDigit,
   pressH,
   pressSpace,
   pressTab,
@@ -1153,6 +1156,11 @@ function heldFolder() {
       },
     ],
   };
+  return { dir: storyFolder(dir, story), frames: orbit.frames };
+}
+
+/** A copy of the demo's files at `dir` with `story` as its manifest. */
+function storyFolder(dir, story) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   cpSync(demoDir, dir, { recursive: true });
@@ -1162,7 +1170,7 @@ function heldFolder() {
     join(dir, "manifest.js"),
     `window.KINETIC_MANIFEST = ${json};\n`,
   );
-  return { dir, frames: orbit.frames };
+  return dir;
 }
 
 // Records, in the page, each src the shown picture takes and when
@@ -1281,6 +1289,279 @@ async function heldFrames({ check, open }) {
   );
 }
 
+// Reading forward onto a held animation over seen items plays it again
+// (docs/plan.md Phase 60 item 9d): the demo's orbit frames, two quick loops
+// then the held frame, after a picture (`replay`) or at the join of a
+// decision's two routes (`join`).
+const REPLAY_FRAME_SECONDS = [0.15, 0.15, 0.15, 0.15];
+const REPLAY_TEXT = "A held candle.";
+
+function replayFolder(name, joined) {
+  const orbit = item("anim-orbit");
+  const lead = joined ? "Pick a door." : "Before it.";
+  const story = {
+    schemaVersion: 1,
+    storyId: `held-${name}`,
+    title: "Held animation read again",
+    width: manifest.width,
+    height: manifest.height,
+    items: [
+      {
+        id: "rp-lead",
+        type: "image",
+        file: item("text-bare").file,
+        text: lead,
+      },
+      ...(joined
+        ? [
+            { id: "rp-door-a", type: "text", text: "Door A." },
+            { id: "rp-door-b", type: "text", text: "Door B." },
+          ]
+        : []),
+      {
+        id: "rp-anim",
+        type: "animation",
+        frames: orbit.frames,
+        fps: 4,
+        frameSeconds: REPLAY_FRAME_SECONDS,
+        loopCount: 2,
+        holdLastFrame: true,
+        text: REPLAY_TEXT,
+      },
+      { id: "rp-line", type: "text", text: "Its line." },
+    ],
+    ...(joined
+      ? {
+          branches: [
+            {
+              id: "rp-doors",
+              after: "rp-lead",
+              prompt: "Which door?",
+              routes: [
+                {
+                  id: "rp-a",
+                  label: "Door A",
+                  start: "rp-door-a",
+                  end: "rp-door-a",
+                  result: "continue",
+                },
+                {
+                  id: "rp-b",
+                  label: "Door B",
+                  start: "rp-door-b",
+                  end: "rp-door-b",
+                },
+              ],
+              continuingRoute: "rp-b",
+              continueAt: "rp-anim",
+            },
+          ],
+        }
+      : {}),
+  };
+  const dir = storyFolder(join(scenarioRoot, `held-${name}`), story);
+  return { dir, frames: orbit.frames };
+}
+
+/** The frames shown since INSTALL_SRC_LOG, as indices, repeats dropped. */
+async function framesShown(page, frames) {
+  const log = await page.evaluate(() => window.__kineticSrcLog);
+  const order = [];
+  for (const [, src] of log) {
+    const index = frames.indexOf(src);
+    if (index >= 0 && order.at(-1) !== index) order.push(index);
+  }
+  return order;
+}
+
+/** Space (or `press`) onto the animation, watched through its two loops. */
+async function spaceOntoAnimation(page, cdp, frames, press = pressSpace) {
+  await page.evaluate(INSTALL_SRC_LOG);
+  await press(cdp);
+  await sleep(2000); // the two loops take 1.2 s
+  return {
+    item: await page.evaluate(shownItem),
+    order: await framesShown(page, frames),
+    src: await page.evaluate(shownSrc),
+  };
+}
+
+const PLAYED_TWICE = "[0,1,2,3,0,1,2,3]";
+
+async function waitFor(test, ms = 3000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (await test()) return true;
+    await sleep(50);
+  }
+  return test();
+}
+
+async function heldReplay({ check, open }) {
+  const { dir, frames } = replayFolder("replay", false);
+  const { page, cdp } = await open("held-replay", {
+    closeHelp: true,
+    folder: dir,
+  });
+  const first = await spaceOntoAnimation(page, cdp, frames);
+  await pressSpace(cdp); // its line
+  const back = await wheelUntil(page, cdp, true, ON_TEXT, "Before it.");
+  await sleep(300);
+  const again = await spaceOntoAnimation(page, cdp, frames);
+  // A wheel step back onto it, below the seen edge, stays a still.
+  await pressSpace(cdp);
+  await waitFor(async () => (await page.evaluate(shownItem)) === "rp-line");
+  const onIt = await wheelUntil(page, cdp, true, ON_TEXT, REPLAY_TEXT);
+  await page.evaluate(INSTALL_SRC_LOG); // from the frame it landed on
+  await sleep(900);
+  const wheeled = {
+    item: await page.evaluate(shownItem),
+    order: await framesShown(page, frames),
+  };
+  check(
+    "Space back onto a held animation over seen items plays its loops again, then holds; the wheel onto it shows a still",
+    first.order.join() === again.order.join() &&
+      JSON.stringify(again.order) === PLAYED_TWICE &&
+      again.item === "rp-anim" &&
+      again.src === frames.at(-1) &&
+      back &&
+      onIt &&
+      wheeled.item === "rp-anim" &&
+      JSON.stringify(wheeled.order) === "[0]",
+    { first, back, again, onIt, wheeled },
+  );
+}
+
+async function heldJoin({ check, open }) {
+  const { dir, frames } = replayFolder("join", true);
+  const { page, cdp } = await open("held-join", {
+    closeHelp: true,
+    manualChoices: true,
+    folder: dir,
+  });
+  await pressSpace(cdp); // fires the decision
+  const opened = await waitFor(() => choiceOpen(page));
+  await pressDigit(cdp, "1"); // Door A
+  const inRoute = await waitFor(
+    async () => (await page.evaluate(shownItem)) === "rp-door-a",
+  );
+  const first = await spaceOntoAnimation(page, cdp, frames); // the join
+  await pressSpace(cdp); // its line
+  const back = await wheelUntil(page, cdp, true, ON_TEXT, "Door A.");
+  await sleep(300);
+  const again = await spaceOntoAnimation(page, cdp, frames);
+  check(
+    "Space from a route's end onto a held animation at its join plays it again over seen items",
+    opened &&
+      inRoute &&
+      JSON.stringify(first.order) === PLAYED_TWICE &&
+      back &&
+      again.item === "rp-anim" &&
+      JSON.stringify(again.order) === PLAYED_TWICE &&
+      again.src === frames.at(-1),
+    { opened, inRoute, first, back, again },
+  );
+}
+
+// A decision whose route A opens with the held animation: picking A again
+// from the walked choice screen plays it again (Phase 60 item 9d).
+function repickFolder() {
+  const orbit = item("anim-orbit");
+  const story = {
+    schemaVersion: 1,
+    storyId: "held-repick",
+    title: "Held animation picked again",
+    width: manifest.width,
+    height: manifest.height,
+    items: [
+      {
+        id: "rp-lead",
+        type: "image",
+        file: item("text-bare").file,
+        text: "Pick a door.",
+      },
+      {
+        id: "rp-anim",
+        type: "animation",
+        frames: orbit.frames,
+        fps: 4,
+        frameSeconds: REPLAY_FRAME_SECONDS,
+        loopCount: 2,
+        holdLastFrame: true,
+        text: REPLAY_TEXT,
+      },
+      { id: "rp-door-a", type: "text", text: "Door A." },
+      {
+        id: "rp-door-b",
+        type: "image",
+        file: item("chain-still").file,
+        text: "Door B.",
+      },
+      {
+        id: "rp-after",
+        type: "image",
+        file: item("text-bare").file,
+        text: "After the doors.",
+      },
+    ],
+    branches: [
+      {
+        id: "rp-doors",
+        after: "rp-lead",
+        prompt: "Which door?",
+        routes: [
+          {
+            id: "rp-a",
+            label: "Door A",
+            start: "rp-anim",
+            end: "rp-door-a",
+            result: "continue",
+          },
+          { id: "rp-b", label: "Door B", start: "rp-door-b", end: "rp-door-b" },
+        ],
+        continuingRoute: "rp-b",
+        continueAt: "rp-after",
+      },
+    ],
+  };
+  const dir = storyFolder(join(scenarioRoot, "held-repick"), story);
+  return { dir, frames: orbit.frames };
+}
+
+const CHOICE_SHOWN = () => document.getElementById("choice")?.hidden === false;
+const pressOne = (cdp) => pressDigit(cdp, "1");
+
+async function heldRepick({ check, open }) {
+  const { dir, frames } = repickFolder();
+  const { page, cdp } = await open("held-repick", {
+    closeHelp: true,
+    manualChoices: true,
+    folder: dir,
+  });
+  await pressSpace(cdp); // fires the decision
+  const opened = await waitFor(() => choiceOpen(page));
+  const first = await spaceOntoAnimation(page, cdp, frames, pressOne);
+  await pressSpace(cdp); // Door A.
+  await pressSpace(cdp); // the join
+  const joined = await waitFor(
+    async () => (await page.evaluate(shownItem)) === "rp-after",
+  );
+  const back = await wheelUntil(page, cdp, true, CHOICE_SHOWN);
+  await sleep(300);
+  const again = await spaceOntoAnimation(page, cdp, frames, pressOne);
+  check(
+    "picking a route again whose first item is a held animation plays it again over seen items",
+    opened &&
+      JSON.stringify(first.order) === PLAYED_TWICE &&
+      joined &&
+      back &&
+      again.item === "rp-anim" &&
+      JSON.stringify(again.order) === PLAYED_TWICE &&
+      again.src === frames.at(-1),
+    { opened, first, joined, back, again },
+  );
+}
+
 // Independent parts (each opens its own browsers); the runner runs them
 // side by side and prints their checks in this order.
 export const parts = [
@@ -1292,4 +1573,7 @@ export const parts = [
   loops,
   hold,
   heldFrames,
+  heldReplay,
+  heldJoin,
+  heldRepick,
 ];

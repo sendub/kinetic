@@ -24,6 +24,14 @@ something more of an author.
   on, its countdown starts again). Before, no choice showed, and with
   Play all routes off the reader was stuck until a wheel notch back and
   forward.
+- Reading on at a branch plays the animation or video there as the
+  first reading did, over content already read too: from a route's end
+  onto where the routes join, past a decision that passes on, and into
+  a route picked on the choice screen, by Play all routes or by a
+  following decision. Before, back before the branch and reading on
+  again showed it as a still (an animation's first frame, a video's
+  poster) and played nothing. A jump from the branch map still shows a
+  still.
 - A decision that follows an earlier one: a decision's optional
   `follows` names an earlier decision, and each of its routes may give
   `when`, the routes of that decision it belongs to (at most one route

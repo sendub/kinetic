@@ -570,6 +570,49 @@ describe("the wheel's walk through a following decision", () => {
     m.destroy();
   });
 
+  it("entering the matching route is a forward step: an advance, below the seen edge too", () => {
+    // docs/plan.md Phase 60 item 9d: the route's first item is read now.
+    const m = machine();
+    toMid(m, A);
+    m.advance(); // d2 takes route X at once
+    expect(m.getState()).toMatchObject({ cursor: 6, transition: "advance" });
+    m.advance(); // off X: joins
+    expect(m.getState().cursor).toBe(JOIN);
+    for (let notch = 0; notch < 8; notch += 1) {
+      const s = m.getState();
+      if (s.cursor === MID && s.choice === undefined) break;
+      m.wheelBack();
+    }
+    expect(m.getState()).toMatchObject({ cursor: MID, transition: "nav" });
+    m.advance(); // takes X again, below the edge
+    expect(m.getState()).toMatchObject({
+      cursor: 6,
+      frontier: 13,
+      transition: "advance",
+    });
+    m.destroy();
+  });
+
+  it("passing on is a forward step: an advance, below the seen edge too", () => {
+    // docs/plan.md Phase 60 item 9d: the item at continueAt is read now,
+    // so its media plays again (`playbackModeFor`).
+    const m = machine({ items: GAP_ITEMS, branches: [D1, GAP_D2, D3] });
+    toMid(m, B);
+    m.advance(); // passes on to 12
+    expect(m.getState()).toMatchObject({ cursor: JOIN, transition: "advance" });
+    m.advance(); // 13
+    m.wheelBack();
+    m.wheelBack();
+    expect(m.getState()).toMatchObject({ cursor: MID, transition: "nav" });
+    m.advance(); // passes on again, below the edge
+    expect(m.getState()).toMatchObject({
+      cursor: JOIN,
+      frontier: 14,
+      transition: "advance",
+    });
+    m.destroy();
+  });
+
   it("the walked choice screen shows the routes' seen marks, and a pick there is a real pick", () => {
     const m = machine();
     toMid(m, B);

@@ -727,10 +727,14 @@ export type MachinePlace = Omit<MachineContext, "visited">;
 /**
  * How the item under the cursor became current. `advance` is a forward step
  * the reader took or the auto timer took — a space press or the auto-advance
- * firing — so the item is being READ now and its media plays. `nav` is an
- * arrival at content the reader already has on the map: the wheel, a
- * bookmark `goTo()`, a bookmark restore, `e`, a route entry or a
- * route-end join, skip's dwell step, and the load-time landing. Scrubbing
+ * firing, onto the next item or the join, close or route entry it reaches
+ * (a route's end at `continueAt`, a decision passing on, a route picked on
+ * the choice screen, play-all's auto-pick, a following decision's route;
+ * docs/plan.md Phase 60 item 9d) — so the item is being READ now and its
+ * media plays. `nav` is an arrival at content the reader already has on
+ * the map: the wheel, a bookmark `goTo()`, a bookmark restore, `e`, a
+ * branch-map jump into a route, skip's dwell step, and the load-time
+ * landing. Scrubbing
  * stays fast, so a nav arrival below the seen edge holds the poster. The
  * renderer reads this with `cursor`/`frontier` to decide whether a video
  * replays (docs/content-format.md, "Timing"; `playbackModeFor`).

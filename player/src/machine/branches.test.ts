@@ -541,7 +541,7 @@ describe("choosing a route and ending one", () => {
       frontier: 6,
       settled: false, // a fresh entry: the route's first item plays normally
       skipping: false,
-      transition: "nav",
+      transition: "advance", // read on into the route
     });
     expect(m.exportContext().playedRoutes).toEqual([
       { decision: 0, routes: [1] },
@@ -566,7 +566,7 @@ describe("choosing a route and ending one", () => {
       frontier: 10,
       settled: false,
       skipping: false,
-      transition: "nav",
+      transition: "advance", // read on: its media plays
     });
     m.destroy();
   });
@@ -719,6 +719,117 @@ describe("choosing a route and ending one", () => {
     expect([...new Set(cursors)]).toEqual([6]);
     expect(m.getState().choice).toBeUndefined();
     m.destroy();
+  });
+});
+
+describe("reading on through a join is an advance (docs/plan.md Phase 60 item 9d)", () => {
+  // The join's item is read now, as any forward step's is, so its media
+  // plays again below the seen edge (`playbackModeFor`); a route entry and
+  // skip's step stay `nav`.
+  it("a route's end joining at continueAt, below the seen edge", () => {
+    const m = machine(CANON);
+    step(m);
+    step(m);
+    m.advance(); // fires d1
+    m.choose(2); // route C, the continuing route
+    step(m); // 7 -> 8
+    step(m); // joins at 9
+    expect(m.getState()).toMatchObject({ cursor: 9, transition: "advance" });
+    step(m); // 10, the seen edge
+    wheelBackUntil(m, (s) => s.cursor === 8);
+    expect(m.getState().transition).toBe("nav");
+    m.advance(); // off C's end again: the join, below the edge
+    expect(m.getState()).toMatchObject({
+      cursor: 9,
+      frontier: 11,
+      transition: "advance",
+    });
+    m.destroy();
+  });
+
+  it("the return row's answer joins as an advance, and so does a route picked again", () => {
+    const m = machine(CANON);
+    step(m);
+    step(m);
+    m.advance();
+    m.choose(2);
+    step(m);
+    step(m); // 9
+    step(m); // 10
+    wheelBackUntil(m, (s) => s.choice !== undefined);
+    expect(m.getState().choice?.continueOption).toBe(true);
+    m.chooseContinue();
+    expect(m.getState()).toMatchObject({ cursor: 9, transition: "advance" });
+    wheelBackUntil(m, (s) => s.choice !== undefined);
+    m.choose(2); // the route picked again, below the edge
+    expect(m.getState()).toMatchObject({
+      cursor: 7,
+      frontier: 11,
+      transition: "advance",
+    });
+    wheelBackUntil(m, (s) => s.choice !== undefined);
+    m.choose(2, "map"); // a branch-map jump into the route stays nav
+    expect(m.getState()).toMatchObject({ cursor: 7, transition: "nav" });
+    m.destroy();
+  });
+
+  it("play-all's auto-pick enters a route as an advance below the seen edge, on the countdown or Space", () => {
+    vi.useFakeTimers();
+    for (const bySpace of [false, true]) {
+      const m = machine(CANON, {
+        settings: { ...SETTINGS, playAllRoutes: true },
+      });
+      step(m);
+      step(m); // cursor 2
+      m.advance(); // fires: route A counts down
+      vi.advanceTimersByTime(60_000);
+      expect(m.getState()).toMatchObject({ cursor: 3, transition: "advance" });
+      step(m); // 4, the seen edge
+      wheelBackUntil(m, (s) => s.cursor === 2 && s.choice === undefined);
+      m.advance(); // fires again: A counts down again
+      expect(m.getState().choice?.autoPick?.routeIdx).toBe(0);
+      if (bySpace) m.advance();
+      else vi.advanceTimersByTime(60_000);
+      expect(m.getState()).toMatchObject({
+        cursor: 3,
+        frontier: 5,
+        transition: "advance",
+      });
+      m.destroy();
+    }
+    vi.useRealTimers();
+  });
+
+  it("an all-played pure choice closing past its region, below the seen edge", () => {
+    const m = machine(PURE, { settings: { ...SETTINGS, playAllRoutes: true } });
+    for (let press = 0; press < 30; press += 1) m.advance();
+    expect(m.getState().cursor).toBe(7); // P, Q, then the close to the tail
+    m.goTo(1); // the decision's after item, every route played
+    m.advance(); // the decision closes: past the region, below the edge
+    expect(m.getState()).toMatchObject({
+      cursor: 6,
+      frontier: 8,
+      transition: "advance",
+    });
+    m.destroy();
+  });
+
+  it("skip's step through a join stays nav", () => {
+    vi.useFakeTimers();
+    const m = machine(CANON);
+    step(m);
+    step(m);
+    m.advance();
+    m.choose(2);
+    step(m);
+    step(m); // 9
+    step(m); // 10
+    wheelBackUntil(m, (s) => s.cursor === 8);
+    m.toggleSkip();
+    vi.advanceTimersByTime(SETTINGS.skipDwellMs);
+    expect(m.getState()).toMatchObject({ cursor: 9, transition: "nav" });
+    m.destroy();
+    vi.useRealTimers();
   });
 });
 
@@ -3440,7 +3551,7 @@ describe("timeline: the wheel walks the story order (docs/plan.md Phase 27)", ()
     m.advance(); // k3
     m.advance(); // off bCont's end: joins at m7
     expect(m.getState().cursor).toBe(17);
-    expect(m.getState().transition).toBe("nav");
+    expect(m.getState().transition).toBe("advance");
     m.advance();
     expect(m.getState()).toMatchObject({ cursor: 18, transition: "advance" });
     m.jumpToEnd(); // still the furthest point read

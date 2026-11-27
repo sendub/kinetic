@@ -47,14 +47,15 @@
 //
 // Transition kind (`MachineState.transition`): the same funnel that marks an
 // item also records HOW it became current — `advance` for the forward step
-// (a space press or the auto timer moving one item on) and for an item
-// entered as new reading (a `u` landing, a URL start), `nav` for every other
-// route to it (a wheel or `e` replay, a bookmark `goTo()` or restore, a
-// route entry, a route-end join, skip's dwell step, and the load-time
-// landing). Timing is identical either way; the renderer reads the kind with
-// `cursor` and `frontier` so a re-read below the seen edge plays its video
-// while scrubbing back over the same items holds posters
-// (docs/content-format.md, "Timing").
+// (a space press or the auto timer moving one item on, the join or close
+// that step reaches, and a route entered by a pick, play-all's auto-pick or
+// a following decision) and for an item entered as new reading (a `u`
+// landing, a URL start), `nav` for every other route to it (a wheel or `e`
+// replay, a bookmark `goTo()` or restore, a branch-map jump into a route,
+// skip's dwell step, and the load-time landing). Timing is identical either way; the renderer
+// reads the kind with `cursor` and `frontier` so a re-read below the seen
+// edge plays its video while scrubbing back over the same items holds
+// posters (docs/content-format.md, "Timing").
 //
 // Arrival kind (`Machine.arrival`, docs/plan.md Phase 47): `showItem` and
 // `showScreen`, the only ways the screen on show changes after the load,
@@ -1134,6 +1135,15 @@ interface Join {
  * arrives the same way.
  */
 type Flow = "read" | "skip";
+
+/**
+ * The transition kind of the join or close a forward step reaches: a read
+ * step's is an `advance`, so the item there is read now and its media
+ * plays again below the seen edge (docs/plan.md Phase 60 item 9d); skip's
+ * stays `nav`, a fast traverse.
+ */
+const flowTransition = (flow: Flow): TransitionKind =>
+  flow === "read" ? "advance" : "nav";
 
 export function createMachine(options: MachineOptions): Machine {
   const { items } = options;
@@ -2867,6 +2877,9 @@ export function createMachine(options: MachineOptions): Machine {
    * Marks the route played and last picked, pushes its frame, and enters its
    * first item: a `read` arrival from the choice screen, a `jump` from the
    * branch map, the flow's own from a following decision (`fireDecision`).
+   * A `read` entry is reading on, an `advance` (docs/plan.md Phase 60 item
+   * 9d): the route's first visual plays again below the seen edge. A jump
+   * or skip's step is `nav`.
    */
   function enterRoute(
     decision: ResolvedDecision,
@@ -2876,7 +2889,11 @@ export function createMachine(options: MachineOptions): Machine {
     markPlayed(decision.index, routeIdx);
     setLastPick(decision.index, routeIdx);
     stack.push({ decision: decision.index, route: routeIdx });
-    showItem(decision.routes[routeIdx].startIndex, "nav", arrives);
+    showItem(
+      decision.routes[routeIdx].startIndex,
+      arrives === "read" ? "advance" : "nav",
+      arrives,
+    );
   }
 
   /**
@@ -3066,7 +3083,7 @@ export function createMachine(options: MachineOptions): Machine {
       emit();
       return true;
     }
-    showItem(next, "nav", flow);
+    showItem(next, flowTransition(flow), flow);
     return true;
   }
 
@@ -3090,7 +3107,7 @@ export function createMachine(options: MachineOptions): Machine {
       handleRouteEnd(flow);
       return;
     }
-    showItem(decision.continueAt, "nav", flow);
+    showItem(decision.continueAt, flowTransition(flow), flow);
   }
 
   /** True when the cursor is on the last item of the innermost open route. */
