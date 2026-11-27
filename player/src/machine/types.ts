@@ -708,8 +708,10 @@ export interface MachineContext {
   lastPicks?: readonly ContextFrame[];
   /**
    * The decision whose choice screen is up over `lastShown`, so a reload
-   * opens it again (a play-all countdown restarts). Absent: no choice, or
-   * one the wheel walked onto (a reload lands on the item under it).
+   * opens it again (a play-all countdown restarts), however it opened: by
+   * reading, at a route's end, or by the wheel walking onto it (docs/
+   * plan.md Phase 60, item 9c; it reopens as a live choice). Absent: no
+   * choice.
    */
   choice?: number;
 }

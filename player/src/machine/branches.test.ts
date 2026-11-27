@@ -1820,6 +1820,50 @@ describe("the timeline persists (docs/plan.md Phase 27)", () => {
     second.destroy();
   });
 
+  it("a save on a choice screen the wheel walked back onto resumes showing it, waiting for a pick", () => {
+    const first = machine(CANON);
+    step(first);
+    step(first);
+    first.advance(); // fires
+    first.choose(0); // route A, at a-1
+    first.wheelBack(); // back onto the choice screen
+    expect(first.getState().choice).toMatchObject({
+      decisionId: "d1",
+      walkRoute: 0,
+    });
+    // The place a save writes records the open choice.
+    expect(first.exportPlace().choice).toBe(0);
+    const stored = JSON.parse(JSON.stringify(first.exportContext()));
+    first.destroy();
+    const second = machine(CANON, { resumeContext: stored as MachineContext });
+    expect(second.getState()).toMatchObject({ cursor: 2, settled: true });
+    expect(second.getState().choice?.decisionId).toBe("d1");
+    second.advance(); // Space leaves it open
+    expect(second.getState().choice?.decisionId).toBe("d1");
+    second.choose(1); // a digit picks
+    expect(second.getState().cursor).toBe(5);
+    second.destroy();
+  });
+
+  it("a choice closed by a second notch back stays closed across a reload", () => {
+    const first = machine(CANON);
+    step(first);
+    step(first);
+    first.advance(); // fires
+    first.choose(0); // route A, at a-1
+    first.wheelBack(); // the choice screen
+    first.wheelBack(); // `decide` under it: the choice closed
+    expect(first.getState()).toMatchObject({ cursor: 2 });
+    expect(first.getState().choice).toBeUndefined();
+    expect(first.exportPlace().choice).toBeUndefined();
+    const stored = JSON.parse(JSON.stringify(first.exportContext()));
+    first.destroy();
+    const second = machine(CANON, { resumeContext: stored as MachineContext });
+    expect(second.getState().cursor).toBe(2);
+    expect(second.getState().choice).toBeUndefined();
+    second.destroy();
+  });
+
   it("a save without last picks lands on its position; the walk takes the longest seen route", () => {
     const m = machine(CANON, {
       resumeContext: {
@@ -2451,21 +2495,44 @@ describe("play all routes shows the choice and picks on screen (docs/plan.md Pha
     m.destroy();
   });
 
-  it("a reload on a walked choice screen lands on the item under it and waits", () => {
+  it("a reload on a walked choice screen shows the choice and counts down again", () => {
     vi.useFakeTimers();
     const first = playAll(CANON);
     for (let press = 0; press < 3; press += 1) first.advance();
     vi.advanceTimersByTime(60_000); // route A entered
     first.wheelBack(); // the walked choice screen
     expect(first.getState().choice?.walkRoute).toBe(0);
+    expect(first.getState().choice?.autoPick).toBeUndefined(); // browsing
     const stored = first.exportContext();
-    expect(stored.choice).toBeUndefined();
+    expect(stored.choice).toBe(0);
     first.destroy();
     const m = machine(CANON, { resumeContext: stored, settings: ALL });
     expect(m.getState()).toMatchObject({ cursor: 2, settled: true });
-    expect(m.getState().choice).toBeUndefined();
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.autoPick).toMatchObject({ picked: false });
     vi.advanceTimersByTime(60_000);
-    expect(m.getState().cursor).toBe(2);
+    expect(m.getState().cursor).toBe(3); // the countdown picked route A
+    m.destroy();
+  });
+
+  it("a reload on a route end's re-offer shows the choice and counts down again", () => {
+    vi.useFakeTimers();
+    const first = playAll(CANON);
+    for (let press = 0; press < 3; press += 1) first.advance();
+    vi.advanceTimersByTime(60_000); // route A entered, at a-1
+    first.advance(); // a-2
+    first.advance(); // off A's end: the re-offer over a-2
+    expect(first.getState()).toMatchObject({ cursor: 4 });
+    expect(first.getState().choice?.autoPick).toBeDefined();
+    const stored = first.exportContext();
+    expect(stored.choice).toBe(0);
+    first.destroy();
+    const m = machine(CANON, { resumeContext: stored, settings: ALL });
+    expect(m.getState().cursor).toBe(4);
+    expect(m.getState().choice?.decisionId).toBe("d1");
+    expect(m.getState().choice?.autoPick).toMatchObject({ picked: false });
+    vi.advanceTimersByTime(60_000);
+    expect(m.getState().choice).toBeUndefined(); // the countdown picked
     m.destroy();
   });
 

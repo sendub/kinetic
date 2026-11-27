@@ -6664,6 +6664,26 @@ truthful: an unchecked box means nothing was accepted.
       6 failing first. Subagent: the touched files with report and flow
       132; converter and tools 2275. Orchestrator: branch extract,
       conditions, report and flow 132 passed.)
+- [x] A reload at a choice reopened by moving back shows the choice
+      (docs/plan.md Phase 60, item 9c).
+      (2026-11-27: the fault was in saving: `exportPlace` left `choice`
+      out while `pendingChoice.walk` was set, so a choice screen the
+      wheel or the branch map walked onto was never written; it now
+      writes the open choice however it opened, and `reopenChoice`
+      reopens it as a live choice. `Machine.walkedChoice()` keeps the
+      trace's `walked` field meaning what it did. docs/content-format.md
+      no longer says a walked screen reloads as the item under it.
+      Subagent's calls: a reloaded walked screen comes back live (the
+      walk's highlighted route is not saved; under Play all routes the
+      countdown restarts and picks, as item 1's does); the tests use the
+      wheel, since Left only steps video segments. Tests: machine tests
+      on a walked screen's save with play-all off and on (both failed
+      first), a second notch back staying closed across a reload, a
+      route end's re-offer; scenario parts reloadWalkedChoiceManual and
+      reloadWalkedChoicePlayAll (both failed first in Chrome).
+      Orchestrator: npm test 1925 passed, check clean, smoke 6/6,
+      branches 82/82 Chrome and 82/82 WebKit.)
+- [ ] An animation read again plays again (item 9d).
 - [ ] Phase-closer (Phase 60): full suites; VERSION 1.15.0, the
       CHANGELOG dated, tag v1.15.0, `main` fast-forwarded, the wheel
       attached to the GitHub release, the Pages demo republished.

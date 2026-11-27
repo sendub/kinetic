@@ -177,9 +177,7 @@ export function mountTrace({
         routes: Object.freeze(choice.routes.map((route) => route.id)),
         returnRow: choice.continueOption === true,
         autoPick: choice.autoPick !== undefined,
-        // The place keeps a live choice only: one the wheel walked onto
-        // is browsing (`Machine.exportPlace`).
-        walked: place.choice === undefined,
+        walked: machine.walkedChoice(),
         ...common,
       });
     }

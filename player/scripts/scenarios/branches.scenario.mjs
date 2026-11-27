@@ -21,7 +21,9 @@
 // A reload or a close and reopen at an open choice (docs/plan.md Phase 60,
 // item 1), on a small folder of its own: the choice is up again, with Play
 // all routes off waiting for a pick (Space and Enter leave it, `1` picks
-// route 1), with it on counting down again and picking.
+// route 1), with it on counting down again and picking. The same after a
+// wheel notch back from route 1 onto the choice (item 9c), while a second
+// notch, which closes the choice, reloads with it closed.
 
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -174,6 +176,8 @@ export const parts = [
   pillCardSession,
   reloadChoiceManualSession,
   reloadChoicePlayAllSession,
+  reloadWalkedChoiceManualSession,
+  reloadWalkedChoicePlayAllSession,
 ];
 
 // ------------------------------------------------------------------
@@ -1638,4 +1642,101 @@ async function reloadChoicePlayAllSession({ check }) {
     errors.length === 0,
     errors,
   );
+}
+
+// ------------------------------------------------------------------
+// Sessions "reload-walked-choice": the same story, the choice opened not
+// by reading onto it but by one wheel notch back from route 1's first
+// item (docs/plan.md Phase 60, item 9c). The reload shows it as a reload
+// at a choice reached by reading does.
+// ------------------------------------------------------------------
+
+/** Wheel notches back until current() `matches` (one notch at a time). */
+async function wheelBackOnto(game, cdp, matches) {
+  for (let notch = 0; notch < 4; notch += 1) {
+    await wheel(cdp, true, 1);
+    if (await gameShows(game, matches, 1000)) return true;
+  }
+  return false;
+}
+
+const onA1 = (now) => now.id === "a1" && now.choice === null;
+
+async function reloadWalkedChoiceManualSession({ check }) {
+  const folder = join(dirname(demoDir), "demo-reloadwalked-manual");
+  buildReloadFolder(folder);
+  const game = await openReloadGame(folder, { playAll: false });
+  try {
+    const cdp = await game.page.createCDPSession();
+    await game.spaceUntil((now) => now.choice !== null);
+    await game.press("1");
+    const inRoute = await gameShows(game, onA1, 3000);
+    const walked = await wheelBackOnto(game, cdp, onReloadChoice);
+    await game.reload();
+    const after = await manualChoiceHolds(game);
+    check(
+      "a reload after a wheel notch back onto a choice, Play all routes off: the choice is up again over t3; Space and Enter leave it up, 1 picks route 1",
+      inRoute && walked && after.ok,
+      {
+        inRoute,
+        walked,
+        savedChoice: after.record?.ctx?.choice ?? null,
+        ...after.evidence,
+      },
+    );
+    // A second notch past the choice closes it: a reload keeps it closed.
+    const cdpAgain = await game.page.createCDPSession();
+    const onChoice = await wheelBackOnto(game, cdpAgain, onReloadChoice);
+    const closed = await wheelBackOnto(
+      game,
+      cdpAgain,
+      (now) => now.id === "t3" && now.choice === null,
+    );
+    await game.reload();
+    await sleep(1500);
+    const reloaded = await game.current();
+    check(
+      "a choice closed by a second notch back stays closed after a reload (t3, no choice)",
+      onChoice && closed && reloaded.id === "t3" && reloaded.choice === null,
+      { onChoice, closed, id: reloaded.id, choice: reloaded.choice },
+    );
+    check(
+      "reload-walked-choice (Play all routes off): no console errors",
+      game.errors().length === 0,
+      game.errors(),
+    );
+  } finally {
+    await game.close();
+  }
+}
+
+async function reloadWalkedChoicePlayAllSession({ check }) {
+  const folder = join(dirname(demoDir), "demo-reloadwalked-playall");
+  buildReloadFolder(folder);
+  const game = await openReloadGame(folder, { playAll: true });
+  try {
+    const cdp = await game.page.createCDPSession();
+    await game.spaceUntil((now) => now.choice !== null);
+    const inRoute = await gameShows(game, onA1, 20000); // the countdown
+    const walked = await wheelBackOnto(game, cdp, onReloadChoice);
+    await game.reload();
+    const after = await countdownPicks(game);
+    check(
+      "a reload after a wheel notch back onto a choice, Play all routes on: the choice is up again over t3 and its countdown picks route 1",
+      inRoute && walked && after.ok,
+      {
+        inRoute,
+        walked,
+        savedChoice: after.record?.ctx?.choice ?? null,
+        ...after.evidence,
+      },
+    );
+    check(
+      "reload-walked-choice (Play all routes on): no console errors",
+      game.errors().length === 0,
+      game.errors(),
+    );
+  } finally {
+    await game.close();
+  }
 }

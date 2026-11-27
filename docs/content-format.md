@@ -757,8 +757,9 @@ docs/plan.md Phase 13):
   landing (not counting routes declined at an answered decision) shows
   a quiet notice pointing at `u` until the next key.
   A reload lands on the item that was showing, its choice screen open
-  again when it was a live one (one the wheel had walked onto reloads as
-  the item under it). Saves from before the timeline (with a reading
+  again when one was up, however it opened (by reading, at a route's
+  end, or by the wheel walking onto it), as a live choice that play-all
+  counts down. Saves from before the timeline (with a reading
   history) load as they are: the last pick at each decision comes from
   that record and the open route frames, and the record is dropped.
 - `Play all routes` (a persisted setting, default on since Phase 24:

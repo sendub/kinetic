@@ -4936,11 +4936,26 @@ The orchestrator's choices, within those decisions:
     starting value from a reset in label flow (item 6c). The note counts
     the decision's routes and names the reset's source. Tests: the
     demo's nightcap note; a reset's note.
+9c. A reload at a choice reopened by moving back (the user's demo
+    check). With Play all routes off, the wheel or Left arrow back onto
+    a decision's `after` item reopens its choice, but a reload there
+    comes back with the choice closed until Space. Reading forward onto
+    the choice reloads with it open (item 1). The save records a choice
+    however it opened. Tests: the machine's saved place; a scenario part
+    reloading after a wheel notch back onto a choice, both play-all
+    settings.
+9d. An animation read again plays again (the user's demo check). Back
+    to before the demo's held candle animation, then Space forward onto
+    it, shows its last frame and plays nothing. Reading forward (Space)
+    onto any visual over seen items plays it as the first reading did,
+    a route's join included; a wheel, bookmark or route-entry arrival
+    stays a still (`playbackModeFor`). Tests: the playback rule; a
+    scenario part on the demo's held animation and on a join.
 10. Phase-closer: full suites; VERSION 1.15.0, the CHANGELOG dated, tag
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

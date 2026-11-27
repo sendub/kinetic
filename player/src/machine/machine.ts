@@ -278,6 +278,12 @@ export interface Machine {
    */
   seenSince(from: number): readonly number[];
   /**
+   * True while the open choice is a screen the wheel or the branch map
+   * walked onto (browsing: play-all leaves it), false on one opened by
+   * reading or a reload, and with no choice open.
+   */
+  walkedChoice(): boolean;
+  /**
    * The bookmark-restore move: replaces the seen set, decision stack,
    * played, completed and played-this-pass routes and last picks with a
    * stored context (an absent `passRoutes` reads as its `playedRoutes`) and
@@ -3529,11 +3535,9 @@ export function createMachine(options: MachineOptions): Machine {
       passRoutes: passNow(),
       // The timeline's last picks (docs/plan.md Phase 27).
       lastPicks: exportPicks(),
-      // A live choice only: a walked-to one is browsing, and a reload
-      // lands on the item under it instead.
-      ...(pendingChoice === null || pendingChoice.walk !== undefined
-        ? {}
-        : { choice: pendingChoice.decision }),
+      // The open choice however it opened, a walked-to one included: a
+      // reload shows it again as a live choice (`reopenChoice`).
+      ...(pendingChoice === null ? {} : { choice: pendingChoice.decision }),
     });
   }
 
@@ -3565,6 +3569,10 @@ export function createMachine(options: MachineOptions): Machine {
     },
 
     exportPlace,
+
+    walkedChoice() {
+      return pendingChoice?.walk !== undefined;
+    },
 
     seenSince(from) {
       return Object.freeze(seenLog.slice(Math.max(0, Math.trunc(from) || 0)));
