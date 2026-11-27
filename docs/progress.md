@@ -6594,8 +6594,53 @@ truthful: an unchecked box means nothing was accepted.
       it. Subagent: converter and tools 2216. Orchestrator: converter and
       tools 2216 passed; a reporting agent's game (read-only walk)
       unchanged at 35 decisions.)
-- [ ] Fixtures and docs (item 9). The extract demo covers the new
+- [x] Fixtures and docs (item 9). The extract demo covers the new
       shapes; package-proof.
+      (2026-11-27: fixtures/renpy_demo's script ends with a nightcap
+      scene: `$ drink = ""` in label flow, a menu at `label ask_drink`
+      ("Tea, please" with no line of its own, "Cocoa" with `$ warmth
+      += 1` and a line, "Not yet" jumping back through the lead-in), a
+      `drink` chain with no `else` (a `follows` decision that passes on),
+      a `warmth` counter chain (2 or more, exactly 1, under 1), and
+      `scene candle`, an ATL image of three frames at 0.3/0.15/0.15 s
+      with `repeat 2` (`loopCount` 2, held); `default warmth = 0`; the
+      first menu's "Warm the room again" adds 1; three 0.3 kB candle
+      frames from generate_assets.py's new `candle()`; tl/de gains the
+      new lines and strings (comment line numbers after line 48
+      shifted). The golden manifest regenerated (HEAD's fixture shown to
+      reproduce the old golden first; items 1-22 unchanged, 13 items and
+      3 decisions added, `menu-start-62` now 63); test_branch_extract
+      (5 decisions, the nightcap's routes, `follows`/`when` and range
+      labels, the lead-in note), test_renpy_translations (identifiers,
+      de items and the condition words in German, coverage de 38/57,
+      zh-Hans 8/57, report counts) and test_episodes' `_prefixed` helper
+      (prefixes `follows`) updated. package-proof gains a wheel step:
+      the conversion has 5 decisions, one `follows` with every route's
+      `when`, one `"return"` route, one held animation with
+      `frameSeconds`. Docs: CREATE.md (menus, lines as Ren'Py reads
+      them, the demo summary refreshed, routes/export with `follows`,
+      the Branches reference's `follows`/`when`, re-conversion for
+      1.15.0 in the converter and upgrading sections),
+      content-format.md (converted menus and chains carry
+      `continuingRoute`/`continueAt`), player.md (held animations; a
+      choice left open comes back open), extracting.md (line splitting
+      and U+00A0, one-choice menus, `strings` lines), AGENTS.md's routes
+      line, converter/README.md, packaging.md (the proof step; the
+      extracted demo 27 files, about 1.69 MB), and the CHANGELOG entry
+      with bullets for items 1-4b and 8c and an **Upgrading:** bullet.
+      Orchestrator's scrub: a name and frame file names taken from a
+      reporting game's examples (in the plan, CHANGELOG, CREATE.md,
+      extracting.md, test_conditions.py and test_atl_animation.py since
+      items 6 and 8) replaced by neutral ones. Subagent: converter and
+      tools 2274; npm test 1922 (one mapmodel timeout while pytest ran,
+      86/86 alone, 1922 on rerun); check clean; smoke 6/6;
+      package-proof 34/34; `kinetic check --steps all` 35 of 35 items.
+      Orchestrator: branch extract, translations, episodes, pipeline and
+      parser 187 passed; test_conditions 58 and test_atl_animation 17
+      passed after the scrub. Lead: item 9b.)
+- [ ] Ledger notes for condition decisions (item 9b, a lead from items
+      6c and 9). The route count in a `follows` decision's note, and
+      where its starting value came from.
 - [ ] Phase-closer (Phase 60): full suites; VERSION 1.15.0, the
       CHANGELOG dated, tag v1.15.0, `main` fast-forwarded, the wheel
       attached to the GitHub release, the Pages demo republished.

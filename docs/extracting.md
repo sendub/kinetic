@@ -111,6 +111,15 @@ order). Every one of them is read for definitions (`image`, `define`,
 Characters, `define audio`, channels, screens), whether or not the story
 reaches it; the story itself is read as the next section says.
 
+Every script, and every `tl/` file, is read into lines as Ren'Py's lexer
+reads it (docs/plan.md Phase 60 items 2 and 2b): lines end only at `\n`,
+`\r` and `\r\n`, never at a form feed, `\x85`, U+2028 or the other
+characters Python's `splitlines` breaks at, so line numbers (and the
+sources and translation identifiers made from them) match Ren'Py's; a
+line's depth comes from its leading spaces and tabs, and any other
+leading whitespace, such as the non-breaking spaces (U+00A0) some
+editors write, is skipped as Ren'Py skips it.
+
 ### The walk follows labels
 
 Ren'Py runs a game from `label start`, and so does the walk
@@ -148,9 +157,14 @@ game whose story order differs from its file order read out of order.
   is (Conditions, below).
 - **Menus** (docs/plan.md Phase 60 item 4): a menu of two or more plain
   quoted choices becomes a decision (Branches, in
-  docs/content-format.md). Each choice block is read as label flow: its
-  lines, audio and nested menus, its `$` lines (assignments are kept on
-  the menu's record for conditions; they change nothing here) and the
+  docs/content-format.md). A menu of one plain choice is no decision
+  (item 3): its caption, if any, and its choice text become narration
+  lines where the menu stood, translated from the language's `strings`
+  block, and its block is read on as label flow; a lone conditional
+  choice stays linear, reported `fewer than two choices`. In a
+  decision's menu each choice block is read as label flow: its lines,
+  audio and nested menus, its `$` lines (assignments are kept on the
+  menu's record for conditions; they change nothing here) and the
   `jump`, `call` or `return` it ends in. The walk reads each choice's
   path in turn up to where the choices meet, then that join once, as for
   any fork; the join is the post-dominator of the choices that do not
@@ -2011,7 +2025,10 @@ What is read, per language:
 - **String blocks**, `translate <language> strings:`, `old`/`new`
   pairs: a menu's choices become its route labels, its caption the
   decision's prompt (a prompt the converter supplied, "What happens
-  next?", has none), the speakers' names (the manifest's `speaker`, the
+  next?", has none), the lines the converter makes of choice text (an
+  empty choice, a one-choice menu, a route opening with a nested menu)
+  and the choices named inside condition labels theirs, the speakers'
+  names (the manifest's `speaker`, the
   `Character` name) their translations, and the manifest's `title` and
   `version` theirs, each matched with runs of spaces read as one. A
   translated prompt of 200 characters or more, a label of 120 or more, a

@@ -31,7 +31,9 @@
 // installed `kinetic`: setup (this checkout's installed media tools are
 // hard-linked into the home first, as tools/test_build_wheel.py does, so
 // setup downloads nothing but still runs the self-test; without them it
-// downloads), extract of fixtures/renpy_demo, validate, report, assemble
+// downloads), extract of fixtures/renpy_demo (its five decisions, one
+// that `follows` another and one with a "return" route, and its animation
+// with `frameSeconds` and `holdLastFrame` checked), validate, report, assemble
 // with --mac --windows (--windows alone off macOS), check --steps all, and
 // on macOS the built app's --self-check. Then what Phase 58 added
 // (items 3 to 5): release-status --json against this checkout, upgrade
@@ -600,6 +602,42 @@ function proveWheel() {
       `exit ${extracted.code}; ${JSON.stringify(extracted.out.split("\n")[0])}`,
     );
     if (extracted.code !== 0) return;
+
+    // The demo's Phase 60 shapes came out: a jump menu with a refusal
+    // (a "return" route), an `if` chain that follows it, a counter chain
+    // and an ATL frame list timed per frame and held.
+    const shapes = JSON.parse(
+      readFileSync(join(converted, "manifest.json"), "utf8"),
+    );
+    const branches = shapes.branches ?? [];
+    const following = branches.filter((b) => typeof b.follows === "string");
+    const refusals = branches.flatMap((b) =>
+      b.routes.filter((r) => r.result === "return"),
+    );
+    const timed = shapes.items.filter(
+      (i) =>
+        i.type === "animation" &&
+        Array.isArray(i.frameSeconds) &&
+        i.holdLastFrame === true,
+    );
+    record(
+      "wheel: the conversion has the demo's decisions and animation",
+      branches.length === 5 &&
+        following.length === 1 &&
+        branches.some((b) => b.id === following[0].follows) &&
+        following[0].routes.every((r) => Array.isArray(r.when)) &&
+        refusals.length === 1 &&
+        timed.length === 1 &&
+        timed[0].frameSeconds.length === timed[0].frames.length
+        ? "PASS"
+        : "FAIL",
+      `${shapes.items.length} items, ${branches.length} decisions; ` +
+        `follows=${JSON.stringify(following.map((b) => `${b.id}->${b.follows}`))}; ` +
+        `return routes=${refusals.length}; ` +
+        `timed held animations=${JSON.stringify(
+          timed.map((i) => `${i.id} ${JSON.stringify(i.frameSeconds)}`),
+        )}`,
+    );
 
     const validated = k("validate", converted);
     record(

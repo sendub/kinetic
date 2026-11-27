@@ -201,7 +201,8 @@ are implementing and docs/stack.md for settled decisions.
   bad arguments or no readable manifest; CREATE.md, "Checking a
   conversion: kinetic report"). `kinetic routes <folder> [--dot |
   --json]` prints the branch structure as the branch map draws it
-  (decisions, routes, where each ends or rejoins);
+  (decisions, routes, where each ends or rejoins, what a decision
+  follows);
   `fixtures/route-shapes.json` holds it and mapmodel.ts to the same
   counts. `kinetic export <folder> [--lang TAG] [--out DIR]` prints the
   story as Markdown, the main line and each route, to lay beside the

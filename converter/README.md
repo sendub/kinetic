@@ -313,8 +313,9 @@ docs/extracting.md, "Reuse cache".
   each choice's path is walked to where the choices meet, and each
   route's `result` is how its path ended (docs/extracting.md, "The walk follows labels").
   A route may hold any item: pictures, animations, videos and lines.
-  Any other menu is skipped, the linear flow is kept, and
-  `branchDetection` in the ledger says why.
+  A menu of one plain choice becomes its choice text as a line, its
+  block read on in place. Any other menu is skipped, the linear flow is
+  kept, and `branchDetection` in the ledger says why.
 - The first dialogue line under a `scene`/`show`/`movie` attaches to the
   media item; later lines become `text` items over the same visual. A
   route's first line said over the visual on screen at the menu repeats

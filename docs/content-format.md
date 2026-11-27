@@ -633,7 +633,13 @@ and items always use ids, never array positions.
   item. Route replay stays possible by navigating into the
   route. "return to main" exists only when `continuingRoute` does -
   and then only once that route has COMPLETED (the rule above), not
-  merely entered.
+  merely entered. kinetic-extract gives a decision it makes from a
+  Ren'Py menu or `if` chain the pair whenever its walk proves where the
+  paths meet: the last route reaching the join is `continuingRoute`,
+  the join's first item `continueAt`, and the other routes reaching it
+  are `"continue"`; it writes a pure choice only when no item follows
+  the join (since 1.15.0; before, every converted menu was a pure
+  choice; docs/extracting.md, "The walk follows labels").
 - `follows` (optional): the id of another decision this one follows,
   for content an earlier pick chose (a Ren'Py `if` on what a menu
   set). The followed decision's `after` item comes before this

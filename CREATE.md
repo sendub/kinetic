@@ -176,14 +176,15 @@ Reference: converter/README.md, "Pinned media tools".
 format of Hand-authoring a content folder, below. It reads `.rpy`
 scripts, decompiles `.rpyc` (vendored unrpyc) and reads `.rpa`
 archives, follows the story from `label start` as Ren'Py runs it,
-converts simple `menu:` blocks into branches (conservatively, never
-guessing joins), keeps speaker colours, crossfades and text tags (What
-the converter carries, below), and does the media work you would
-otherwise do by hand: it sniffs true formats, keeps browser-compatible
-originals byte-identical or ships them as lossless JPEG XL when that is
-smaller, keeps video Safari and Chrome both play, remuxes H.264/HEVC/VP9
-from a container one of them refuses (MKV, AVI, MPEG-TS) into MP4
-without re-encoding, transcodes only other codecs, and makes lossless
+turns menus (those whose choices jump included) and `if` chains on a
+variable into branches where its walk proves where their paths meet,
+keeps speaker colours, crossfades, text tags and frame-by-frame ATL
+animations (What the converter carries, below), and does the media work
+you would otherwise do by hand: it sniffs true formats, keeps
+browser-compatible originals byte-identical or ships them as lossless
+JPEG XL when that is smaller, keeps video Safari and Chrome both play,
+remuxes H.264/HEVC/VP9 from a container one of them refuses (MKV, AVI,
+MPEG-TS) into MP4 without re-encoding, transcodes only other codecs, and makes lossless
 posters (PNG, or JPEG XL when smaller). It also ships the sound the
 scripts play (music, ambience loops, one-shots and voice lines) and
 each video's audible soundtrack. Every media file it ships, posters
@@ -223,17 +224,20 @@ a game can run them all and read what they print.
 
 1. `kinetic extract` prints a summary: item and media counts, the
    display size, the story id and title with where each came from, how
-   the walk went, the speaker colours and transitions it kept, and one
+   the walk went, the decisions it made of menus and `if` chains, the
+   speaker colours and transitions it kept, and one
    line per statement it skipped and per item note (`jxl 131 <
    original 602`, `shares shipped file ...`). Read the `items skipped`
    count, the `walk:` lines and any `warning:` lines (When something
    fails, below). Here, for fixtures/renpy_demo:
 
    ```text
-   items: 20 (image 10, text 8, video 2); media shipped: 12; items skipped: 0
-   walk: from label start; labels reached 2, unreached 0; lines unreached 0
+   items: 35 (animation 1, image 11, text 21, video 2); media shipped: 16; items skipped: 0
+   walk: from label start; labels reached 4, unreached 0; lines unreached 0
+   branches: 5 detected, 0 menus skipped
    speaker colours: 0 of 4 speakers
    transitions: kept none; with no picture change 2; cut: none
+   conditions: 2 decisions from if chains (follows 1, ranges 1, words 0)
    audio: 5 items carry sound; 6 tracks shipped (3 copy, 1 extract, 2 transcode), 0 dropped
    video soundtracks: 1 audible, 0 silent, 1 absent
    ```
@@ -348,6 +352,26 @@ Ren'Py runs the story in and what Ren'Py draws:
   its file), and walks them there; the summary lists each site with its
   candidates. A label that Python builds without naming it is not
   followed, and is reported.
+- **Menus.** A menu of two or more plain choices becomes a decision,
+  whether its choices' blocks hold the lines in place or set variables
+  and `jump` (or `call`, or `return`) elsewhere. Each choice's path up
+  to where the paths meet is its route; a route reaching that join
+  continues there (the last one is the continuing route), a choice
+  jumping back to the menu, or to the question before it, returns to
+  the choice, and one reaching the story's end is an ending. A choice
+  with no line of its own shows its choice text as its one line, as a
+  route that opens with a nested menu does before it. A menu of one
+  plain choice shows its choice text as a line and reads on. A menu
+  stays linear, reported, when every choice is empty, a choice's path
+  rejoins another's content away from the join, or a choice is
+  conditional (`"x" if cond:`). Before 1.15.0 only menus whose choices
+  held their lines in place converted, and those as pure choices whose
+  routes all ended, so a reader with Play all routes off read every
+  route before going on.
+- **Lines as Ren'Py reads them.** Lines indented with non-breaking
+  spaces, in the scripts and in `tl/`, read as Ren'Py reads them, and a
+  form feed or other unusual line-break character inside a line no
+  longer splits it.
 - **Speaker colours.** A Character's literal `color` or `who_color`
   becomes its speaker's `nameColor`, and `what_color` its `textColor`,
   in the manifest's `characters` (Speaker colours, below); a colour
@@ -387,16 +411,18 @@ Ren'Py runs the story in and what Ren'Py draws:
   game's base language and each language file's own (English for a
   language the catalogue lacks, which `kinetic report` names). Name the
   variables for readers with `--condition-names FILE`, a JSON object
-  such as `{"love": "Love", "met_sam": {"en": "Robin met", "fr": "Robin
+  such as `{"love": "Love", "met_robin": {"en": "Robin met", "fr": "Robin
   rencontré"}}`; keep the file with the game so the labels come back on
   every conversion. A test on two variables, a function call or Ren'Py's
   or persistent state stays as before, its blocks skipped and reported
   `if chain not converted (why)`.
 
 docs/extracting.md, "The walk follows labels", "Conditions", "ATL frame
-lists" and "Colours and transitions", has every rule. A folder converted before Kinetic 1.12.0
-gains colours and transitions only by converting it again (Upgrading
-to a newer Kinetic).
+lists" and "Colours and transitions", has every rule. A folder
+converted before Kinetic 1.12.0 gains colours and transitions, and one
+converted before 1.15.0 its jump menus, conditions, one-choice lines and
+frame-by-frame animations, only by converting it again (Upgrading to a
+newer Kinetic).
 
 ### Checking a conversion: kinetic report
 
@@ -459,9 +485,12 @@ those problems in their place, prints the rest, and exits 1.
 
 `kinetic routes` prints the branch structure as the branch map draws
 it, as an indented outline: each stretch of items, each decision with
-its prompt and where its line carries on, and under it each route with
-its label, result, item count, first and last items, and where it ends
-or rejoins, nested decisions indented under their route. Decisions no
+its prompt, where its line carries on and the decision it `follows`,
+and under it each route with its label, result, item count, first and
+last items, where it ends or rejoins and the earlier picks it takes
+(`when`), nested decisions indented under their route; a following
+decision also says which earlier picks no route takes, passing it on
+to its `continueAt`. Decisions no
 line reaches, `branches` entries the player drops, and items no reading
 reaches are listed after it. `--dot` prints the same as Graphviz DOT,
 `--json` as one JSON object; the exit status is as for `report`, except
@@ -490,7 +519,9 @@ to lay beside the `.rpy` source: each item as an anchor
 line as `Speaker: text`, `Speaker (thinks): text` or bare narration.
 Text tags are read to the shown text and emphasis is dropped, not
 written as Markdown asterisks, which are common in a game's own text.
-Each choice lists its route labels; each route follows under a
+Each choice lists its route labels, with the earlier pick each takes
+for a decision that `follows` another, and a comment says what it
+follows; each route follows under a
 `## Route DECISION/ROUTE` heading and ends in a comment saying where it
 leads. `--lang TAG` reads the texts, names, prompts and labels from that
 language file, marking `[base] ` each string it lacks. `--out DIR`
@@ -1425,6 +1456,36 @@ end, and give the next picture a `transition` (Transitions, below) to
 crossfade into it. The validator
 accepts this manifest; `tools/data/branches-example` carries exactly
 this folder.
+
+A decision whose content depends on an earlier pick, as a Ren'Py `if`
+on the variable a choice set does, can name that earlier decision in
+`follows` (a decision whose `after` comes before its own, not itself
+and not one enclosing it). Each of its routes then gives `when`, the
+ids of the earlier decision's routes it belongs to; no id is in two
+routes' lists, and at most one route has no `when` and takes the rest.
+With Play all routes off it shows no choice: the route matching the
+reader's last pick there starts at once, as a pick, or, when no route
+takes that pick, the story goes on at `continueAt`, so such a decision
+needs `continuingRoute` and `continueAt`. With no pick known it is an
+ordinary choice, and with Play all routes on it is an ordinary decision
+whose matching route plays last. A player older than 1.15.0 ignores
+both fields and shows an ordinary choice. After the example's
+`cafe-choice`, for instance:
+
+```json
+{
+  "id": "after-cafe", "after": "cafe-008", "follows": "cafe-choice",
+  "prompt": "Which fits your story so far?",
+  "routes": [
+    { "id": "had-tea", "label": "If you chose: Stay for tea",
+      "start": "tea-thanks-009", "end": "tea-thanks-009",
+      "result": "continue", "when": ["stay"] },
+    { "id": "left", "label": "If you chose: Leave before they close",
+      "start": "rain-010", "end": "rain-010", "when": ["leave"] }
+  ],
+  "continuingRoute": "left", "continueAt": "walk-011"
+}
+```
 
 ### Text tags
 
@@ -3930,5 +3991,8 @@ items that keep their ids keep their seen marks and the reading
 position; ids that no longer exist drop out of it. A folder converted
 before Kinetic 1.12.0 gains speaker colours and transitions only this
 way, and the walk from `label start` may change which items it holds and
-their ids (CHANGELOG.md, 1.12.0). A hand-authored folder follows
+their ids (CHANGELOG.md, 1.12.0); one converted before 1.15.0 gains
+its jump menus, conditions, one-choice lines and frame-by-frame
+animations only this way, with more items and new ids after the first
+change (CHANGELOG.md, 1.15.0). A hand-authored folder follows
 docs/content-format.md for the new `schemaVersion` instead.

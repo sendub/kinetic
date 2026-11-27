@@ -45,7 +45,7 @@ def test_golden_manifest_carries_the_decision(tmp_path: Path) -> None:
     assert mask_tracks(manifest, encoded) == mask_tracks(
         json.loads(GOLDEN.read_text("utf-8")), encoded)
     branches = manifest["branches"]
-    assert len(branches) == 2
+    assert len(branches) == 5
     decision = branches[0]
     ids = [i["id"] for i in manifest["items"]]
     assert decision["id"] == "menu-start-47"
@@ -71,7 +71,7 @@ def test_golden_manifest_carries_the_decision(tmp_path: Path) -> None:
     # The second menu's first choice jumps straight to label inside, where
     # the second choice's path goes too: its route is its choice text.
     second = branches[1]
-    assert (second["id"], second["after"]) == ("menu-start-62", "line-012")
+    assert (second["id"], second["after"]) == ("menu-start-63", "line-012")
     assert [(r["label"], r["start"], r["end"], r["result"])
             for r in second["routes"]] == [
         ("Go back inside", "line-013", "line-013", "continue"),
@@ -79,6 +79,30 @@ def test_golden_manifest_carries_the_decision(tmp_path: Path) -> None:
     assert manifest["items"][12]["text"] == "Go back inside"
     assert second["continuingRoute"] == "Stay-under-the-stars-2"
     assert second["continueAt"] == "bg-room-015"
+    # The nightcap (Phase 60 item 9): a menu whose choices jump to a
+    # shared label, the empty first choice its text, the refusal a
+    # "return" through the lead-in; an `if` chain on its choice that
+    # follows it; a counter chain labelled by ranges.
+    drink, chain, counter = branches[2:]
+    assert (drink["id"], drink["after"]) == ("menu-ask_drink-98",
+                                             "bg-room-023")
+    assert [(r["label"], r["start"], r["end"], r["result"])
+            for r in drink["routes"]] == [
+        ("Tea, please", "line-024", "line-024", "continue"),
+        ("Cocoa", "line-025", "line-025", "continue"),
+        ("Not yet", "line-026", "line-026", "return")]
+    assert (drink["continuingRoute"], drink["continueAt"]) == (
+        "Cocoa-2", "line-027")
+    assert (chain["follows"], chain["after"]) == ("menu-ask_drink-98",
+                                                  "line-027")
+    assert [(r["label"], r["when"]) for r in chain["routes"]] == [
+        ("If you chose: Tea, please", ["Tea-please-1"]),
+        ("If you chose: Cocoa", ["Cocoa-2"])]
+    assert chain["continueAt"] == "line-030"
+    assert "follows" not in counter
+    assert [r["label"] for r in counter["routes"]] == [
+        "warmth 2 or more", "warmth exactly 1", "warmth under 1"]
+    assert counter["continueAt"] == "candle-034"
 
 
 def test_detected_choice_flow_stays_in_the_item_array() -> None:
@@ -97,15 +121,20 @@ def test_ledger_notes_every_menu(tmp_path: Path) -> None:
     notes = ledger["branchDetection"]
     detected = [n for n in notes if n["result"] == "detected"]
     skipped = [n for n in notes if n["result"] == "skipped"]
-    assert len(detected) == 2 and skipped == []
-    assert [n["source"] for n in detected] == ["game/script.rpy:47",
-                                                "game/script.rpy:62"]
+    assert len(detected) == 5 and skipped == []
+    assert [n["source"] for n in detected] == [
+        "game/script.rpy:47", "game/script.rpy:63", "game/script.rpy:98",
+        "game/script.rpy:113", "game/script.rpy:118"]
     assert detected[0]["note"] == (
         "decision menu-start-47: 2 routes: 'Warm the room again' continue "
-        "(reaches the join at game/script.rpy:58); 'Walk the garden path' "
-        "continue (reaches the join at game/script.rpy:58); "
+        "(reaches the join at game/script.rpy:59); 'Walk the garden path' "
+        "continue (reaches the join at game/script.rpy:59); "
         "continuingRoute Walk-the-garden-path-2, continueAt line-012")
-    assert "reaches the join at game/script.rpy:72" in detected[1]["note"]
+    assert "reaches the join at game/script.rpy:73" in detected[1]["note"]
+    assert ("'Not yet' return (jumps back to the menu through its lead-in "
+            "at game/script.rpy:97)") in detected[2]["note"]
+    assert "kind follows" in detected[3]["note"]
+    assert "kind ranges" in detected[4]["note"]
     reasons = [r["reason"] for r in ledger["report"]]
     assert not any("menu unsupported" in r for r in reasons)
 
@@ -113,7 +142,7 @@ def test_ledger_notes_every_menu(tmp_path: Path) -> None:
 def test_cli_summary_counts_branches(tmp_path: Path, capsys) -> None:
     cli_main([str(FIXTURE), str(tmp_path / "out")])
     out = capsys.readouterr().out
-    assert "branches: 2 detected, 0 menus skipped" in out
+    assert "branches: 5 detected, 0 menus skipped" in out
 
 
 def test_detected_output_validates(tmp_path: Path) -> None:

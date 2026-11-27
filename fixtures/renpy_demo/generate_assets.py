@@ -25,7 +25,9 @@ Deliberate mislabels exercise content sniffing (docs/plan.md Phase 10:
 corpus files lie): `mislabeled.png` holds BMP bytes and `mislabeled.jpg`
 holds PNG bytes. `photo-noise.png` is a 256x256 photo-like texture where
 lossless JPEG XL beats PNG; `anim.gif` is an animated image that must stay
-byte-identical (never re-encoded). `tl/de/data/bg-room.png` is a
+byte-identical (never re-encoded). `candle-1.png` to `candle-3.png` are
+the frames of the script's ATL frame list (`image candle:`), a few
+hundred bytes each. `tl/de/data/bg-room.png` is a
 per-language replacement of `bg-room.png` (Ren'Py's `game/tl/<language>/`
 file replacement), which the converter ignores and counts.
 """
@@ -181,6 +183,20 @@ def tiny_gif() -> None:
             duration=200, loop=0)
 
 
+def candle() -> None:
+    """Three frames of a candle flame for the script's ATL frame list
+    (`image candle:`, Phase 60 item 9): one dark room, the flame drawn
+    at three heights. Few colours, so each PNG stays well under 1 KB."""
+    for n, height in enumerate((26, 40, 32), start=1):
+        img = Image.new("P", (WIDTH, HEIGHT))
+        img.putpalette([12, 10, 20, 90, 70, 50, 250, 190, 60, 255, 240, 170])
+        draw = ImageDraw.Draw(img)
+        draw.rectangle([150, 120, 170, 170], fill=1)
+        draw.ellipse([148, 118 - height, 172, 122], fill=2)
+        draw.ellipse([155, 120 - height // 2, 165, 121], fill=3)
+        img.save(DATA_DIR / f"candle-{n}.png", format="PNG", optimize=True)
+
+
 def main() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     gradient("bg-room.png", (40, 60, 90), (10, 14, 24))
@@ -192,6 +208,7 @@ def main() -> None:
     mislabeled()
     photo_noise()
     tiny_gif()
+    candle()
     clip()
     talk()
     sounds()

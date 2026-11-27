@@ -46,10 +46,13 @@ breaks, written with Ren'Py's own text tags (`{i}`, `{b}`, `{u}`, `{s}`,
 `{nw}`, `{fast}`, `{cps}`) are left out.
 
 Pictures, animations (a few pictures looped) and videos fill the screen
-without stretching. A picture can dissolve in over the one before, or
-fade through black. A transition never holds up the text: the line shows
-at once, any key ends the transition and does its own job, and skip, the
-wheel, jumps, a reload and a reduced-motion setting cut.
+without stretching. An animation loops under the lines said over it, or
+plays its loops and then holds its last picture under them; skipping,
+rewinding or jumping onto one of those lines shows that last picture.
+A picture can dissolve in over the one before, or fade through black.
+A transition never holds up the text: the line shows at once, any key
+ends the transition and does its own job, and skip, the wheel, jumps, a
+reload and a reduced-motion setting cut.
 
 ## Moving through the story
 
@@ -438,7 +441,9 @@ map's scrolling keys keep scrolling.
 Position, seen content, routes (including the route last picked at each
 choice), bookmarks and settings are saved as you read, under the story's
 ID (the manifest's `storyId`), so moving or renaming the folder keeps
-them, and the next visit resumes on the screen you left. In a browser
+them, and the next visit resumes on the screen you left. A choice you
+left open comes back open, waiting for your answer (with Play all routes
+on, its countdown starts again). In a browser
 they are saved in that browser; the apps keep them on the computer.
 Export and Import on the Esc screen move them to another browser or
 machine.

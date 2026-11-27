@@ -19,6 +19,11 @@ something more of an author.
 
 ## 1.15.0-dev
 
+- A reload, or closing and reopening the game, with a choice open
+  shows the choice again, waiting for an answer (with Play all routes
+  on, its countdown starts again). Before, no choice showed, and with
+  Play all routes off the reader was stuck until a wheel notch back and
+  forward.
 - A decision that follows an earlier one: a decision's optional
   `follows` names an earlier decision, and each of its routes may give
   `when`, the routes of that decision it belongs to (at most one route
@@ -32,6 +37,28 @@ something more of an author.
   follows and which pick each route takes. The validator checks both
   fields (docs/content-format.md, "Branches", rules 26 and 27). An
   older player ignores them and shows an ordinary choice.
+- The converter makes a decision of a menu whose choices set variables
+  and `jump` (or `call`, or `return`) elsewhere, the commonest Ren'Py
+  menu, where it used to keep it linear (`jump inside a choice block`).
+  Each choice's path to where the paths meet is its route: one reaching
+  that join is `"continue"`, the last such route the `continuingRoute`
+  and the join its `continueAt`; one jumping back to the menu, or to the
+  question just before it (a refusal), `"return"`; one reaching the
+  story's end `"ending"`. A menu whose choices hold their lines in place
+  now continues at its join too, where 1.14.0 wrote a pure choice whose
+  routes all ended, which made a reader with Play all routes off read
+  every route before going on. A choice with no line of its own, and a route
+  that opens with a nested menu, shows its choice text as a line,
+  translated from the language's `strings` block. Menus inside routes
+  become nested decisions. A menu stays linear, reported, when every
+  choice is empty, when a choice's path rejoins another's content away
+  from the join, or when a choice is conditional (`"x" if cond:`). The
+  ledger's `branchDetection` note says how each route's result was
+  proven (docs/extracting.md, "The walk follows labels").
+- A menu of one plain choice keeps the choice, often the protagonist's
+  line, as a narration line where the menu stood, translated from the
+  language's `strings` block, and reads on with its block, where the
+  converter dropped it (`fewer than two choices`).
 - The converter makes a decision of an `if`/`elif`/`else` chain whose
   tests read one variable the script sets (`$ x = ...`, `+=`, `-=`,
   `default`, `define`), where it used to skip every arm as an
@@ -83,6 +110,24 @@ something more of an author.
   menu now shows that visual, where the player showed whatever the
   route before it last showed: the line's item repeats the menu's
   visual (docs/extracting.md, "The walk follows labels").
+- The converter reads script and `tl/` lines indented with
+  non-breaking spaces (U+00A0) as Ren'Py does, where a translation block
+  indented that way gave no text, and breaks lines only where Ren'Py
+  does, so a form feed, U+2028 or another such character inside a line
+  no longer splits it and shifts the line numbers that sources and
+  translation identifiers come from.
+- **Upgrading:** a folder you keep as converted needs nothing; its
+  player reads `follows`, `frameSeconds` and `holdLastFrame` once
+  upgraded. Converting a Ren'Py game again with this release gains its
+  jump menus, conditions, one-choice lines and frame-by-frame
+  animations, with the lines and sound that went with them, and its
+  converted menus continue at their joins instead of being pure
+  choices: more items come out, items after the first change get new
+  ids, and a reader's saved place, seen items and bookmarks follow item
+  ids, so check them before shipping the game again under the same
+  `storyId`. Read `kinetic report`'s "Decisions made from conditions",
+  name the variables there in a `--condition-names` file kept with the
+  game, and pass it on every conversion.
 
 ## 1.14.0 (2026-11-21)
 

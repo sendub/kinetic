@@ -209,6 +209,95 @@
           "track": "talk"
         }
       }
+    },
+    {
+      "id": "bg-room-023",
+      "type": "image",
+      "file": "media/4e/4e31ed53f4e9c99c989189f6b0bcda70e59e3f22b3b16151cc53db95142f882e.jxl",
+      "speaker": "Ana",
+      "text": "Something warm before bed?"
+    },
+    {
+      "id": "line-024",
+      "type": "text",
+      "text": "Tea, please"
+    },
+    {
+      "id": "line-025",
+      "type": "text",
+      "speaker": "Dmitri",
+      "text": "I will melt the chocolate slowly."
+    },
+    {
+      "id": "line-026",
+      "type": "text",
+      "speaker": "Dmitri",
+      "text": "Take your time."
+    },
+    {
+      "id": "line-027",
+      "type": "text",
+      "text": "You settle by the window with your cup."
+    },
+    {
+      "id": "line-028",
+      "type": "text",
+      "speaker": "Dmitri",
+      "text": "The tea is strong and dark."
+    },
+    {
+      "id": "line-029",
+      "type": "text",
+      "speaker": "Dmitri",
+      "text": "The cocoa is sweet and thick."
+    },
+    {
+      "id": "line-030",
+      "type": "text",
+      "speaker": "Ana",
+      "text": "The rain has stopped."
+    },
+    {
+      "id": "line-031",
+      "type": "text",
+      "speaker": "Ana",
+      "text": "The whole house feels warm now."
+    },
+    {
+      "id": "line-032",
+      "type": "text",
+      "speaker": "Ana",
+      "text": "One warm corner is enough."
+    },
+    {
+      "id": "line-033",
+      "type": "text",
+      "speaker": "Ana",
+      "text": "The cold creeps back in."
+    },
+    {
+      "id": "candle-034",
+      "type": "animation",
+      "frames": [
+        "media/05/056d24eefa035765253298862c620164bcdd6b42acd26390728ad8191b0b16cd.jxl",
+        "media/6d/6d4504f1c32280edfca0130fafc48a1dda398a65653210d114fa196e328fdc10.jxl",
+        "media/d9/d953ced4eee42fedb02f61fe9ae6a5cf55c7b8be92580cc320e21200c73eb375.jxl"
+      ],
+      "fps": 5.0,
+      "frameSeconds": [
+        0.3,
+        0.15,
+        0.15
+      ],
+      "loopCount": 2,
+      "holdLastFrame": true,
+      "speaker": "Ana",
+      "text": "A candle gutters on the sill, then holds still."
+    },
+    {
+      "id": "line-035",
+      "type": "text",
+      "text": "The house sleeps."
     }
   ],
   "branches": [
@@ -236,7 +325,7 @@
       "continueAt": "line-012"
     },
     {
-      "id": "menu-start-62",
+      "id": "menu-start-63",
       "after": "line-012",
       "prompt": "What happens next?",
       "routes": [
@@ -257,6 +346,96 @@
       ],
       "continuingRoute": "Stay-under-the-stars-2",
       "continueAt": "bg-room-015"
+    },
+    {
+      "id": "menu-ask_drink-98",
+      "after": "bg-room-023",
+      "prompt": "What happens next?",
+      "routes": [
+        {
+          "id": "Tea-please-1",
+          "label": "Tea, please",
+          "start": "line-024",
+          "end": "line-024",
+          "result": "continue"
+        },
+        {
+          "id": "Cocoa-2",
+          "label": "Cocoa",
+          "start": "line-025",
+          "end": "line-025",
+          "result": "continue"
+        },
+        {
+          "id": "Not-yet-3",
+          "label": "Not yet",
+          "start": "line-026",
+          "end": "line-026",
+          "result": "return"
+        }
+      ],
+      "continuingRoute": "Cocoa-2",
+      "continueAt": "line-027"
+    },
+    {
+      "id": "if-nightcap-113",
+      "after": "line-027",
+      "prompt": "Which fits your story so far?",
+      "routes": [
+        {
+          "id": "If-you-chose-Tea-please-1",
+          "label": "If you chose: Tea, please",
+          "start": "line-028",
+          "end": "line-028",
+          "result": "continue",
+          "when": [
+            "Tea-please-1"
+          ]
+        },
+        {
+          "id": "If-you-chose-Cocoa-2",
+          "label": "If you chose: Cocoa",
+          "start": "line-029",
+          "end": "line-029",
+          "result": "continue",
+          "when": [
+            "Cocoa-2"
+          ]
+        }
+      ],
+      "continuingRoute": "If-you-chose-Cocoa-2",
+      "continueAt": "line-030",
+      "follows": "menu-ask_drink-98"
+    },
+    {
+      "id": "if-nightcap-118",
+      "after": "line-030",
+      "prompt": "Which fits your story so far?",
+      "routes": [
+        {
+          "id": "warmth-2-or-more-1",
+          "label": "warmth 2 or more",
+          "start": "line-031",
+          "end": "line-031",
+          "result": "continue"
+        },
+        {
+          "id": "warmth-exactly-1-2",
+          "label": "warmth exactly 1",
+          "start": "line-032",
+          "end": "line-032",
+          "result": "continue"
+        },
+        {
+          "id": "warmth-under-1-3",
+          "label": "warmth under 1",
+          "start": "line-033",
+          "end": "line-033",
+          "result": "continue"
+        }
+      ],
+      "continuingRoute": "warmth-under-1-3",
+      "continueAt": "candle-034"
     }
   ]
 }

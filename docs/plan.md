@@ -4928,11 +4928,19 @@ The orchestrator's choices, within those decisions:
    expected counts updated); docs/extracting.md, CREATE.md, AGENTS.md
    (`--condition-names`), docs/player.md and the CHANGELOG as items 1 to
    8 left them. Tests: package-proof.
+9b. Ledger notes for condition decisions (leads from items 6c and 9).
+    A `follows` decision whose absent `else` was left out says "3
+    routes:" in its `branchDetection` note but lists the 2 the manifest
+    has (cli.py counts the chain's arms, not the decision's routes), and
+    the note does not say when the routes that set nothing took a
+    starting value from a reset in label flow (item 6c). The note counts
+    the decision's routes and names the reset's source. Tests: the
+    demo's nightcap note; a reset's note.
 10. Phase-closer: full suites; VERSION 1.15.0, the CHANGELOG dated, tag
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

@@ -46,6 +46,7 @@ label start:
 
     menu "The evening is yours to spend.":
         "Warm the room again":
+            $ warmth += 1
             scene bg-room
             a "The fire crackles as the room warms."
             d "Tea, then. The strong kind."
@@ -89,7 +90,58 @@ label inside:
     d "The television hums along."
     extend " Then it falls silent."
     stop movie
+    scene bg-room
+    $ drink = ""
+
+label ask_drink:
+    a "Something warm before bed?"
+    menu:
+        "Tea, please":
+            $ drink = "tea"
+            jump nightcap
+        "Cocoa":
+            $ drink = "cocoa"
+            $ warmth += 1
+            d "I will melt the chocolate slowly."
+            jump nightcap
+        "Not yet":
+            d "Take your time."
+            jump ask_drink
+
+label nightcap:
+    "You settle by the window with your cup."
+    if drink == "tea":
+        d "The tea is strong and dark."
+    elif drink == "cocoa":
+        d "The cocoa is sweet and thick."
+    a "The rain has stopped."
+    if warmth >= 2:
+        a "The whole house feels warm now."
+    elif warmth == 1:
+        a "One warm corner is enough."
+    else:
+        a "The cold creeps back in."
+    scene candle
+    a "A candle gutters on the sill, then holds still."
+    "The house sleeps."
     return
+
+# The nightcap (Phase 60): a menu whose choices jump to a label they share
+# (one an empty choice, one a refusal jumping back through its lead-in);
+# an `if` chain on the drink chosen, `drink` reset in label flow before the
+# menu; a counter chain on `warmth`, which the first menu's "Warm the room
+# again" and the cocoa raise; and an ATL frame list with mixed pauses,
+# played twice and held, with a line said over it.
+default warmth = 0
+
+image candle:
+    "data/candle-1.png"
+    pause 0.3
+    "data/candle-2.png"
+    pause 0.15
+    "data/candle-3.png"
+    pause 0.15
+    repeat 2
 
 # Translations: game/tl/ holds German (de), Simplified Chinese (zhCN) and an
 # unknown language name (klingon). The line inside the `if` of label inside

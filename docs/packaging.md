@@ -313,8 +313,8 @@ else is media, so beyond that fixed 1.4 MB a novel's size is its media's
 size. The demo fixture assembles to 32 files, about 1.66 MB, and the
 audio demo to 45 files, about 3.9 MB, of which its 15 short mono tracks,
 shipped as their scripts, are 2.2 MB; the audio files themselves are 1.7
-MB. The extracted demo (fixtures/renpy_demo) assembles to 24 files,
-about 1.62 MB (all three 2026-11-17).
+MB (both 2026-11-17). The extracted demo (fixtures/renpy_demo)
+assembles to 27 files, about 1.69 MB (2026-11-27).
 
 Sound costs a third more than its files, since an assembled folder
 ships each as its base64 script. MP3, AAC or Opus at 96-128 kb/s takes
@@ -387,8 +387,11 @@ installs it into a fresh venv under `.tmp/pkg-wheel/` and, with
 `KINETIC_HOME` there too, runs the installed `kinetic`: `setup` (the
 checkout's installed media tools are hard-linked into the home first,
 so nothing is downloaded but the self-test still runs; without them
-setup downloads), `extract` of `fixtures/renpy_demo`, `validate`,
-`report`, `assemble --mac --windows` (`--windows` alone off macOS),
+setup downloads), `extract` of `fixtures/renpy_demo`, whose manifest
+must hold its five decisions (one that `follows` another, one with a
+`"return"` route) and an animation with `frameSeconds` and
+`holdLastFrame`, `validate`, `report`, `assemble --mac --windows`
+(`--windows` alone off macOS),
 `check --steps all`, and on macOS the built app's `--self-check`, whose
 settings must name the game and this version. Then `release-status
 --json`, whose version, commit, counts and CHANGELOG entry must match
