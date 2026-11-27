@@ -6779,6 +6779,11 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] The converter lays a shared tail out once (item 9i).
 - [ ] Conditions only on story state (item 9k).
 - [ ] Joins through calls and returns (item 9l).
+- [ ] Say statements as Ren'Py reads them (item 9m).
+- [ ] Pictures resolved as Ren'Py resolves them (item 9n).
+- [ ] Menus no longer kept linear (item 9o).
+- [ ] More `if` chains become decisions (item 9p).
+- [ ] Variables shown in text (item 9q).
 - [ ] Fixtures and docs for shared spans (item 9j).
 - [ ] Phase-closer (Phase 60): full suites; VERSION 1.15.0, the
       CHANGELOG dated, tag v1.15.0, `main` fast-forwarded, the wheel

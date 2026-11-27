@@ -322,6 +322,67 @@ To settle:
   pattern.
 - Per-language voice folders, if a game has them.
 
+## Free-roam stories (requested, 2026-11-27)
+
+The largest loss in the corpus survey of 2026-11-27 (71 projects
+walked with the 1.15.0-dev converter): about 409,000 story lines in
+40 games are reached only through free-roam navigation, which the
+converter's walk does not follow. The forms:
+
+- Labels reached only from screen actions: a map or room screen whose
+  buttons `Jump`, `Call`, `Function` or `SetVariable` then `Return`
+  (about 84,000 lines), and `Jump` actions on screens never shown in
+  label flow (about 61,000).
+- Label names built at run time (`jump expression "day" + str(d)`,
+  about 113,000), loops with no literal entry (about 116,000), and
+  Python location or event objects choosing the next scene (about
+  28,000).
+- Gallery `Replay` actions (about 7,000).
+
+Such a story is a hub of scenes the reader visits in any order, often
+again, with scenes unlocked by time of day or progress. Kinetic plays
+one fixed order with branches.
+
+To settle:
+
+- Whether the converter lays the scenes out in one sensible order (by
+  day, by unlock order) as a linear story with each hub visit a
+  decision, or the format grows a hub: a set of scenes read in any
+  order, each once, with the map showing them.
+- How far the converter follows screen actions and computed label
+  names (the candidates a `jump expression` can reach, the buttons of
+  a screen the story calls).
+- What the reader sees for scenes the game gates by state Kinetic does
+  not track (time of day, money, stats).
+
+## Dialogue from creator-defined statements (maybe, 2026-11-27)
+
+Some games define their own statements (`renpy.register_statement`)
+for phone chats or texting screens, `chat who "Hello"`, whose
+arguments are story lines; the converter reports them as
+unrecognized (about 1,000 lines in 2 corpus games). Each game defines
+its own grammar, so a general rule cannot read them.
+
+To settle:
+
+- A per-game hook, like the media decoder hooks: a function the
+  converting agent writes that turns such a statement into items.
+- Or a chat item in the format (a phone screen with message bubbles),
+  which the hook would produce.
+
+## Cosmetic gaps from the corpus survey (maybe, 2026-11-27)
+
+Found by the 2026-11-27 survey; none loses a line:
+
+- `show x at left` sprites replace the picture instead of layering on
+  the background (3,028 shows in 30 games): Kinetic shows one picture
+  per item. Layering needs the player to compose a scene from layers,
+  or the converter to composite them.
+- Custom text tags (10,375 lines in 13 games) show as text or are
+  stripped.
+- `renpy.movie_cutscene` calls (304 in 19 games) play nothing.
+- `nvl` mode, `show text`, and transitions that become cuts.
+
 ## Not wanted
 
 - Supporting web hosts, such as itch.io (the user, 2026-11-14,

@@ -3188,6 +3188,10 @@ The user's decisions (2026-11-14 and 2026-11-15):
   it; a later route reaching it runs a skip through it on its own, as
   Tab does (Space stops it), with a pill saying it was read already;
   then the span's `result` acts.
+- **The corpus survey's converter gaps join the phase** (the user,
+  2026-11-27, after a survey of 71 projects found 40% of story lines
+  reaching the output): items 9k to 9q. Free-roam stories and
+  creator-defined statements go to docs/future.md for design.
 
 The orchestrator's choices, within those decisions:
 
@@ -5024,8 +5028,61 @@ The orchestrator's choices, within those decisions:
     `call` or an `if` with no item of its own, or that the walk reaches
     through a called label's `return`, is still the menu's join; a
     choice's `return` inside a called label returns to the caller, not
-    the story's end. Tests: synthetic projects for each shape; the
-    survey's counts rechecked read-only.
+    the story's end. A menu whose choices `call` scene labels that
+    `return` (the walk stops today: "menu region not completed in the
+    walked flow", about 204,000 lines in 9 games) becomes a decision
+    whose routes are the called scenes, joining after the menu. Tests:
+    synthetic projects for each shape; the survey's counts rechecked
+    read-only.
+9m. Say statements as Ren'Py reads them (the corpus survey: about
+    26,000 lines dropped in 13 games, 5,800 misread in 10). `e happy
+    "..."` (a speaker with image attributes) is the speaker's line, the
+    attributes changing the speaker's shown image where the converter
+    resolves it; `c.name "..."` (a dotted speaker) resolves the object's
+    Character; `"Name" "text"` is a line said by "Name". Also: `call
+    x()` with its `from` clause on the next line, and a parenthesised
+    test `if (x == 1):`. Tests: parser cases for each form; the reports
+    gone.
+9n. Pictures resolved as Ren'Py resolves them (about 30,000 lines in
+    41 games dropped with an unresolved visual). `image a = "b c"` is
+    the image named `b c`; `image` statements inside `init:` and `init
+    N:` blocks are read; `.avif` files ship (as the media pipeline
+    ships other stills); names match case-insensitively as Ren'Py's
+    loader does; `ConditionSwitch` and other displayables the converter
+    cannot show become their first picture that resolves, reported;
+    `show x:` with an ATL block names `x`; an ATL image that is not a
+    frame list (a `Solid` flash) leaves the visual as it was. A line
+    whose visual still does not resolve is kept over the last visual,
+    reported, instead of dropped. Tests: one per form; the demo's
+    golden unchanged where none applies.
+9o. Menus no longer kept linear (about 49,000 lines lost, 75,000 read
+    in a row, in 43 games). A conditional choice (`"x" if cond:`)
+    becomes a route labelled with its condition in words, as a counter
+    chain's routes are ("Kiss her (love 3 or more)"); a statement
+    between choices that the walk does not need (a caption, `set`, a
+    `$` line, `pass`) no longer keeps the menu linear; a label inside a
+    choice block is read as Ren'Py flows through it; a menu right
+    after a menu gets the placeholder line item 8c gives a nested one;
+    a menu every choice of which is empty (a stat choice) becomes a
+    decision whose routes are its choice lines, all `"continue"`; and a
+    menu that still stays linear keeps every choice's lines in a row,
+    reported, instead of losing them. New phrases in every interface
+    language, as item 6b. Tests: synthetic menus for each shape.
+9p. More `if` chains become decisions (about 73,000 lines lost and
+    34,000 read in a row, in 48 games). Tests joined by `and`/`or`,
+    comparisons on expressions the converter can name (`x + y > 3`,
+    `len(x)`), object attributes (`p.love >= 3`) and two variables
+    become words decisions labelled with the whole test; a label inside
+    an arm is read as Ren'Py flows through it. Item 9k's run-time state
+    stays unconverted. New phrases translated as in item 6b. Tests: one
+    synthetic chain per form.
+9q. Variables shown in text (39,000 lines in 51 games show a literal
+    `[name]`). `[var]` in a line or a speaker's name is replaced by the
+    variable's value where the converter knows it: a `define` or
+    `default` string, a `renpy.input` with its default; per language
+    where the translation keeps `[var]`. An unknown one stays, reported
+    by `kinetic report`. Tests: substitution in lines, speakers and
+    translations.
 9j. Fixtures and docs for shared spans. `fixtures/renpy_demo` gains a
     failure scene reached from a choice and a nested choice;
     package-proof's counts; CREATE.md, docs/extracting.md,
@@ -5035,7 +5092,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9k -> 9l -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9k -> 9l -> 9m -> 9n -> 9o -> 9p -> 9q -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 
