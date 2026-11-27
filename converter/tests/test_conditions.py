@@ -187,8 +187,13 @@ def test_a_chain_without_else_passes_the_choices_it_leaves(
             ("If you chose: Green", "Green again.", "Green again.",
              "continue", ["Green"])],
         "continueAt": "The end."}
-    assert "the choices there no arm takes pass it" in \
-        detection(ledger)[-1]["note"]
+    note = detection(ledger)[-1]["note"]
+    assert "the choices there no arm takes pass it" in note
+    # Three arms, the absent `else` left out: the note counts the 2
+    # routes the decision has (item 9b).
+    assert note.startswith(
+        f"decision {manifest['branches'][-1]['id']}: 2 routes:")
+    assert "start as" not in note
     check_folder(tmp_path, out, manifest)
 
 
@@ -595,19 +600,74 @@ def test_a_reset_in_label_flow_before_the_menu_is_its_value(
     assert shape["continueAt"] == "The end."
     assert condition_kinds(ledger) == [
         ("follows", manifest["branches"][0]["id"])]
+    # The note and the record name the reset (item 9b), and the report
+    # shows it.
+    reset = f"game/script.rpy:{line_of(script, '$ pick = \"none\"')}"
+    chain = manifest["branches"][-1]
+    note = next(n["note"] for n in detection(ledger)
+                if n["note"].startswith(f"decision {chain['id']}:"))
+    assert note.startswith(f"decision {chain['id']}: 3 routes:")
+    assert ('the choices there that set nothing start as "none" from the '
+            f"reset at {reset}") in note
+    (record,) = ledger["conditions"]
+    assert record["startingValue"] == {"value": "none", "resets": [reset],
+                                       "default": None}
+    proc = run_kinetic("report", str(out))
+    assert proc.returncode == 0, proc.stderr
+    assert (f'    the choices that set nothing start as "none" from the '
+            f"reset at {reset}") in proc.stdout
+    proc = run_kinetic("report", str(out), "--json")
+    assert proc.returncode == 0, proc.stderr
+    (listed,) = json.loads(proc.stdout)["conditions"]
+    assert listed["startingValue"] == record["startingValue"]
     check_folder(tmp_path, out, manifest)
 
 
 def test_several_resets_before_the_menu_take_the_last(
         tmp_path: Path) -> None:
-    """Resets one after another before the menu: the last is the value."""
+    """Resets one after another before the menu: the last is the value,
+    and the only one the note names."""
     script = (LEAD + '    $ pick = "stay"\n    "Wake."\n'
               '    $ pick = "none"\n    $ pick = "none"\n    jump ask\n'
               + ASK + CHAIN)
-    out, manifest, _ledger, _err = extract(tmp_path, script)
+    out, manifest, ledger, _err = extract(tmp_path, script)
     shape = decision_shape(manifest)
     assert shape["follows"] == 0
     assert shape["routes"] == FOLLOWING
+    last = line_of(script, "jump ask") - 1
+    (record,) = ledger["conditions"]
+    assert record["startingValue"] == {
+        "value": "none", "resets": [f"game/script.rpy:{last}"],
+        "default": None}
+    assert (f'start as "none" from the reset at game/script.rpy:{last})'
+            in detection(ledger)[-1]["note"])
+    check_folder(tmp_path, out, manifest)
+
+
+def test_resets_and_a_default_that_agree_are_all_named(
+        tmp_path: Path) -> None:
+    """Two ways to the menu: one passes a reset, the other none, and the
+    `default` gives the same value: the note names the reset and the
+    default."""
+    script = ('default pick = "none"\n' + LEAD +
+              '    menu:\n'
+              '        "Detour":\n'
+              '            jump detour\n'
+              '        "Straight":\n'
+              '            "Straight on."\n'
+              '    jump ask\n'
+              'label detour:\n'
+              '    $ pick = "none"\n'
+              '    "A detour."\n'
+              '    jump ask\n' + ASK + CHAIN)
+    out, manifest, ledger, _err = extract(tmp_path, script)
+    assert decision_shape(manifest, -1)["follows"] == 1
+    reset = f"game/script.rpy:{line_of(script, '$ pick = \"none\"')}"
+    (record,) = ledger["conditions"]
+    assert record["startingValue"] == {
+        "value": "none", "resets": [reset], "default": "game/script.rpy:1"}
+    assert (f'start as "none" from the reset at {reset} and the default at '
+            "game/script.rpy:1") in detection(ledger)[-1]["note"]
     check_folder(tmp_path, out, manifest)
 
 
@@ -926,7 +986,7 @@ def test_a_base_language_the_catalogue_lacks_gets_english(
         "condition": ["if love >= 3:", "elif love >= 1:", "else:"],
         "kind": "ranges", "follows": None,
         "labels": ["love 3 or more", "love 1 or 2", "love under 1"],
-        "englishFor": ["eo"]}
+        "englishFor": ["eo"], "startingValue": None}
 
 
 def test_condition_names_unknown_key_is_a_warning(tmp_path: Path) -> None:

@@ -133,7 +133,17 @@ def test_ledger_notes_every_menu(tmp_path: Path) -> None:
     assert "reaches the join at game/script.rpy:73" in detected[1]["note"]
     assert ("'Not yet' return (jumps back to the menu through its lead-in "
             "at game/script.rpy:97)") in detected[2]["note"]
+    # The nightcap's chain (Phase 60 item 9b): its absent `else` is left
+    # out, so 2 routes, and "Not yet", which sets nothing, keeps the value
+    # the reset in label flow gives.
+    assert detected[3]["note"].startswith(
+        "decision if-nightcap-113: 2 routes: 'If you chose: Tea, please'")
     assert "kind follows" in detected[3]["note"]
+    assert ('the choices there that set nothing start as "" from the '
+            "reset at game/script.rpy:94") in detected[3]["note"]
+    assert detected[4]["note"].startswith(
+        "decision if-nightcap-118: 3 routes:")
+    assert "start as" not in detected[4]["note"]
     assert "kind ranges" in detected[4]["note"]
     reasons = [r["reason"] for r in ledger["report"]]
     assert not any("menu unsupported" in r for r in reasons)

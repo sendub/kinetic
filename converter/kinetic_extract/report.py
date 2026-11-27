@@ -100,6 +100,7 @@ from typing import Any
 
 from kinetic_extract import (
     audio_format,
+    conditions,
     language_file,
     text_tags,
     validate_content,
@@ -741,7 +742,7 @@ def conditions_section(folder: Path, manifest: dict[str, Any]
     ids = {b.get("id") for b in branches if isinstance(b, dict)} \
         if isinstance(branches, list) else set()
     keys = ("decision", "source", "condition", "kind", "follows", "labels",
-            "englishFor")
+            "englishFor", "startingValue")
     return [{key: record.get(key) for key in keys}
             for record in records if isinstance(record, dict)
             and record.get("decision") in ids] \
@@ -915,6 +916,11 @@ def format_text(report: dict[str, Any]) -> str:
             + " / ".join(c["condition"] or []))
         add("    labels: " + "; ".join(
             f"\"{_one_line(label)}\"" for label in c["labels"] or []))
+        start = c["startingValue"]
+        if isinstance(start, dict) and start.get("resets"):
+            add("    the choices that set nothing start as "
+                f"{json.dumps(start.get('value'), ensure_ascii=False)} from "
+                + conditions.start_sources(start))
         if c["englishFor"]:
             add(f"    English words for: {', '.join(c['englishFor'])}")
 

@@ -6638,9 +6638,32 @@ truthful: an unchecked box means nothing was accepted.
       Orchestrator: branch extract, translations, episodes, pipeline and
       parser 187 passed; test_conditions 58 and test_atl_animation 17
       passed after the scrub. Lead: item 9b.)
-- [ ] Ledger notes for condition decisions (item 9b, a lead from items
+- [x] Ledger notes for condition decisions (item 9b, a lead from items
       6c and 9). The route count in a `follows` decision's note, and
       where its starting value came from.
+      (2026-11-27: `finalize_branches` counts the finished decision's
+      routes (`len(decision["routes"])`), so every note path agrees
+      with the manifest: the demo's nightcap reads "2 routes", the
+      counter still 3. `Resets.values_before` returns `(value, source)`
+      pairs, the last reset on each way to the menu (None where a way
+      passes none); `conditions._followed` keeps `ChainCondition.start`
+      (`value`, `resets`, `default`), None with no reset or when every
+      choice sets the variable; a `follows` note gains "the choices
+      there that set nothing start as "" from the reset at <source>",
+      the `conditions` ledger record `startingValue`, and `kinetic
+      report` the same line (text) and field (JSON); the wording is
+      `conditions.start_sources`, which report.py imports;
+      extracting.md describes them. Subagent's calls: every reset that
+      is last on some way is named, overwritten ones not; a default
+      agreeing on a way with no reset is named too; nothing said for a
+      lone `None` reset with no default; only on `follows` decisions
+      with a choice that sets nothing. Tests: the demo's notes, a reset
+      before the menu (note, `startingValue`, report text and JSON),
+      several resets naming the last, a reset and a default named, a
+      chain without `else` counting 2 routes, the report JSON's null;
+      6 failing first. Subagent: the touched files with report and flow
+      132; converter and tools 2275. Orchestrator: branch extract,
+      conditions, report and flow 132 passed.)
 - [ ] Phase-closer (Phase 60): full suites; VERSION 1.15.0, the
       CHANGELOG dated, tag v1.15.0, `main` fast-forwarded, the wheel
       attached to the GitHub release, the Pages demo republished.

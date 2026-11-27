@@ -520,8 +520,11 @@ def finalize_branches(result: TimelineResult,
             made = decision_of.get(id(rec))
             if made is not None:
                 decision, how = made
-                note = (f"decision {decision['id']}: {len(rec.choices)} "
-                        "routes: " + "; ".join(
+                # The decision's routes, not the menu's choices or the
+                # chain's arms: an absent `else` left out when following
+                # is no route (Phase 60 item 9b).
+                note = (f"decision {decision['id']}: "
+                        f"{len(decision['routes'])} routes: " + "; ".join(
                             f"{route['label']!r} {route['result']} "
                             f"({proof})" if proof else
                             f"{route['label']!r} {route['result']}"
@@ -569,17 +572,35 @@ def _condition_note(cond: Any, decision: dict[str, Any]) -> str:
         if cond.kind == "follows":
             note += (", as the menu whose choices set it is no decision "
                      "before it")
+    start = starting_value(cond, decision)
+    if start is not None:
+        note += ("; the choices there that set nothing start as "
+                 f"{json.dumps(start['value'], ensure_ascii=False)} from "
+                 + conditions.start_sources(start))
     if cond.passes and "follows" in decision:
         note += "; the choices there no arm takes pass it at continueAt"
     return note + ")"
 
 
+def starting_value(cond: Any, decision: dict[str, Any]
+                   ) -> dict[str, Any] | None:
+    """Where the value of the followed menu's choices that set nothing
+    came from, when label flow reset it before the menu (Phase 60 items
+    6c and 9b; conditions.ChainCondition.start); None for a decision
+    that does not follow."""
+    if "follows" not in decision or cond.start is None:
+        return None
+    return dict(cond.start)
+
+
 def condition_ledger(candidates: list[dict[str, Any]], base: str,
                      written: list[str]) -> list[dict[str, Any]]:
     """The ledger's `conditions`: each decision made from an `if` chain,
-    with its chain as written, kind, the decision it follows, its labels
-    and the languages (the base, the language files written) whose words
-    fell back to English."""
+    with its chain as written, kind, the decision it follows, its labels,
+    the languages (the base, the language files written) whose words
+    fell back to English and, for one that follows a menu whose choices
+    that set nothing keep a value label flow reset, that value and the
+    resets (and `default`) it came from (`startingValue`, else null)."""
     out: list[dict[str, Any]] = []
     for cand in candidates:
         branch = cand.get("branch")
@@ -595,6 +616,7 @@ def condition_ledger(candidates: list[dict[str, Any]], base: str,
             "labels": [route["label"] for route in branch["routes"]],
             "englishFor": sorted(tag for tag in cond.english_for
                                  if tag == base or tag in written),
+            "startingValue": starting_value(cond, branch),
         })
     return out
 

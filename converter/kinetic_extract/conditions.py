@@ -334,6 +334,12 @@ class ChainCondition:
     # the arm; an absent else dropped when the decision follows.
     follow: Any = field(default=None, compare=False, repr=False)
     when: list[list[int]] = field(default_factory=list)
+    # follows, when label flow resets the variable before the menu and a
+    # choice there sets nothing (item 6c): the value that choice keeps,
+    # the resets last on a way to the menu and the `default` when a way
+    # passes none (``{"value", "resets", "default"}``; docs/plan.md
+    # Phase 60 item 9b).
+    start: dict[str, Any] | None = None
     drop_when_following: list[bool] = field(default_factory=list)
     phrases: list[tuple[Any, ...]] = field(default_factory=list)
     asides: list[str] = field(default_factory=list)
@@ -654,16 +660,21 @@ def names_option(text: str) -> dict[str, Any]:
 # prepare: kinds, dead arms, labels
 # --------------------------------------------------------------------------
 
+Before = Callable[[Any, dict[str, Any], Any],
+                  list[tuple[Any, str | None]] | None]
+
+
 def _followed(var: str, sets: list[Assignment],
               choice_of: dict[str, tuple[Any, int]],
-              before: Callable[[Any, dict[str, Any], Any], list[Any] | None]
-              | None = None,
-              ) -> tuple[Any, list[Any]] | None:
-    """(the menu record, each choice's value) when every assignment of
-    ``var`` but one `default`/`define` is a literal, in that one menu's
-    choice blocks or in label flow before it (item 6c: ``before``, the
-    walk's Resets.values_before, gives the one value those leave as the
-    menu opens, which the choices that set nothing keep); else None."""
+              before: Before | None = None,
+              ) -> tuple[Any, list[Any], dict[str, Any] | None] | None:
+    """(the menu record, each choice's value, where the value of the
+    choices that set nothing came from when label flow reset it, as
+    ChainCondition.start) when every assignment of ``var`` but one
+    `default`/`define` is a literal, in that one menu's choice blocks or
+    in label flow before it (item 6c: ``before``, the walk's
+    Resets.values_before, gives the one value those leave as the menu
+    opens, which the choices that set nothing keep); else None."""
     defaults = [a for a in sets if a.op in ("default", "define")]
     others = [a for a in sets if a.op not in ("default", "define")]
     if len(defaults) > 1 or not others:
@@ -681,22 +692,45 @@ def _followed(var: str, sets: list[Assignment],
     if getattr(record, "condition", None) is not None:
         return None
     initial = default
+    start = None
     if resets:
         got = None if before is None else before(
             record, {a.source: a.literal() for a in resets}, default)
-        if not got or len(got) != 1:
+        if not got:
             return None
-        initial = got[0]
+        initial = got[0][0]
+        if any(type(v) is not type(initial) or v != initial
+               for v, _source in got):
+            return None
+        start = {"value": initial,
+                 "resets": [s for _v, s in got if s is not None],
+                 "default": defaults[0].source
+                 if defaults and any(s is None for _v, s in got) else None}
     values = [initial] * len(record.choices)
     for a in chosen:
         values[choice_of[a.source][1]] = a.literal()
-    return record, values
+    if len({choice_of[a.source][1] for a in chosen}) == len(values):
+        start = None   # every choice sets it: no choice keeps the start
+    return record, values, start
+
+
+def start_sources(start: dict[str, Any]) -> str:
+    """Where a ChainCondition.start (or the ledger's `startingValue`)
+    came from, in words: "the reset at A", "the resets at A and B" (each
+    last on a way to the menu), then "and the default at C" when a way
+    passes none."""
+    resets = [str(r) for r in start.get("resets") or []]
+    said = (f"the reset{'s' if len(resets) != 1 else ''} at "
+            + (", ".join(resets[:-1]) + " and " + resets[-1]
+               if len(resets) > 1 else "".join(resets)))
+    if start.get("default"):
+        said += f" and the default at {start['default']}"
+    return said
 
 
 def classify(cond: ChainCondition, sets: list[Assignment],
              choice_of: dict[str, tuple[Any, int]],
-             before: Callable[[Any, dict[str, Any], Any], list[Any] | None]
-             | None = None) -> list[int]:
+             before: Before | None = None) -> list[int]:
     """Set ``cond``'s kind and phrases (and for `follows` its record and
     `when`); the arms no value takes, which the caller drops. ``before``
     as for _followed."""
@@ -706,7 +740,7 @@ def classify(cond: ChainCondition, sets: list[Assignment],
     cond.phrases = [("otherwise",)] * count
     followed = _followed(var, sets, choice_of, before)
     if followed is not None:
-        record, values = followed
+        record, values, cond.start = followed
         taken: list[list[int]] = [[] for _ in range(count)]
         for c, value in enumerate(values):
             taken[cond.arm_of(value)].append(c)
@@ -806,7 +840,7 @@ def prepare(parses: list[tuple[str, Any]], base: str | None = None,
     resets: list[Resets] = []
 
     def before(record: Any, sets: dict[str, Any],
-               initial: Any) -> list[Any] | None:
+               initial: Any) -> list[tuple[Any, str | None]] | None:
         if not resets:
             resets.append(Resets(parses, start_label))
         return resets[0].values_before(record, sets, initial)

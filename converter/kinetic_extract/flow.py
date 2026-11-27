@@ -1186,12 +1186,14 @@ class Resets:
         return seen
 
     def values_before(self, record: Any, resets: dict[str, Any],
-                      initial: Any) -> list[Any] | None:
+                      initial: Any) -> list[tuple[Any, str | None]] | None:
         """The values the variable may have as the walk reaches the menu
         ``record`` when label flow sets it only at ``resets`` (source ->
-        literal) and it starts as ``initial`` (its `default`): the last
-        reset on each way from the story's start to the menu, ``initial``
-        on a way that passes none. None when that is not proven: no
+        literal) and it starts as ``initial`` (its `default`), each with
+        where it comes from: the last reset on each way from the story's
+        start to the menu (its source), ``initial`` on a way that passes
+        none (None); resets in program order, ``initial`` first. None
+        when that is not proven: no
         `label start`, the menu or a reset not on the way from it, or a
         reset that may run again after the menu (later in the story, or
         in a loop back to before the menu), or one the walk has no place
@@ -1200,12 +1202,12 @@ class Resets:
         if menu is None or self.start is None or not self.from_start[menu]:
             return None
         to_menu = self._closure([menu], self.preds)
-        at: dict[int, Any] = {}
+        at: dict[int, tuple[Any, str | None]] = {}
         for source, value in resets.items():
             n = self.set_at.get(source)
             if n is None or not self.from_start[n] or not to_menu[n]:
                 return None
-            at[n] = value
+            at[n] = (value, source)
         # After the menu, a return or a file's end goes back past each
         # call whose callee leads to the menu (one that may be under way
         # there): more than Ren'Py may, never less.
@@ -1217,7 +1219,8 @@ class Resets:
         if any(after[n] for n in at):
             return None
         # The values reaching the menu, along the ways that lead to it.
-        values: dict[int, list[Any]] = {self.start: [initial]}
+        values: dict[int, list[tuple[Any, str | None]]] = {
+            self.start: [(initial, None)]}
         todo = [self.start]
         while todo:
             n = todo.pop()
@@ -1230,10 +1233,15 @@ class Resets:
                 if fresh:
                     have += fresh
                     todo.append(m)
-        return values.get(menu)
+        got = values.get(menu)
+        return None if got is None else sorted(
+            got, key=lambda v: -1 if v[1] is None else self.set_at[v[1]])
 
 
-def _among(value: Any, values: list[Any]) -> bool:
-    """Whether ``value`` is one of ``values``, by type and value (`1` is
-    not `True`)."""
-    return any(type(v) is type(value) and v == value for v in values)
+def _among(start: tuple[Any, str | None],
+           starts: list[tuple[Any, str | None]]) -> bool:
+    """Whether ``start`` (a value and its source) is one of ``starts``,
+    the value by type and value (`1` is not `True`)."""
+    value, source = start
+    return any(type(v) is type(value) and v == value and s == source
+               for v, s in starts)

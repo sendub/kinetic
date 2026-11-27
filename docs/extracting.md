@@ -403,10 +403,19 @@ The ledger's `branchDetection` note for such a decision ends `from a
 condition on love, kind ranges (...)`, and the ledger's `conditions`
 lists each one: `decision`, `source`, `condition` (the chain's heads as
 written), `kind` (`follows`, `ranges` or `words`), `follows` (the
-decision it follows, or null), `labels`, and `englishFor`, the languages
+decision it follows, or null), `labels`, `englishFor`, the languages
 (the base and each language file written) whose words fell back to
-English. The summary counts them (`conditions: ...`), and `kinetic
-report` lists them (Decisions made from conditions).
+English, and `startingValue`. That is null unless the decision follows a
+menu some choice of which sets nothing and label flow resets the
+variable before that menu; then it is the value those choices keep with
+where it came from, `{"value": "", "resets": ["game/script.rpy:94"],
+"default": null}`: every reset that is the last on some way to the menu
+(several when the ways differ but agree on the value), and the
+`default`'s source when a way passes no reset. The note says the same
+(`the choices there that set nothing start as "" from the reset at
+game/script.rpy:94`). The summary counts them (`conditions: ...`), and
+`kinetic report` lists them (Decisions made from conditions), a starting
+value under its labels.
 
 ## Several episodes, one game
 
