@@ -30,6 +30,19 @@ Item 9n2 (the pictures item 9n still missed):
 - Literal `renpy.image("name", "file")` calls define images.
 - A `Movie(...)` image is its video: its `play` file, or what `play
   movie` plays on its channel.
+
+Item 9n3:
+
+- A shown solid colour (Ren'Py's built-in `black`, `"#rgb"`, `"#rgba"`,
+  `"#rrggbb"`, `"#rrggbbaa"`, `Solid(...)` of a literal colour) is a
+  still of that colour at the game's size, one per colour, which
+  `kinetic media rebuild` makes again; a file of the image's name still
+  shows in its place. A translucent `show` keeps its lines over the
+  picture; a translucent `scene` shows over black. A solid colour
+  replaced before anything shows it is left out.
+- A menu before any picture hangs off a black still.
+- A say statement's attributes try the exact image name first, as
+  Ren'Py's `apply_attributes` does.
 """
 
 from __future__ import annotations
@@ -124,16 +137,15 @@ def test_a_string_starting_with_a_hash_is_a_solid_colour(tmp_path: Path
         '    scene flash\n    "During."\n'
         '    return\n'))
     assert texts(manifest) == ["Before.", "During."]
-    assert assets(manifest, ledger) == ["bg", "bg"]
-    assert any(r.startswith("solid color screen") for r in reasons(ledger))
+    assert shown(out, manifest, ledger) == ["bg", "#ffffff"]
     assert not any("unresolved" in r.lower() for r in reasons(ledger))
 
 
 def test_a_file_named_as_a_solid_colour_image_shows_in_its_place(
         tmp_path: Path) -> None:
-    """The converter ships no solid colour: a picture of the name (often
-    a black file beside `image black = "#000"`) is the closer stand-in
-    than the last picture."""
+    """A picture of the name (often a black file beside `image black =
+    "#000"`) shows in place of the solid colour (item 9n), not a
+    generated still (item 9n3)."""
     out, manifest, ledger = run(tmp_path, (
         'image flash = "#fff"\n'
         'image dark = Solid("#000")\n'
@@ -774,3 +786,334 @@ def test_a_movie_channel_of_its_own(tmp_path: Path) -> None:
         '    return\n'))
     assert [(i["type"], i.get("text")) for i in manifest["items"]] == [
         ("image", "Before."), ("video", "Playing.")]
+
+
+# ==========================================================================
+# Item 9n3
+# ==========================================================================
+
+# --------------------------------------------------------------------------
+# A shown solid colour is a still of that colour
+# --------------------------------------------------------------------------
+
+def generated_colour(out: Path, item: dict) -> str:
+    """The one colour of a generated still, as `#rrggbb`, checking it is
+    a PNG at the game's size."""
+    assert item["file"].endswith(".png")
+    with Image.open(out / item["file"]) as img:
+        rgb = img.convert("RGB")
+        extrema = rgb.getextrema()
+        assert all(lo == hi for lo, hi in extrema), extrema
+        return "#" + "".join(f"{lo:02x}" for lo, _hi in extrema)
+
+
+def shown(out: Path, manifest: dict, ledger: dict) -> list[str | None]:
+    """As ``assets``, a generated still named by its colour."""
+    out_list, last = [], None
+    for item in manifest["items"]:
+        entry = ledger["items"][item["id"]]
+        if item["type"] == "text":
+            pass
+        elif entry.get("decision") == "generated":
+            last = generated_colour(out, item)
+        elif item["type"] == "animation":
+            last = "(animation)"
+        else:
+            last = Path(entry["asset"]).stem
+        out_list.append(last)
+    return out_list
+
+
+def test_scene_black_after_a_picture_shows_a_black_still(tmp_path: Path
+                                                         ) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene black\n    "B."\n    "C."\n'
+        '    scene bg\n    "D."\n'
+        '    return\n'))
+    assert [(i["type"], i.get("text")) for i in manifest["items"]] == [
+        ("image", "A."), ("image", "B."), ("text", "C."), ("image", "D.")]
+    assert shown(out, manifest, ledger) == ["bg", "#000000", "#000000", "bg"]
+    ref = manifest["items"][1]["file"]
+    assert ledger["media"][ref]["source"] == {"generated": "black"}
+    assert not any(r.startswith("solid color screen")
+                   for r in reasons(ledger))
+    assert not any(KEPT in n for n in notes_of(manifest, ledger, "C."))
+
+
+@pytest.mark.parametrize(("define", "colour"), [
+    ('"#fff"', "#ffffff"),
+    ('"#80c0ff"', "#80c0ff"),
+    ('"#102030ff"', "#102030"),
+    ('"#0f0f"', "#00ff00"),
+    ("Solid('#c84')", "#cc8844"),
+    ('Solid("#12345678")', "#081828"),
+    ('Solid((10, 20, 30))', "#0a141e"),
+    ('Solid((10, 20, 30, 255))', "#0a141e"),
+    ('Solid(color="#123")', "#112233"),
+    ('Solid("#fff", xalign=0.5)', "#ffffff"),
+])
+def test_each_solid_colour_form_shows_its_colour(tmp_path: Path, define: str,
+                                                 colour: str) -> None:
+    """A scene of a translucent colour (`#12345678`) shows it over black,
+    the empty scene under it."""
+    out, manifest, ledger = run(tmp_path, (
+        f'image flash = {define}\n'
+        'label start:\n'
+        '    scene bg\n    "Before."\n'
+        '    scene flash\n    "During."\n'
+        '    show bg\n    "After."\n'
+        '    return\n'))
+    assert texts(manifest) == ["Before.", "During.", "After."]
+    assert shown(out, manifest, ledger) == ["bg", colour, "bg"]
+    item = manifest["items"][1]
+    assert item["id"].startswith("flash")
+    expected = "black" if colour == "#000000" else colour
+    assert ledger["media"][item["file"]]["source"] == {"generated": expected}
+    assert any(colour in n for n in notes_of(manifest, ledger, "During."))
+
+
+def test_a_show_of_a_solid_colour_covers_the_picture(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'image red = "#f00"\n'
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    show red\n    "B."\n'
+        '    return\n'))
+    assert shown(out, manifest, ledger) == ["bg", "#ff0000"]
+
+
+def test_scene_white_with_no_definition_is_white(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene white\n    "B."\n'
+        '    return\n'))
+    assert shown(out, manifest, ledger) == ["bg", "#ffffff"]
+
+
+def test_a_file_named_black_shows_in_place_of_the_built_in_black(
+        tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene black\n    "B."\n'
+        '    return\n'), {"images/black.png": (1, 2, 3)})
+    assert shown(out, manifest, ledger) == ["bg", "black"]
+    assert not any(e["source"].get("generated")
+                   for e in ledger["media"].values())
+
+
+def test_a_file_elsewhere_named_black_is_not_the_built_in_black(
+        tmp_path: Path) -> None:
+    """Ren'Py names `gui/black.png` `gui/black`, not `black`: the
+    built-in black is not that file, whose basename only matches."""
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene black\n    "B."\n'
+        '    return\n'), {"gui/black.png": (1, 2, 3)})
+    assert shown(out, manifest, ledger) == ["bg", "#000000"]
+
+
+def test_scene_hash_colour_is_a_bare_scene_over_black(tmp_path: Path) -> None:
+    """Ren'Py reads `#` outside a string as a comment: `scene #fff` is a
+    bare `scene`, which clears the layer to black."""
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene #fff\n    "B."\n'
+        '    return\n'))
+    assert shown(out, manifest, ledger) == ["bg", "#000000"]
+
+
+def test_a_translucent_show_keeps_its_lines_over_the_picture(tmp_path: Path
+                                                            ) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'image dim = "#00000080"\n'
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    show dim\n    "B."\n'
+        '    scene dim\n    "C."\n'
+        '    return\n'))
+    assert [(i["type"], i.get("text")) for i in manifest["items"]] == [
+        ("image", "A."), ("text", "B."), ("image", "C.")]
+    assert shown(out, manifest, ledger) == ["bg", "bg", "#000000"]
+    assert any("translucent" in n for n in notes_of(manifest, ledger, "B."))
+    assert any("translucent" in r for r in reasons(ledger))
+
+
+def test_a_translucent_show_before_any_picture_shows_over_black(
+        tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'image tint = "#ff000080"\n'
+        'label start:\n'
+        '    show tint\n    "A."\n'
+        '    scene bg\n    "B."\n'
+        '    return\n'))
+    assert shown(out, manifest, ledger) == ["#800000", "bg"]
+
+
+def test_a_sized_solid_keeps_its_lines_over_the_picture(tmp_path: Path
+                                                       ) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'image bar = Solid("#fff", xysize=(100, 20))\n'
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    show bar\n    "B."\n'
+        '    return\n'))
+    assert shown(out, manifest, ledger) == ["bg", "bg"]
+    assert any("bar" in r["statement"] for r in ledger["report"])
+
+
+def test_a_transition_into_a_solid_colour(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene white with dissolve\n    "B."\n'
+        '    return\n'))
+    assert shown(out, manifest, ledger) == ["bg", "#ffffff"]
+    assert manifest["items"][1]["transition"]["kind"] == "dissolve"
+
+
+def test_a_solid_colour_nothing_shows_is_left_out(tmp_path: Path) -> None:
+    """`scene black` then `show bg` with nothing between: Ren'Py never
+    shows the black, so no bare item does; a transition or a pause shows
+    it."""
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene black\n    show bg\n    "B."\n'
+        '    scene black with dissolve\n    show bg\n    "C."\n'
+        '    scene white\n    pause 1.0\n    show bg\n    "D."\n'
+        '    return\n'))
+    assert [(i["type"], i.get("text")) for i in manifest["items"]] == [
+        ("image", "A."), ("image", "B."), ("image", None), ("image", "C."),
+        ("image", None), ("image", "D.")]
+    assert shown(out, manifest, ledger) == [
+        "bg", "bg", "#000000", "bg", "#ffffff", "bg"]
+
+
+def test_one_still_per_colour(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'image flash = "#ffffff"\n'
+        'label start:\n'
+        '    "Over black."\n'
+        '    scene white\n    "A."\n'
+        '    scene black\n    "B."\n'
+        '    scene flash\n    "C."\n'
+        '    return\n'))
+    assert shown(out, manifest, ledger) == [
+        "#000000", "#ffffff", "#000000", "#ffffff"]
+    generated = sorted(e["source"]["generated"]
+                       for e in ledger["media"].values()
+                       if "generated" in e["source"])
+    assert generated == ["#ffffff", "black"]
+    assert len({i["file"] for i in manifest["items"]}) == 2
+
+
+def test_a_coloured_still_rebuilds_from_the_ledger(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'image sky = Solid((40, 120, 200))\n'
+        'label start:\n'
+        '    scene bg\n    "A."\n'
+        '    scene sky\n    "B."\n'
+        '    return\n'))
+    ref = manifest["items"][1]["file"]
+    made = ledger["media"][ref]
+    assert made["source"] == {"generated": "#2878c8"}
+    assert [s["step"] for s in made["steps"]] == ["solid"]
+    assert made["steps"][0]["rgb"] == [40, 120, 200]
+    rebuilt = tmp_path / "rebuilt"
+    with redirect_stdout(StringIO()) as said:
+        assert media_main(["rebuild", str(tmp_path / "proj"), str(out),
+                           "--out", str(rebuilt)]) == 0
+    assert f"{len(ledger['media'])} matched, 0 failed" in said.getvalue()
+    assert (rebuilt / ref).read_bytes() == (out / ref).read_bytes()
+    (out / ref).write_bytes(b"not blue")
+    with redirect_stdout(StringIO()):
+        assert media_main(["rebuild", str(tmp_path / "proj"), str(out)]) == 1
+
+
+# --------------------------------------------------------------------------
+# A menu before any picture
+# --------------------------------------------------------------------------
+
+def test_a_menu_before_any_picture_hangs_off_black(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    menu:\n'
+        '        "Left":\n'
+        '            "Went left."\n'
+        '        "Right":\n'
+        '            scene bg\n'
+        '            "Went right."\n'
+        '    "Met again."\n'
+        '    return\n'))
+    assert texts(manifest) == [None, "Went left.", "Went right.",
+                               "Met again."]
+    assert shown(out, manifest, ledger)[:2] == ["#000000", "#000000"]
+    (branch,) = manifest["branches"]
+    assert branch["after"] == manifest["items"][0]["id"]
+    assert not any("no item precedes" in r for r in reasons(ledger))
+    check_folder(tmp_path, out, manifest)
+
+
+# --------------------------------------------------------------------------
+# A say statement's attributes: the exact image name first
+# --------------------------------------------------------------------------
+
+def test_say_attributes_try_the_exact_image_name_first(tmp_path: Path
+                                                       ) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'define e = Character("Eve", image="eve")\n'
+        'label start:\n'
+        '    scene bg\n'
+        '    show eve casual calm\n    e "Calm."\n'
+        '    e happy "Happy."\n'
+        '    e casual calm "Calm again."\n'
+        '    e sad "Sad."\n'
+        '    return\n'), {"images/eve casual calm.png": (10, 20, 30),
+                          "images/eve casual happy.png": (200, 20, 30),
+                          "images/eve happy.png": (10, 200, 30),
+                          "images/eve casual sad.png": (10, 20, 200)})
+    assert assets(manifest, ledger)[1:] == [
+        "eve casual calm", "eve happy", "eve casual calm", "eve casual sad"]
+    assert any("exact" in n for n in notes_of(manifest, ledger, "Happy."))
+
+
+# --------------------------------------------------------------------------
+# Together
+# --------------------------------------------------------------------------
+
+def test_item_9n3_forms_together_make_a_folder_that_plays(tmp_path: Path
+                                                          ) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'define e = Character("Eve", image="eve")\n'
+        'image flash = "#fff"\n'
+        'image dim = Solid((0, 0, 0, 128))\n'
+        'image sky = Solid("#28c")\n'
+        'label start:\n'
+        '    menu:\n'
+        '        "Look up":\n'
+        '            scene sky with dissolve\n'
+        '            "The sky."\n'
+        '        "Look down":\n'
+        '            scene black\n'
+        '            "The ground."\n'
+        '    scene bg\n    show eve casual calm\n    e "Eve."\n'
+        '    e happy "Happy."\n'
+        '    show dim\n    "Dimmed."\n'
+        '    scene flash with dissolve\n    "Flash."\n'
+        '    scene #000\n    "Dark."\n'
+        '    return\n'), {"images/eve casual calm.png": (10, 20, 30),
+                          "images/eve casual happy.png": (200, 20, 30),
+                          "images/eve happy.png": (10, 200, 30)})
+    assert texts(manifest) == [None, "The sky.", "The ground.", None, "Eve.",
+                               "Happy.", "Dimmed.", "Flash.", "Dark."]
+    assert shown(out, manifest, ledger) == [
+        "#000000", "#2288cc", "#000000", "bg", "eve casual calm",
+        "eve happy", "eve happy", "#ffffff", "#000000"]
+    assert len(manifest["branches"]) == 1
+    check_folder(tmp_path, out, manifest)

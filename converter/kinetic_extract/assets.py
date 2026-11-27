@@ -20,10 +20,12 @@ file extensions - corpus extensions lie. Policies:
   item 8) ship one by one by the image rule, as image items' files do;
   the item's ``frames`` are their shipped paths.
 - A generated picture (``ItemRecord.generated``, docs/plan.md Phase 60
-  item 9n2): the black still a line before any picture shows over is a
-  PNG Pillow makes at the game's size (``ship_generated``, after the
-  pass, once the size is known); its ledger source is ``{"generated":
-  "black"}`` and its one ``solid`` step makes it again.
+  items 9n2 and 9n3): a still of one colour (the black a line before any
+  picture shows over, or a shown solid colour) is a PNG Pillow makes at
+  the game's size (``ship_generated``, after the pass, once the size is
+  known), one per colour; its ledger source is ``{"generated":
+  "black"}`` or ``{"generated": "#rrggbb"}`` and its one ``solid`` step,
+  which records the colour, makes it again.
 - Other image formats (bmp, tiff, avif, ...) are decoded with Pillow (an
   AVIF sequence's first frame, the picture Ren'Py shows); the smallest
   of (PNG, JPEG q92, JXL) ships, lossless-first when the image
@@ -1357,12 +1359,21 @@ def run_image_step(step: dict[str, Any], data: bytes) -> bytes:
     raise _unsupported(step)
 
 
-def solid_step(width: int, height: int) -> dict[str, Any]:
-    """The ledger step that makes the black still (docs/plan.md Phase 60
-    item 9n2): an RGB picture of one colour at ``width`` x ``height``,
-    saved as PNG with the image rule's PNG parameters."""
-    return {"step": "solid", "rgb": [0, 0, 0], "width": width,
+def solid_step(width: int, height: int,
+               rgb: tuple[int, int, int] = (0, 0, 0)) -> dict[str, Any]:
+    """The ledger step that makes a still of one colour (docs/plan.md
+    Phase 60 items 9n2 and 9n3): an RGB picture of ``rgb`` at ``width`` x
+    ``height``, saved as PNG with the image rule's PNG parameters."""
+    return {"step": "solid", "rgb": list(rgb), "width": width,
             "height": height, "format": "png", "params": _PNG_PARAMS}
+
+
+def generated_rgb(key: str) -> tuple[int, int, int]:
+    """The colour a generated still's name (``ItemRecord.generated``:
+    ``"black"`` or ``"#rrggbb"``) stands for."""
+    if key == "black":
+        return 0, 0, 0
+    return int(key[1:3], 16), int(key[3:5], 16), int(key[5:7], 16)
 
 
 def run_generated_step(step: dict[str, Any]) -> bytes:
@@ -1942,27 +1953,32 @@ def ship_generated(records: list[ItemRecord], out_dir: Path,
                    tools: dict[str, Any], size: tuple[int, int],
                    media: dict[str, dict[str, Any]]) -> None:
     """Ship the pictures the walk made from nothing (docs/plan.md Phase 60
-    item 9n2), once the game's ``size`` is known: one black still at that
-    size for every record whose ``generated`` is ``"black"``, recorded in
-    ``media`` (the ledger's section, changed in place) with the source
-    ``{"generated": "black"}`` and the ``solid`` step that makes it
-    again. A file already at its content path with other bytes raises
-    ``media.ExistingFileError``, as the asset pass does."""
-    black = [r for r in records if r.generated == "black" and not r.skipped]
-    if not black:
+    items 9n2 and 9n3), once the game's ``size`` is known: one still of
+    each colour at that size for the records whose ``generated`` names it
+    (``"black"`` or ``"#rrggbb"``), recorded in ``media`` (the ledger's
+    section, changed in place) with the source ``{"generated": name}``
+    and the ``solid`` step that makes it again. A file already at its
+    content path with other bytes raises ``media.ExistingFileError``, as
+    the asset pass does."""
+    by_colour: dict[str, list[ItemRecord]] = {}
+    for record in records:
+        if record.generated is not None and not record.skipped:
+            by_colour.setdefault(record.generated, []).append(record)
+    if not by_colour:
         return
-    step = solid_step(*size)
-    data = run_generated_step(step)
     with tempfile.TemporaryDirectory(prefix=".kinetic-tmp-",
                                      dir=out_dir) as scratch:
         placed = _Placed(out_dir, tools, Path(scratch))
         placed.media = media
-        ref, _already = placed.put_bytes(data, "png")
-        placed.record(ref, "image", {"generated": "black"}, [step])
-    for record in black:
-        _set_media(record.item, ref)
-        record.asset_meta.update({"sniffedFormat": "png",
-                                  "decision": "generated", "file": ref})
+        for key, colour_records in by_colour.items():
+            step = solid_step(*size, generated_rgb(key))
+            ref, _already = placed.put_bytes(run_generated_step(step), "png")
+            placed.record(ref, "image", {"generated": key}, [step])
+            for record in colour_records:
+                _set_media(record.item, ref)
+                record.asset_meta.update({"sniffedFormat": "png",
+                                          "decision": "generated",
+                                          "file": ref})
 
 
 def _media_records(records: list[ItemRecord]) -> list[ItemRecord]:

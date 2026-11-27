@@ -364,6 +364,9 @@ Found by the 2026-11-27 survey; none loses a line:
   classes (`self.c = Character(name)`, a `.t` property; 4,757 lines in
   3 games after Phase 60 item 9m) keep the dotted name as the speaker:
   reading them needs the converter to run the game's Python.
+- `show screen x` over a scene draws nothing (item 9n3): one corpus
+  game shows about 13,500 lines over black for it. Showing a screen
+  needs its displayables read and composed.
 - `layeredimage` definitions are not read (item 9n): showing one needs
   its layers composed into one picture, as for `show x at left` above.
 - Double spaces inside one line of a say string stay, where Ren'Py

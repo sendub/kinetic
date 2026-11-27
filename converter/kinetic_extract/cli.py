@@ -164,8 +164,11 @@ SIMPLIFICATIONS = [
     "noted), file names in any case; a visual that resolves nowhere "
     "leaves the picture on screen, its lines kept over it (ledger "
     "unresolvedVisual), never shipped as a missing-file placeholder; a "
-    "line before any picture shows over one black still at the game's "
-    "size (ledger media source {\"generated\": \"black\"})",
+    "line before any picture, or a menu, shows over one black still at "
+    "the game's size, and a shown solid colour is one still of that "
+    "colour (ledger media source {\"generated\": \"black\"} or "
+    "{\"generated\": \"#rrggbb\"}); a translucent one shown over a "
+    "picture keeps its lines over that picture",
     "audio statements attach to the next item emitted (a dropped item's "
     "pass to the next item kept); every file a kept item's cue names "
     "ships by the audio policy, and a track that ships nothing or starts "
@@ -1025,8 +1028,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.width or args.height:
             source_note += " with --width/--height override"
     try:
-        # The black still a line before any picture shows over, at the
-        # game's size (docs/plan.md Phase 60 item 9n2).
+        # The stills of one colour, the black a line before any picture
+        # shows over and the solid colours shown, at the game's size
+        # (docs/plan.md Phase 60 items 9n2 and 9n3).
         ship_generated(result.items, args.out_dir, tools, (width, height),
                        sound.media)
     except ExistingFileError as exc:

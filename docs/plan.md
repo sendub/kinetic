@@ -5114,6 +5114,12 @@ The orchestrator's choices, within those decisions:
     the player (Chrome and WebKit), the last frame as the still for
     rewind, skip and thumbnails. Tests: validator cases, machine and
     render tests, a scenario part on both engines, the converter case.
+9n5. Solid colours in the last places (leads from item 9n3). A bare
+    `scene` shows black whatever a game's own `image black` is, as
+    Ren'Py clears the layer; ATL frame lists whose frames are solid
+    colours (`"#000"` then `pause 1`) animate with generated frames; a
+    `show black:` (or any solid) with an ATL `alpha` follows item 9n3's
+    translucent rule. Tests: one per form.
 9o. Menus no longer kept linear (about 49,000 lines lost, 75,000 read
     in a row, in 43 games). A conditional choice (`"x" if cond:`)
     becomes a route labelled with its condition in words, as a counter
@@ -5171,7 +5177,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n5 -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

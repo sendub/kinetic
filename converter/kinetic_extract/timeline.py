@@ -46,6 +46,15 @@ index; file names match whatever their case. A visual that still
 resolves nowhere leaves the picture on screen as it was, its lines kept
 over that picture and reported.
 
+Solid colours (item 9n3): a shown colour (`"#rgb"` and the other hex
+forms, `Solid(...)` of a literal colour, Ren'Py's built-in `black`) is a
+still of that colour, made from nothing at the game's size
+(``ItemRecord.generated``, one file per colour). A translucent one shown
+over a picture cannot be laid over it: its lines are kept over the
+picture, noted; on a `scene`, or with no picture before it, it shows
+over the black of Ren'Py's empty scene. A colour replaced before any
+line, pause, menu or transition showed it is no item.
+
 Transitions (docs/plan.md Phase 57 item 4): a scene/show's `with` clause
 gives its visual's item the transition; a bare `with` gives it to the
 visual still waiting to be emitted when that visual changed since the
@@ -100,6 +109,10 @@ _MOVIE_ARG_NOTES = {
 BLACK = "black"
 BLACK_NOTE = ("no picture before this line: it shows over black, as "
               "Ren'Py's empty scene does (a black still at the game's size)")
+# A menu before any picture hangs off a black still (Phase 60 item 9n3).
+BLACK_MENU_NOTE = ("no picture before the menu at {}: its decision follows "
+                   "a black still, as Ren'Py shows a menu over its empty "
+                   "scene")
 _QUOTED_RE = re.compile(r"\"((?:[^\"\\]|\\.)*)\"")
 # Any quoted string of an image expression, either quote.
 _ANY_QUOTED_RE = re.compile(r"\"((?:[^\"\\]|\\.)*)\"|'((?:[^'\\]|\\.)*)'")
@@ -115,8 +128,96 @@ _MAX_DEPTH = 8
 # (`config.search_prefixes` is `["", "images/"]`).
 IMAGES_PREFIX = "images"
 
-# Image names Ren'Py renders without a file: a plain black/white screen.
-_SOLID_COLORS = frozenset({"black", "white"})
+# Image names that are a solid colour with no definition: Ren'Py's
+# built-in `black` (`image black = Solid("#000")`), and `white`, which
+# Ren'Py does not define but the converter reads as its colour.
+_SOLID_COLORS = {"black": (0, 0, 0, 255), "white": (255, 255, 255, 255)}
+_HEX_RE = re.compile(r"#?([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
+# A `Solid(...)` keyword that sizes it: no longer a colour filling the
+# screen.
+_SIZED_RE = re.compile(r"(?:x|y|xy)?(?:size|maximum|minimum)$|area$|"
+                       r"(?:width|height)$")
+
+
+def hex_colour(text: str, hash_needed: bool = True
+               ) -> tuple[int, int, int, int] | None:
+    """``(r, g, b, a)`` of a colour string as Ren'Py's ``Color`` reads
+    it: `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` (the `#` optional
+    unless ``hash_needed``), else None."""
+    text = text.strip()
+    if hash_needed and not text.startswith("#"):
+        return None
+    m = _HEX_RE.fullmatch(text)
+    if m is None:
+        return None
+    digits = m.group(1)
+    if len(digits) <= 4:
+        digits = "".join(d * 2 for d in digits)
+    if len(digits) == 6:
+        digits += "ff"
+    r, g, b, a = (int(digits[k:k + 2], 16) for k in range(0, 8, 2))
+    return r, g, b, a
+
+
+def solid_call(value: str) -> tuple[tuple[int, int, int, int] | None, str]:
+    """A `Solid(...)` expression's colour, ``(r, g, b, a)``, and ``""``;
+    or None and why the converter cannot show it as a screen of one
+    colour (a colour it cannot read, or a size given)."""
+    head = _CALL_HEAD_RE.match(value)
+    args = _call_arguments(value, head.end()) if head is not None else None
+    if not args:
+        return None, f"`{value}` names no colour the converter reads"
+    colour_arg = None
+    for k, arg in enumerate(args):
+        m = _KEYWORD_ARG_RE.fullmatch(arg)
+        if m is None and k == 0:
+            colour_arg = arg
+        elif m is not None and m.group(1) == "color":
+            colour_arg = m.group(2).strip()
+        elif m is not None and _SIZED_RE.match(m.group(1)):
+            return None, (f"`{value}` is sized (`{m.group(1)}`), not a "
+                          "screen of one colour")
+    literal = (string_literal(colour_arg) if colour_arg is not None
+               else None)
+    colour = hex_colour(literal, hash_needed=False) \
+        if literal is not None else None
+    if colour is None and colour_arg is not None \
+            and colour_arg.startswith("(") and colour_arg.endswith(")"):
+        parts = _call_arguments(colour_arg[1:] + ")", 0) or []
+        if len(parts) in (3, 4) and all(p.isdigit() and int(p) < 256
+                                        for p in parts):
+            values = [int(p) for p in parts] + [255]
+            colour = (values[0], values[1], values[2], values[3])
+    if colour is None:
+        return None, f"`{value}` names no colour the converter reads"
+    return colour, ""
+
+
+def _named_file(ledger_rel: str, name: str) -> bool:
+    """Whether a file the implicit index found (``game/<rel>``, or
+    ``game/<archive>!<member>``) is one Ren'Py names ``name`` itself:
+    ``<name>.<ext>`` at the top of game/, or under its images folder at
+    any depth (its automatic image names)."""
+    rel = ledger_rel.split("!", 1)[1] if "!" in ledger_rel \
+        else ledger_rel.removeprefix("game/")
+    path = Path(rel)
+    if path.stem.lower() != name:
+        return False
+    return len(path.parts) == 1 or path.parts[0].lower() == IMAGES_PREFIX
+
+
+def solid_key(rgb: tuple[int, int, int]) -> str:
+    """The name a generated still of ``rgb`` goes by (ItemRecord.generated
+    and its ledger source): ``"black"`` for black, as item 9n2 named it,
+    else ``"#rrggbb"``."""
+    return "black" if tuple(rgb) == (0, 0, 0) else \
+        "#" + "".join(f"{c:02x}" for c in rgb)
+
+
+def over_black(colour: tuple[int, int, int, int]) -> tuple[int, int, int]:
+    """A colour laid over black: its alpha applied."""
+    r, g, b, a = colour
+    return tuple(round(c * a / 255) for c in (r, g, b))  # type: ignore
 
 
 def def_value_target(defined: tuple[str, str]) -> tuple[str, str | None]:
@@ -157,8 +258,10 @@ class _Target:
     """What an image name or a displayable string shows (docs/plan.md
     Phase 60 item 9n): a ``picture`` (``found`` the resolved ``(kind,
     ledger rel, file, source ref, candidates)``), an ``atl`` frame list
-    (``found`` the parser.AtlImage), a ``solid`` colour, ``unchanged``
-    (the visual stays as it was) or ``none`` (``reason`` says why)."""
+    (``found`` the parser.AtlImage), a ``solid`` colour (``found`` its
+    ``(r, g, b, a)``, or None with ``reason`` when the converter cannot
+    show it: item 9n3), ``unchanged`` (the visual stays as it was) or
+    ``none`` (``reason`` says why)."""
 
     kind: str
     found: Any = None
@@ -253,10 +356,12 @@ class ItemRecord:
     # Phase 60 item 6): ``(chain, arm index)``, whose words each language
     # file gets in its own language (kinetic_extract.translations).
     condition_arm: tuple[Any, int] | None = None
-    # A picture made from nothing but its ledger entry: ``"black"``, the
-    # black still a line before any picture shows over (Phase 60 item
-    # 9n2), which kinetic_extract.assets.ship_generated ships once the
-    # game's size is known; None for a picture from a game file.
+    # A picture made from nothing but its ledger entry, a still of one
+    # colour (solid_key: ``"black"``, the black still a line before any
+    # picture shows over, Phase 60 item 9n2, or ``"#rrggbb"``, a shown
+    # solid colour, item 9n3), which kinetic_extract.assets.ship_generated
+    # ships once the game's size is known; None for a picture from a
+    # game file.
     generated: str | None = None
 
 
@@ -357,12 +462,15 @@ class _Pending:
         self.reason: str | None = None
         # A picture made from nothing (ItemRecord.generated, item 9n2).
         self.generated: str | None = None
+        # A solid colour no line, pause, menu or transition has shown yet
+        # (item 9n3): replaced now, Ren'Py never shows it.
+        self.unseen = False
 
     @property
     def drops_bare(self) -> bool:
         """Whether, with no line taking it, it is dropped rather than
         emitted bare."""
-        return self.origin is not None or self.quiet
+        return self.origin is not None or self.quiet or self.unseen
 
     def repeat(self, menu_source: str, note: str | None = None) -> _Pending:
         """This emitted visual again, for a route's first line (or, with
@@ -507,8 +615,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     # first needed.
     loose_lower: tuple[dict[str, str], dict[str, str]] | None = None
     # The unresolved visual whose lines are kept over the picture on
-    # screen (item 9n): (name, source), else None.
-    stale: tuple[str, str] | None = None
+    # screen (item 9n): (name, source, whether a movie, why: the end of
+    # its lines' note), else None.
+    stale: tuple[str, str, bool, str] | None = None
     # Image names whose stand-in picture was reported.
     stand_ins: set[str] = set()
     # A channel that plays video -> the file it plays (`play movie "f"`),
@@ -657,7 +766,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 f"image {text!r} names a variable the converter does not "
                 "know" if text else "an empty image name"))
         if text.startswith("#"):
-            return _Target("solid")
+            colour = hex_colour(text)
+            return _Target("solid", colour, reason=None if colour else (
+                f"{text!r} is no colour Ren'Py reads"))
         if "." in text:
             return file_target(text, "image")
         if depth >= _MAX_DEPTH:
@@ -689,13 +800,21 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         `Movie(play=...)` video, a string read as a displayable, another
         displayable's first picture that resolves (item 9n); else, or
         when the definition shows nothing, the implicit name index
-        (BUG 5), a bare `black` or `white` a solid colour."""
+        (BUG 5), a bare `black` or `white` a solid colour when no file of
+        its name is (item 9n3)."""
         defined = image_defs.get(name)
         if defined is None:
-            if name in _SOLID_COLORS:
-                return _Target("solid")
-            return implicit_target(name, "image", "no image definition or "
-                                   "asset answers the name")
+            got = implicit_target(name, "image", "no image definition or "
+                                  "asset answers the name")
+            if name not in _SOLID_COLORS:
+                return got
+            if got.kind == "picture" and _named_file(got.found[1], name):
+                got.notes.append(f"image {name!r} is a solid colour: the "
+                                 "file of its name shows in its place")
+                return got
+            # Not a file of another folder that only shares the basename
+            # (a `gui/black.png`).
+            return _Target("solid", _SOLID_COLORS[name])
         tag, value = defined
         if tag == "atl":
             return _Target("atl", value)
@@ -728,7 +847,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             kind, ref = def_value_target(defined)
             got = file_target(ref, kind)
         elif re.match(r"\s*Solid\s*\(", value):
-            got = _Target("solid")
+            colour, why = solid_call(value)
+            got = _Target("solid", colour, reason=why or None)
         else:
             head = _CALL_HEAD_RE.match(value)
             got = first_picture(
@@ -737,9 +857,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 "expression the converter cannot show", "none")
         if got.kind == "solid":
             # A file of the name (a black picture beside `image black =
-            # "#000"`) shows in its place: the converter ships no solid
-            # colour, and a solid screen would leave the last picture
-            # under the lines.
+            # "#000"`) shows in its place (item 9n), not a generated
+            # still (item 9n3).
             fallback = implicit_target(name, kind, "")
             if fallback.kind == "picture":
                 fallback.notes.append(
@@ -810,9 +929,13 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     def target_pending(parsed: FileParse, source: str, name: str,
                        got: _Target) -> _Pending | None:
         """The visual a looked-up name shows (``lookup``): a picture, or a
-        frame list's animation or still (unresolved when a frame is);
-        None for a solid colour, an unchanged visual or none."""
-        if got.kind == "atl":
+        frame list's animation or still (unresolved when a frame is), or
+        a solid colour's generated still (item 9n3), over black when it
+        is translucent; None for a colour the converter cannot show, an
+        unchanged visual or none."""
+        if got.kind == "solid" and got.found is not None:
+            pend = solid_pending(source, name, got.found)
+        elif got.kind == "atl":
             pend = atl_pending(parsed, source, name, got.found)
         elif got.kind == "picture":
             kind, ledger_rel, abs_path, src_ref, n = got.found
@@ -828,6 +951,21 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         pend.notes[:0] = got.notes + got.extra
         return pend
 
+    def solid_pending(source: str, name: str,
+                      colour: tuple[int, int, int, int]) -> _Pending:
+        """A still of one colour (item 9n3), laid over black when
+        translucent, as on Ren'Py's empty scene."""
+        rgb = over_black(colour)
+        pend = _Pending("image", name, None, None, source)
+        pend.generated = solid_key(rgb)
+        written = "#" + "".join(f"{c:02x}" for c in rgb)
+        pend.notes.append(
+            f"solid colour {written}"
+            + (f" (alpha {colour[3]}, laid over black)"
+               if colour[3] < 255 else "")
+            + ": a still of that colour at the game's size")
+        return pend
+
     def play_video(parsed: FileParse, source: str, asset: str | None,
                    name: str) -> _Pending | None:
         """The visual a video file shows, or None when the file is found
@@ -837,7 +975,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         ledger_rel, abs_path, src_ref = asset_paths(asset, "video")
         if not (src_ref is not None and "archive" in src_ref) \
                 and (abs_path is None or not abs_path.exists()):
-            stale = (Path(asset or "movie").stem, source, True)
+            stale = (Path(asset or "movie").stem, source, True,
+                     "resolves nowhere")
             parsed.reports.append(Report(
                 source, f"movie {asset}",
                 f"unresolvedVisual: video asset {asset!r} not found; its "
@@ -923,6 +1062,22 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                                      if not a.startswith("-")])
         return " ".join([tag] + [a for a in shown if a not in remove])
 
+    def say_name(tag: str, shown: list[str],
+                 attrs: tuple[str, ...]) -> tuple[str, str | None]:
+        """The image a say statement's attributes ``attrs`` show while
+        ``tag`` shows with ``shown`` (item 9n3): the image named the tag
+        and the attributes as written, when there is one and none removes
+        (`-x`), as Ren'Py's ``apply_attributes`` takes it first; else the
+        attribute choice (``attribute_name``). With it, the attribute
+        choice the exact name won over, else None."""
+        chosen = attribute_name(tag, shown, attrs)
+        exact = " ".join((tag,) + attrs)
+        if any(a.startswith("-") for a in attrs) or exact == chosen:
+            return chosen, None
+        if any(key == exact for key, _have in tags().get(tag, ())):
+            return exact, chosen
+        return chosen, None
+
     def show_name(name: str, scene: bool) -> str:
         """The image a `scene`/`show` of ``name`` that names no image
         shows, as Ren'Py's ``apply_attributes`` picks it (item 9n2): for
@@ -976,11 +1131,11 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             return None, (f"image attributes {words!r} ignored: no {tag!r} "
                           "picture on screen (Ren'Py then shows them in a "
                           "side image only)")
-        name = attribute_name(tag, shown[1:],
-                              event.attributes + event.temporary)
+        name, passed = say_name(tag, shown[1:],
+                                event.attributes + event.temporary)
         back = None
         if event.temporary:
-            back_name = attribute_name(tag, shown[1:], event.attributes)
+            back_name, _passed = say_name(tag, shown[1:], event.attributes)
             if back_name != name:
                 back = say_pending(back_name, event.source)
                 if back is not None:
@@ -991,6 +1146,11 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         if new is None:
             return None, (f"image attributes {words!r} ignored: no image "
                           f"answers {name!r}")
+        if passed is not None:
+            new.notes.append(
+                f"picture {name!r} is the image named as the attributes are "
+                "written (the exact name), which Ren'Py takes before its "
+                f"attribute choice ({passed!r})")
         if pending is not None and not pending.consumed:
             # Replaced before any line showed it: the line shows the
             # changed picture in its place, with its transition.
@@ -1329,7 +1489,12 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                               "choice-open", "menu-close",
                               "stop-movie", "path-end", "shared-open"):
                 fresh = False
+                if pending is not None:
+                    # A solid colour this shows is an item (item 9n3).
+                    pending.unseen = False
             if event.kind == "with":
+                if pending is not None and (event.name or "None") != "None":
+                    pending.unseen = False
                 got = read_transition(parsed, event.source,
                                       event.name or "None")
                 if (fresh and pending is not None
@@ -1389,14 +1554,27 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         pending.transition = clause.transition
                     continue
                 movie_shown = None
-                if got.kind == "solid":
-                    # A solid screen carries no media; the visual is
-                    # cleared.
-                    flush_bare()
-                    stale = None
+                if got.kind == "solid" and (
+                        got.found is None
+                        or (got.found[3] < 255 and not event.scene
+                            and (pending is not None
+                                 or on_screen is not None))):
+                    # A colour the converter cannot show, or a translucent
+                    # one shown over a picture, which a still cannot lay
+                    # over it (item 9n3): the picture stays, its lines
+                    # kept over it, reported. A `scene` clears to black,
+                    # which a translucent colour is laid over.
+                    fresh = False
+                    why = (f"is a solid colour the converter cannot show "
+                           f"({got.reason})" if got.found is None else
+                           "is a translucent solid colour (#"
+                           + "".join(f"{c:02x}" for c in got.found)
+                           + "), which a still cannot lay over the "
+                           "picture")
+                    stale = (name, event.source, False, why)
                     parsed.reports.append(Report(
-                        event.source, f"scene {name}",
-                        "solid color screen: no media item"))
+                        event.source, name, f"solid colour: {name!r} {why}; "
+                        f"its lines {KEPT}"))
                     continue
                 if got.kind == "unchanged":
                     # An ATL image showing no picture (a flash): the
@@ -1419,7 +1597,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     # over that one, reported (BUG 1 dropped them; it is
                     # still never shipped as a missing-file placeholder).
                     fresh = False
-                    stale = (name, event.source, False)
+                    stale = (name, event.source, False, "resolves nowhere")
                     why = (pend.reason if pend is not None else got.reason)
                     parsed.reports.append(Report(
                         event.source, name,
@@ -1433,6 +1611,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 flush_bare()
                 stale = None
                 pending = pend
+                # A solid colour replaced before anything shows it is no
+                # item (item 9n3).
+                pending.unseen = pend.generated is not None and clause is None
                 if clause is not None:
                     pending.transition = clause.transition
             elif event.kind == "video":
@@ -1523,7 +1704,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 if stale is not None and last_line is not None:
                     last_line.notes.append(
                         f"{KEPT}: visual {stale[0]!r} at {stale[1]} "
-                        "resolves nowhere")
+                        f"{stale[3]}")
                 if attribute_note is not None and last_line is not None:
                     last_line.notes.append(attribute_note)
                 if restore is not None:
@@ -1545,6 +1726,14 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 # decision's `after` item, and the region starts empty.
                 flush_bare()
                 last_line = None
+                if not result.items:
+                    # No item before it (item 9n3): a black still, Ren'Py's
+                    # empty scene, is the item the decision follows.
+                    black = _Pending("image", BLACK, None, None,
+                                     event.source)
+                    black.generated = BLACK
+                    black.notes.append(BLACK_MENU_NOTE.format(event.source))
+                    emit_media(black, speaker=None, text=None)
                 state = {
                     "record": parsed.menus[int(event.name)],
                     "parsed": parsed,

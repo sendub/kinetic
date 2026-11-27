@@ -260,15 +260,18 @@ def _run(tmp_path: Path, text: str):
     return parsed, result
 
 
-def test_menu_with_no_items_before_is_unsupported(tmp_path: Path) -> None:
+def test_menu_with_no_items_before_hangs_off_black(tmp_path: Path) -> None:
+    """A menu before any picture follows a black still, Ren'Py's empty
+    scene (docs/plan.md Phase 60 item 9n3; it stayed linear before)."""
     parsed, result = _run(tmp_path, MENU_OK)
-    assert result.branch_candidates == []
-    assert any("menu unsupported (no item precedes the menu" in r.reason
-               for r in parsed.reports)
-    assert parsed.menus[0].skip_reason == (
-        "no item precedes the menu in the walked flow")
-    # The block's lines still play: linear flow kept.
-    assert [r.item.get("text") for r in result.items] == ["a", "b"]
+    assert len(result.branch_candidates) == 1
+    assert result.branch_candidates[0]["after_idx"] == 0
+    assert not any("no item precedes" in r.reason for r in parsed.reports)
+    assert parsed.menus[0].skip_reason is None
+    assert [(r.item["type"], r.item.get("text"), r.generated)
+            for r in result.items] == [("image", None, "black"),
+                                       ("text", "a", None),
+                                       ("text", "b", None)]
 
 
 def test_empty_choice_block_gets_its_text(tmp_path: Path) -> None:

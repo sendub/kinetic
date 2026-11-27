@@ -7034,8 +7034,37 @@ truthful: an unchecked box means nothing was accepted.
       in 6 games. Tests: 16 new in test_picture_forms.py (15 failed
       first). Orchestrator: converter/ 1441 passed,
       test_validate_content.py 536 passed.)
-- [ ] Solid-colour scenes and a menu before any picture (item 9n3).
+- [x] Solid-colour scenes and a menu before any picture (item 9n3).
+      (2026-11-27: Ren'Py's built-in `black`, an undefined `white`,
+      `image x = "#rgb"` (3, 4, 6 or 8 digits) and `Solid(...)` with a
+      literal colour show a generated still at the game's size, one file
+      per colour (`{"generated": "black"}`, the same bytes as item 9n2's,
+      or `{"generated": "#rrggbb"}`), rebuilt by `kinetic media
+      rebuild`; a sized or variable `Solid` stays reported. `scene #000`
+      is a bare `scene` in Ren'Py (`#` starts a comment), so black. A
+      menu or `if` decision before any picture follows a bare black
+      still. Say attributes try the exact image name first. Choices: a
+      translucent `show` keeps the picture, noted; a translucent `scene`
+      blends onto black; only `game/black.*` or `images/` files replace
+      the built-in black/white; a solid colour replaced before any line,
+      pause, menu or `with` makes no item (Ren'Py never shows it), while
+      a transition or `pause` makes a bare item, as for any picture
+      (3,808 bare stills in the corpus). Leads: a bare `scene` resolving
+      a game's own `image black`, solid-colour ATL frames and `show
+      black:` with ATL alpha -> item 9n5; `show screen` -> future.md;
+      menu captions -> item 9o. Corpus recount (71 games, parse-only,
+      read-only): lines over a solid still 547 -> 23,465 (9 over white),
+      generated still items 25 -> 8,000 in 57 games, "solid color
+      screen" reports 11,332 -> 0, menus linear for "no item precedes" 3
+      -> 0, decisions 16,984 -> 17,006, lines over the last visual 7,202
+      -> 7,229 (translucent shows), total lines 917,366 -> 917,362 (4
+      condition-arm placeholders no longer needed). renpy_demo golden
+      unchanged. Tests: 26 new in test_picture_forms.py (25 failed
+      first), test_branch_extract.py's "no items before" case now hangs
+      off black. Orchestrator: converter/ 1467 passed,
+      test_validate_content.py 536 passed.)
 - [ ] Videos that play once (item 9n4).
+- [ ] Solid colours in the last places (item 9n5).
 - [ ] Menus no longer kept linear (item 9o).
 - [ ] More `if` chains become decisions (item 9p).
 - [ ] Variables shown in text (item 9q).

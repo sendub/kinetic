@@ -21,9 +21,10 @@ entry, and each of its ``alsoFrom`` sources, is rebuilt independently:
    ``audio_format``) has it made again from that output, and its sha256
    and size must equal the recorded ones.
 
-A generated source (``{"generated": "black"}``, docs/plan.md Phase 60
-item 9n2: the black still a line before any picture shows over) names
-no game file: its one recorded step makes the output from nothing
+A generated source (``{"generated": "black"}`` or ``{"generated":
+"#rrggbb"}``, docs/plan.md Phase 60 items 9n2 and 9n3: a still of one
+colour, the black a line before any picture shows over or a shown solid
+colour) names no game file: its one recorded step makes the output from nothing
 (``assets.run_generated``), which must match as any other.
 
 The folder's own ``media/`` is checked too: a file the ledgers do not

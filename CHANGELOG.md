@@ -257,6 +257,17 @@ something more of an author.
   its `play` file or what `play movie` plays, the Movie arguments a
   video item cannot hold (`loop=False`, `size`, `mask`) noted in the
   ledger (docs/extracting.md, "Finding a script's files").
+- A shown solid colour (`scene black`, `scene white`, `image flash =
+  "#fff"`, `Solid((r, g, b))`) is a still of that colour at the game's
+  size, one file per colour that `kinetic media rebuild` makes again,
+  where its lines used to stay over the picture before it; a file of
+  the image's name still shows in its place, a translucent colour
+  shown over a picture still keeps its lines over that picture, and a
+  colour nothing shows before the next picture is no item. A menu
+  before any picture follows a black still instead of staying linear,
+  and a say statement's attributes take an image named as they are
+  written (`e happy` shows `eve happy`) before Ren'Py's attribute
+  choice (docs/extracting.md, "Finding a script's files").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds` and `holdLastFrame` once
   upgraded. Converting a Ren'Py game again with this release gains its

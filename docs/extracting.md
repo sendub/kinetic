@@ -421,8 +421,11 @@ back-quoted.
   `image` definitions with the tag, the one whose attributes are all
   given or kept from the shown picture, with every given one and the
   most attributes, as Ren'Py's `choose_image` picks; with no such
-  definition, the name `tag happy`, which the files may answer. A `-x`
-  attribute removes x. Attributes after `@` change the picture for that
+  definition, the name `tag happy`, which the files may answer. An image
+  named the tag and the attributes as written (`eve happy`) wins over
+  that choice, as Ren'Py's `apply_attributes` takes the exact name first
+  (docs/plan.md Phase 60 item 9n3), the line's ledger notes saying so
+  when the choice would have been another. A `-x` attribute removes x. Attributes after `@` change the picture for that
   one line, and the next line is said over the picture before them
   again. The new picture takes the place of a picture no line has shown
   yet, keeping its transition. Otherwise the picture stays and the
@@ -727,9 +730,11 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
     archive member; plus `sha256` and `bytes` of the raw source, before
     any carve, and, when several projects made one game, `project` (N,
     1-based: Several episodes, one game, above). A poster's source is
-    its video. The black still a line before any picture shows over
-    (Finding a script's files, below) comes from no game file: its
-    source is `{"generated": "black"}`, with no `sha256` or `bytes`.
+    its video. A still of one colour, the black a line before any
+    picture shows over or a shown solid colour (Finding a script's
+    files, below), comes from no game file: its source is
+    `{"generated": "black"}` for black, `{"generated": "#rrggbb"}` for
+    any other colour, with no `sha256` or `bytes`.
   - `steps`: what was done to the source, in order. Each carries every
     parameter that decides the output bytes:
     - `{"step": "decode", "hook": "MODULE:FUNC", "hookSha256": "…",
@@ -742,7 +747,7 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
       `source.sha256` stays the raw original's;
     - `{"step": "carve", "offset": N}`: drop the first N bytes (a
       wrapped image);
-    - `{"step": "solid", "rgb": [0, 0, 0], "width": W, "height": H,
+    - `{"step": "solid", "rgb": [R, G, B], "width": W, "height": H,
       "format": "png", "params": {"optimize": true}}`: a generated
       source's one step, a picture of that colour at that size that
       Pillow saves as PNG with these save parameters;
@@ -814,8 +819,9 @@ Each item entry names its outputs with `file` and `poster` (keys into
 `sniffedFormat`, `decision` and, for video, `codec`. An animation's
 entry has `asset: null`, `decision: "frames"` and `frames`, one
 `{asset, sniffedFormat, decision, file}` per frame (ATL frame lists,
-above). The black still's item entry has `asset: null` and `decision:
-"generated"` (Finding a script's files, below). Every dict in
+above). A generated still's item entry (the black still, a solid
+colour) has `asset: null` and `decision: "generated"` (Finding a
+script's files, below). Every dict in
 `mediaTools` and `media` has sorted keys (step and argument lists keep
 their order), so the same input gives the same ledger bytes. A shortened
 example:
@@ -858,10 +864,10 @@ docs/plan.md Phase 60 item 9n read the rest of Ren'Py's rules:
 
 - **A string is read as Ren'Py reads a displayable.** In `image a =
   "..."`, and in the strings of the other forms below, a string with a
-  dot is a file, one starting with `#` a solid colour (`image black =
-  "#000"` clears the picture, as `scene black` does, unless a file of
-  the image's name answers it, which then shows in its place, noted, as
-  the converter ships no solid colour), and any other an image name: `image a = "b c"` shows the image `b c`, its definition
+  dot is a file, one starting with `#` a solid colour (a still of that
+  colour since item 9n3, below, unless a file of the image's name
+  answers it, which then shows in its place, noted), and any other an
+  image name: `image a = "b c"` shows the image `b c`, its definition
   or its file, through image names naming image names up to 8 deep. A
   string with a `[` names a variable the converter does not know and
   resolves nowhere.
@@ -955,6 +961,48 @@ docs/plan.md Phase 60 item 9n2 read these too:
   screen), `mask`, `image` and `start_image`, and any other but
   `play`, `channel`, `fps` and `loop=True`.
 
+docs/plan.md Phase 60 item 9n3 read solid colours:
+
+- **A shown solid colour is a still of that colour**, made from nothing
+  at the game's size as the black still is: Ren'Py's built-in `black`
+  (`image black = Solid("#000")`), `white` with no definition (Ren'Py
+  defines none; the converter reads it as white), an `image` string
+  `"#rgb"`, `"#rgba"`, `"#rrggbb"` or `"#rrggbbaa"`, and `Solid(...)`
+  of a literal colour: such a string (the `#` optional), a tuple
+  `(r, g, b)` or `(r, g, b, a)`, or `color=`. `scene black`, `scene
+  flash` and `show flash` are an `image` item of the still, the lines
+  after them `text` items over it, the item's ledger notes naming the
+  colour. One still serves each colour, recorded in the ledger's `media`
+  with the source `{"generated": "black"}` (as item 9n2 named it) or
+  `{"generated": "#rrggbb"}` and the `solid` step that records the
+  colour, which `kinetic media rebuild` makes again and checks. A file
+  of the image's name still shows in its place (item 9n), `black.png`
+  for `scene black` included.
+- **A translucent colour** (alpha under 255): a `show` of it over a
+  picture cannot be shown, as a still would hide the picture, so the
+  picture stays and its lines are kept over it, reported (`solid
+  colour: ... translucent`) and noted (`kept over the last visual`). A
+  `scene` clears the layer to black, so there, and with no picture
+  before it, the colour is laid over black (`"#ff000080"` is the still
+  `#800000`).
+- **A `Solid` the converter cannot show**, one sized (`xysize=`,
+  `xsize=`, `width=` and the like) or of a colour it cannot read (a
+  variable), leaves the picture as it was, its lines kept over it and
+  reported, as a visual that resolves nowhere does.
+- **`scene #000` is a bare `scene`**: Ren'Py reads `#` outside a string
+  as a comment, so the statement clears the layer, which shows black
+  whatever colour it writes, and so does the converter.
+- **A solid colour nothing shows is no item.** `scene black` then
+  `show bg` with no line, `pause`, menu or `with` between: Ren'Py never
+  shows the black, so the folder has no item for it, where a picture
+  replaced so is still a bare item. A transition (`scene black with
+  fade`, or a later `with`) or a `pause` shows it, as a bare item.
+  Transitions into a solid colour are read as into any picture.
+- **A menu before any picture** (at the story's start, an `if` chain's
+  decision too) follows a bare black still, the same file as the black
+  a line before any picture shows over, as Ren'Py shows the menu over
+  its empty scene; it was kept linear (`no item precedes the menu`).
+
 ### ATL frame lists
 
 An `image name:` block of ATL (docs/plan.md Phase 60 item 8) is read
@@ -1031,10 +1079,10 @@ and the `preserve` step's `reason` says why.
 | Animated GIF, WebP, PNG | none | - | always: the libjxl binding takes no frame durations or loop count, so an animated JXL could not be verified to keep the timing |
 | `.jxl` | shipped as is | libjxl decodes the whole file (else the item is skipped) | - |
 
-The black still a line before any picture shows over (docs/plan.md
-Phase 60 item 9n2) is no game file: Pillow makes it as a PNG at the
-game's size with the PNG save parameters above, and it ships as that
-PNG.
+A still of one colour (the black a line before any picture shows
+over, docs/plan.md Phase 60 item 9n2, or a shown solid colour, item 9n3)
+is no game file: Pillow makes it as a PNG at the game's size with the
+PNG save parameters above, and it ships as that PNG.
 
 Other formats (BMP, TIFF, AVIF, ...) are converted to the smallest of
 PNG, JPEG q92 and JXL of the PNG, as before; AVIF since docs/plan.md
@@ -1749,8 +1797,8 @@ files, and checks every hash (docs/plan.md Phase 25):
 - `<game_root>` is the original game. A build ledger's `game/...`
   sources resolve against the project as kinetic-extract takes it (the
   project dir, `game/` itself, or a macOS `.app`). A generated source
-  (the black still, docs/plan.md Phase 60 item 9n2) needs no game file:
-  its `solid` step makes it again. A media ledger's
+  (a still of one colour, docs/plan.md Phase 60 items 9n2 and 9n3)
+  needs no game file: its `solid` step makes it again. A media ledger's
   sources resolve against `<game_root>` as given, the same root the
   ship ran with.
 - Several game roots: for a game kinetic-extract made from several
@@ -2230,7 +2278,8 @@ earlier `with`. When several `scene` and `show` lines come before one
 `with`, each still becomes its own item as before, and only the last,
 the one the `with` lands on, takes the transition. A `with` after no
 picture change (only a sound, a `hide`, which changes no picture the
-folder shows, or a solid colour screen) gives nothing.
+folder shows, or a translucent solid colour shown over a picture)
+gives nothing.
 
 | Ren'Py | `transition` |
 | --- | --- |
