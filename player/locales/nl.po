@@ -946,6 +946,16 @@ msgctxt "map.route.ends"
 msgid "an ending"
 msgstr "een einde"
 
+#. Branch map, a route's outcome: it goes on to a scene several routes share.
+msgctxt "map.route.shared"
+msgid "goes on to a shared scene"
+msgstr "gaat verder naar een gedeelde scène"
+
+#. Branch map tooltip: a box for a scene several routes go on to, drawn once.
+msgctxt "map.span.title"
+msgid "Shared scene"
+msgstr "Gedeelde scène"
+
 #. Branch map, a route's status: the route last picked there.
 msgctxt "map.route.lastPick"
 msgid "your last pick"

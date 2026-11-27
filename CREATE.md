@@ -440,10 +440,14 @@ kinetic report novel-play --json
   counted; an animation or video not followed by a line holds for its
   loops or passes; a recorded voice line holds while it plays; choice
   screens and transitions not counted): every item once, as Play all
-  routes reads it; the shortest reading from the opening to an ending;
-  the main line outside every route; and each route of each decision,
-  with nested decisions inside it. Items no reading reaches are listed
-  apart.
+  routes reads it, a scene several routes share (a shared span,
+  docs/content-format.md "Branches") counted once; the shortest reading
+  from the opening to an ending, through a route's shared span where it
+  goes on to one; the main line outside every route and shared span;
+  each route of each decision, with nested decisions inside it and, for
+  a route with `then`, its span; and each decision's shared spans after
+  its routes, naming the routes that reach each one. Items no reading
+  reaches are listed apart.
 - Speakers with their line counts and the narration count. Names that
   differ only in case or spacing, or by one letter (`Mei` and `Mai`),
   are flagged: often a typo or a mis-extracted speaker. A digit for a
@@ -490,10 +494,18 @@ and under it each route with its label, result, item count, first and
 last items, where it ends or rejoins and the earlier picks it takes
 (`when`), nested decisions indented under their route; a following
 decision also says which earlier picks no route takes, passing it on
-to its `continueAt`. Decisions no
+to its `continueAt`. A decision's shared spans come after its routes,
+each once (`shared span fail: ending, 2 items, f0..f1; an ending (the
+choice is offered again); reached from routes fight/a, sneak/x`), and a
+route that goes on to one says `then fail` in place of where it ends
+(`then fail (decision fight)` for a span of a decision it is nested
+in). Decisions no
 line reaches, `branches` entries the player drops, and items no reading
-reaches are listed after it. `--dot` prints the same as Graphviz DOT,
-`--json` as one JSON object; the exit status is as for `report`, except
+reaches are listed after it. `--dot` prints the same as Graphviz DOT
+(a shared span is one bold rounded box, with a `then` edge from each
+route reaching it), `--json` as one JSON object (each decision's
+`shared` spans, each route's `then` and `thenDecision`); the exit
+status is as for `report`, except
 that a decision breaking the span rules prints nothing but those
 problems, on stderr, and exits 1.
 
@@ -523,10 +535,14 @@ Each choice lists its route labels, with the earlier pick each takes
 for a decision that `follows` another, and a comment says what it
 follows; each route follows under a
 `## Route DECISION/ROUTE` heading and ends in a comment saying where it
-leads. `--lang TAG` reads the texts, names, prompts and labels from that
-language file, marking `[base] ` each string it lacks. `--out DIR`
-writes `main.md` and one `DECISION.ROUTE.md` per route, each with the
-choices and routes nested in it, in place of stdout. A decision
+leads. A decision's shared spans come once each, after its routes,
+under a `## Shared span DECISION/SPAN: reached from routes ...` heading
+naming the routes that go on to it; such a route's end says `goes on to
+shared span DECISION/SPAN`. `--lang TAG` reads the texts, names, prompts
+and labels from that language file, marking `[base] ` each string it
+lacks. `--out DIR` writes `main.md`, one `DECISION.ROUTE.md` per route,
+each with the choices, routes and shared spans nested in it, and one
+`DECISION.SPAN.md` per shared span, in place of stdout. A decision
 breaking the span rules stops it as it stops `routes`.
 
 ```text

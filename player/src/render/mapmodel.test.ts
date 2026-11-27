@@ -215,6 +215,7 @@ function opsFor(m: DemoMachine, model: MapModel) {
     walkedChoice: () => m.getState().choice?.walkRoute !== undefined,
     showChoice: (d: number) => m.showChoice(d),
     choose: (r: number) => m.choose(r),
+    enterSpan: (d: number, span: number) => m.enterSpan(d, span),
   };
 }
 
@@ -3457,3 +3458,282 @@ function spreadOver(items: readonly Item[], n: number): number[] {
     Math.floor(((i + 1) * (items.length - 1)) / n),
   );
 }
+
+describe("shared spans (docs/plan.md Phase 60 item 9h)", () => {
+  // lead decide | a0 a1 | b0 [x0 | y0] b2 | c0 | f0 f1 | j0 end
+  //  0   1      | 2  3  | 4    5    6   7  | 8  | 9  10 | 11 12
+  // fight's routes a and, nested in b, sneak's route x go on to fight's
+  // shared span fail, an ending.
+  const ITEMS = [
+    "lead",
+    "decide",
+    "a0",
+    "a1",
+    "b0",
+    "x0",
+    "y0",
+    "b2",
+    "c0",
+    "f0",
+    "f1",
+    "j0",
+    "end",
+  ].map(image);
+  const BRANCHES: Branch[] = [
+    {
+      id: "fight",
+      after: "decide",
+      prompt: "What now?",
+      routes: [
+        { id: "a", label: "Attack", start: "a0", end: "a1", then: "fail" },
+        {
+          id: "b",
+          label: "Sneak",
+          start: "b0",
+          end: "b2",
+          result: "continue",
+        },
+        { id: "c", label: "Talk", start: "c0", end: "c0" },
+      ],
+      continuingRoute: "c",
+      continueAt: "j0",
+      shared: [{ id: "fail", start: "f0", end: "f1" }],
+    },
+    {
+      id: "sneak",
+      after: "b0",
+      prompt: "Where?",
+      routes: [
+        { id: "x", label: "Run", start: "x0", end: "x0", then: "fail" },
+        { id: "y", label: "Wait", start: "y0", end: "y0" },
+      ],
+      continuingRoute: "y",
+      continueAt: "b2",
+    },
+  ];
+  const FIGHT = 0;
+  const SNEAK = 1;
+  const spanModel = (width?: number) => buildMapModel(ITEMS, BRANCHES, width);
+  const spanMachine = () =>
+    createMachine({
+      items: ITEMS,
+      branches: BRANCHES,
+      settings: { ...DEFAULT_SETTINGS, playAllRoutes: false },
+    });
+
+  it("draws a span once, as a box after its decision's routes, each route with then feeding it, a nested one too", () => {
+    const model = spanModel();
+    expect(model.spans).toHaveLength(1);
+    const [span] = model.spans;
+    expect(span).toEqual(
+      expect.objectContaining({
+        decision: FIGHT,
+        span: 0,
+        id: "fail",
+        startIndex: 9,
+        endIndex: 10,
+        outcome: "ends",
+      }),
+    );
+    expect(model.decisionAt[FIGHT]?.spans).toEqual([0]);
+    const a = model.routes[routeKey(model, FIGHT, 0)];
+    const x = model.routes[routeKey(model, SNEAK, 0)];
+    expect([a.outcome, x.outcome]).toEqual(["shared", "shared"]);
+    expect([a.span, x.span]).toEqual([0, 0]);
+    expect(span.leads).toEqual([
+      routeKey(model, FIGHT, 0),
+      routeKey(model, SNEAK, 0),
+    ]);
+    // After every route's line and below every route of its decision.
+    for (const route of model.routes) {
+      expect(span.x).toBeGreaterThan(route.endX);
+      expect(span.y).toBeGreaterThan(route.y);
+    }
+    // Its items are one stretch on its own line, from the box.
+    const run = runAt(model.runs, 9);
+    expect(run).toEqual(expect.objectContaining({ start: 9, end: 10 }));
+    expect(run?.x0).toBe(span.x + MAP_GEOMETRY.routeW);
+    expect(run?.y).toBe(span.y);
+    expect(span.endX).toBe(run?.x1);
+    // A feed line from each leading route's end to the box, and no end
+    // mark at those ends: the span's own, and the story's. Its own
+    // route's runs along its row, then down a column by the box; the
+    // nested one's turns down at once (its row goes on past it) and runs
+    // along the span's row into the box.
+    const feeds = model.links.filter((l) => l.kind === "feed");
+    expect(feeds).toEqual([
+      expect.objectContaining({
+        x0: a.endX,
+        y0: a.y,
+        x1: span.x,
+        y1: span.y,
+      }),
+      expect.objectContaining({
+        x0: x.endX,
+        y0: x.y,
+        x1: x.endX + MAP_GEOMETRY.gap,
+        y1: span.y,
+      }),
+      expect.objectContaining({
+        x0: x.endX + MAP_GEOMETRY.gap,
+        y0: span.y,
+        x1: span.x,
+        y1: span.y,
+      }),
+    ]);
+    for (const route of [a, x])
+      expect(model.ends.some((p) => p.x === route.endX + 10)).toBe(false);
+    expect(model.ends).toHaveLength(2);
+    expect(model.ends).toContainEqual({ x: span.endX + 10, y: span.y });
+    // b and c join fight's join, y sneak's.
+    expect(model.links.filter((l) => l.kind === "join")).toHaveLength(3);
+  });
+
+  it("joins a returning or continuing span at its decision's join; a pure choice's line carries on past its spans", () => {
+    // lead ask | u1 | u2 | t0 | after
+    const items = ["lead", "ask", "u1", "u2", "t0", "after"].map(image);
+    const branches: Branch[] = [
+      {
+        id: "look",
+        after: "ask",
+        prompt: "Look at?",
+        routes: [
+          { id: "sea", label: "Sea", start: "u1", end: "u1", then: "tail" },
+          { id: "sky", label: "Sky", start: "u2", end: "u2" },
+        ],
+        shared: [{ id: "tail", start: "t0", end: "t0", result: "return" }],
+      },
+    ];
+    const model = buildMapModel(items, branches);
+    const [span] = model.spans;
+    expect(span.outcome).toBe("returns");
+    const node = model.decisionAt[0];
+    if (node === undefined) throw new Error("unset");
+    const back = model.links.filter((l) => l.kind === "return");
+    expect(back).toEqual([
+      expect.objectContaining({ x0: span.endX, y1: span.y, y0: node.y }),
+    ]);
+    expect(model.joins).toEqual([{ x: back[0].x1, y: node.y }]);
+    // The main line goes on at `after`, past the span, not into it.
+    expect(model.runs.map((r) => [r.start, r.end])).toEqual([
+      [0, 1],
+      [2, 2],
+      [3, 3],
+      [4, 4],
+      [5, 5],
+    ]);
+    expect(runAt(model.runs, 5)?.y).toBe(node.y);
+    expect(runAt(model.runs, 4)?.y).toBe(span.y);
+  });
+
+  it("keeps a span's box, its feed lines' turns and its line whole at any band width", () => {
+    const strip = layOutStrip(ITEMS, BRANCHES);
+    for (let width = 200; width <= 1400; width += 37) {
+      const model = cutBands(strip, width);
+      const [span] = model.spans;
+      const band = model.bands.find(
+        (b) => span.y >= b.y0 && span.y <= b.y1 && span.x >= b.x0,
+      );
+      expect(band).toBeDefined();
+      expect(span.x + MAP_GEOMETRY.routeW).toBeLessThanOrEqual(band?.x1 ?? 0);
+      // Each feed line's turns lie in one band, ending at the span's line
+      // there (a nested route's feed may turn in a band before the box's).
+      const turns = model.links.filter(
+        (l) => l.kind === "feed" && l.y1 !== l.y0,
+      );
+      expect(turns).toHaveLength(2);
+      for (const turn of turns) {
+        const holder = model.bands.find(
+          (b) => turn.y0 >= b.y0 && turn.y1 <= b.y1,
+        );
+        if (holder === undefined || band === undefined)
+          throw new Error("a turn across bands");
+        expect(turn.y1 - holder.line).toBe(span.y - band.line);
+        expect(turn.x0).toBeGreaterThanOrEqual(holder.x0);
+        expect(turn.x1).toBeLessThanOrEqual(holder.x1);
+      }
+    }
+  });
+
+  it("marks a span as its items are read and puts 'you are here' on it, then on its end mark", () => {
+    const model = spanModel();
+    const m = spanMachine();
+    const marks = () => markMap(model, readerOf(m));
+    const [span] = model.spans;
+    expect(marks().spans).toEqual(["unseen"]);
+    m.advance();
+    m.advance(); // fight's choice
+    m.choose(0); // a0
+    m.advance(); // a1
+    m.advance(); // f0: into the span
+    expect(m.getState().cursor).toBe(9);
+    expect(marks().spans).toEqual(["partly"]);
+    const run = runAt(model.runs, 9);
+    if (run === undefined) throw new Error("unset");
+    expect(marks().here).toEqual({ ...itemPoint(run, 9), decision: -1 });
+    m.advance(); // f1, the span's last screen: its end mark
+    expect(marks().spans).toEqual(["played"]);
+    expect(marks().here).toEqual({
+      x: span.endX + 10,
+      y: span.y,
+      decision: -1,
+    });
+    // At a's own last screen the reader is on a's line, not an end mark.
+    const a = model.routes[routeKey(model, FIGHT, 0)];
+    expect(markMap(model, { ...readerOf(m), cursor: 3 }).here.y).toBe(a.y);
+  });
+
+  it("a click on the span box of a reached decision enters it at its first screen, by a route leading in", () => {
+    const model = spanModel();
+    const m = spanMachine();
+    expect(
+      jumpFor(model, markMap(model, readerOf(m)), { kind: "span", key: 0 }),
+    ).toBe(null);
+    m.enterSpan(FIGHT, 0); // inert: not reached
+    expect(m.getState().cursor).toBe(0);
+    m.advance();
+    m.advance();
+    m.choose(2); // c0, the continuing route
+    const [span] = model.spans;
+    expect(
+      hitTest(model, span.x + MAP_GEOMETRY.routeW / 2, span.y + 3),
+    ).toEqual({ kind: "span", key: 0 });
+    const marks = markMap(model, readerOf(m));
+    const jump = jumpFor(model, marks, { kind: "span", key: 0 });
+    expect(jump).toEqual({ kind: "span", decision: FIGHT, span: 0 });
+    if (jump === null) throw new Error("inert");
+    runJump(jump, opsFor(m, model));
+    expect(m.getState().cursor).toBe(9);
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.exportContext().stack).toEqual([{ decision: FIGHT, route: 0 }]);
+    // Reading on: the span's end is an ending, so fight's choice again.
+    m.advance();
+    m.advance();
+    expect(m.getState().choice?.decisionId).toBe("fight");
+  });
+
+  it("says what a span box and a route going on to it are", () => {
+    const model = spanModel();
+    const m = spanMachine();
+    m.advance();
+    m.advance();
+    const marks = markMap(model, readerOf(m));
+    expect(describeTarget(model, marks, { kind: "span", key: 0 })).toEqual({
+      title: "Shared scene",
+      status: "not seen · an ending",
+    });
+    expect(
+      describeTarget(model, marks, {
+        kind: "route",
+        key: routeKey(model, FIGHT, 0),
+      }).status,
+    ).toBe("not seen · goes on to a shared scene");
+    const markup = detailMarkup(model, marks);
+    expect(markup).toContain(
+      'data-s="0" data-state="unseen" transform="translate(',
+    );
+    expect(markup).toContain('aria-label="Shared scene: not seen · an ending"');
+    expect(boxesMarkup(model, marks)).toContain("map-span");
+    expect(linesMarkup(model, marks)).toContain('class="map-feed"');
+  });
+});

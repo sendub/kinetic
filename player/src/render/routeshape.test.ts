@@ -3,7 +3,7 @@
 // as well (converter/tests/test_routes.py; docs/plan.md Phase 57 item 6):
 // both lay the tree out from the same resolved decisions, so the map and
 // the text outline agents read draw the same decisions, routes, stretches,
-// end marks and joins.
+// end marks, joins and shared span boxes.
 
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -17,6 +17,7 @@ interface Counts {
   stretches: number;
   endings: number;
   joins: number;
+  spans: number;
 }
 
 interface ShapeCase {
@@ -67,6 +68,7 @@ describe("the branch map's counts on fixtures/route-shapes.json", () => {
         stretches: strip.runs.length,
         endings: strip.ends.length,
         joins: strip.joins.length,
+        spans: strip.spans.length,
       };
       expect(counts).toEqual(shape.expect);
     });

@@ -25,10 +25,14 @@ the `--json` object:
   not counted. The figures: every item a reading from the opening shows
   once (what Play all routes reads), the shortest reading from the
   opening to an ending (each decision's shortest way on, or a route that
-  ends the story; a pure choice plays all its routes), the main line
-  (shown items in no route), and each route of each decision (its shown
-  items, nested decisions' routes included), with the items no reading
-  reaches counted apart.
+  ends the story; a pure choice plays all its routes; a route with
+  `then` goes on through its shared span, docs/content-format.md
+  "Branches"), the main line (shown items in no route and no shared
+  span), each route of each decision (its shown items, nested decisions'
+  routes included, and with `then` its span's) and each decision's shared
+  spans (the routes reaching each named), with the items no reading
+  reaches counted apart. A span's items count once in the total, however
+  many routes reach it.
 - `speakers`: lines (items with text) per speaker, the narration count,
   and pairs of names that differ only in case or spacing or by one
   letter (an edit distance of 1, a digit for a digit excepted, since
@@ -343,10 +347,16 @@ def item_holds(manifest: dict[str, Any]) -> list[float]:
 
 def _shortest_ms(holds: list[float], decisions: list[Decision]) -> float:
     """The shortest reading from the opening to an ending: at each
-    decision with a continuing route, the quicker of its routes that lead
+    decision with a continuing route, the quicker of its ways that lead
     on (the continuing route, a `"continue"` route) or one whose end is an
     ending; at a pure choice, every route, or one whose end is an ending.
-    The manifest's last item is an ending.
+    A route with `then` goes on through its shared span, whose `result`
+    then acts (docs/content-format.md, "Branches"): a span of its own
+    decision makes the route and the span one way through that decision;
+    one of an enclosing decision is a way through that decision, from its
+    route's start to the nested route's end, then the span. A pure
+    choice reads each of its spans once. The manifest's last item is an
+    ending.
 
     Malformed branches (`span_problems`) cannot hang it: a decision
     whose line carries on at or before its own `after` item ends the span
@@ -356,10 +366,23 @@ def _shortest_ms(holds: list[float], decisions: list[Decision]) -> float:
     infinity = float("inf")
     active: set[int] = set()  # the decisions being walked
 
-    def walk(lo: int, hi: int, parent: int) -> tuple[float, float]:
-        """(through, stop) of the span lo..hi: the time to step off its
-        end, and the shortest time to an ending inside it."""
+    def span_ms(ref: tuple[int, int]) -> float:
+        span = decisions[ref[0]].shared[ref[1]]
+        return sum(holds[k] for k in range(span.start, span.end + 1))
+
+    Exits = dict[tuple[int, int], float]
+
+    def walk(lo: int, hi: int, parent: int) -> tuple[float, float, Exits]:
+        """(through, stop, exits) of the span lo..hi: the time to step off
+        its end, the shortest time to an ending inside it, and for each
+        shared span of an enclosing decision a route in it goes on to,
+        the shortest time from lo to that route's end."""
         acc, stop, i = 0.0, infinity, lo
+        exits: Exits = {}
+
+        def exit_to(ref: tuple[int, int], ms: float) -> None:
+            exits[ref] = min(exits.get(ref, infinity), ms)
+
         while i <= hi:
             acc += holds[i]
             decision = by_after.get((i, parent))
@@ -367,30 +390,51 @@ def _shortest_ms(holds: list[float], decisions: list[Decision]) -> float:
                 i += 1
                 continue
             active.add(decision.index)
-            routes = [(walk(start, end, decision.index), result, ri)
-                      for ri, (start, end, result)
-                      in enumerate(decision.routes)]
-            active.discard(decision.index)
-            for (through, inner), result, ri in routes:
+            # Its ways through: (time from its first route item on,
+            # result), the routes' and the spans' they go on to.
+            ways: list[tuple[float, str]] = []
+            reached: set[int] = set()
+            throughs = 0.0
+            for ri, (start, end, result) in enumerate(decision.routes):
+                through, inner, inner_exits = walk(start, end,
+                                                   decision.index)
+                throughs += through
                 stop = min(stop, acc + inner)
-                if result == "ending" and ri != decision.continuing:
-                    stop = min(stop, acc + through)
+                own = "continuing" if ri == decision.continuing else result
+                outs = [(ref, ms) for ref, ms in inner_exits.items()]
+                then = decision.thens[ri]
+                if then is None:
+                    ways.append((through, own))
+                else:
+                    outs.append((then, through))
+                for ref, ms in outs:
+                    if ref[0] == decision.index:
+                        reached.add(ref[1])
+                        ways.append((ms + span_ms(ref),
+                                     decision.shared[ref[1]].result))
+                    else:
+                        exit_to(ref, acc + ms)
+            active.discard(decision.index)
+            for ms, result in ways:
+                if result == "ending":
+                    stop = min(stop, acc + ms)
             if decision.continuing >= 0:
-                acc += min(through for (through, _), result, ri in routes
-                           if ri == decision.continuing
-                           or result == "continue")
+                acc += min((ms for ms, result in ways
+                            if result in ("continuing", "continue")),
+                           default=infinity)
                 nxt = decision.continue_at
             else:
-                acc += sum(through for (through, _), _, _ in routes)
-                nxt = decision.region_end + 1
+                acc += throughs + sum(span_ms((decision.index, k))
+                                      for k in reached)
+                nxt = decision.menu_end + 1
             if nxt <= i:
                 break  # a backward join: the span ends here
             i = nxt
-        return acc, stop
+        return acc, stop, exits
 
     if not holds:
         return 0.0
-    through, stop = walk(0, len(holds) - 1, -1)
+    through, stop, _exits = walk(0, len(holds) - 1, -1)
     return min(through, stop)
 
 
@@ -417,6 +461,11 @@ def timing_section(manifest: dict[str, Any]) -> dict[str, Any]:
         else set(range(len(items)))
     in_routes = {k for d in decisions for start, end, _ in d.routes
                  for k in range(start, end + 1)}
+    in_routes |= {k for d in decisions for span in d.shared
+                  for k in range(span.start, span.end + 1)}
+    # The routes whose `then` reaches each shared span, by (decision
+    # index, place in its `shared`), as DECISION/ROUTE.
+    reached_from: dict[tuple[int, int], list[str]] = {}
 
     def figure(indices: list[int]) -> dict[str, Any]:
         return {"items": len(indices),
@@ -430,26 +479,52 @@ def timing_section(manifest: dict[str, Any]) -> dict[str, Any]:
     children: dict[int, list[Decision]] = {}
     for n in decisions:
         children.setdefault(n.parent, []).append(n)
-    decision_rows = []
-    for d in sorted(decisions, key=lambda d: (d.after, d.index)):
-        branch = by_id.get(d.id, {}) if isinstance(d.id, str) else next(
+
+    def branch_of(d: Decision) -> dict[str, Any]:
+        return by_id.get(d.id, {}) if isinstance(d.id, str) else next(
             (b for b in branch_list if isinstance(b, dict)
              and b.get("id") == d.id), {})
-        route_defs = branch.get("routes") if isinstance(
+
+    def route_defs_of(d: Decision) -> list[Any]:
+        branch = branch_of(d)
+        return branch.get("routes") if isinstance(
             branch.get("routes"), list) else []
+
+    for d in decisions:
+        defs = route_defs_of(d)
+        for ri, then in enumerate(d.thens):
+            if then is not None:
+                route = defs[ri] if ri < len(defs) else {}
+                reached_from.setdefault(then, []).append(
+                    f"{d.id}/{route.get('id')}")
+
+    def span_items(ref: tuple[int, int]) -> range:
+        span = decisions[ref[0]].shared[ref[1]]
+        return range(span.start, span.end + 1)
+
+    decision_rows = []
+    for d in sorted(decisions, key=lambda d: (d.after, d.index)):
+        branch = branch_of(d)
+        route_defs = route_defs_of(d)
         routes = []
         for ri, (start, end, result) in enumerate(d.routes):
             route = route_defs[ri] if ri < len(route_defs) else {}
             label = _str(route.get("label")) or ""
+            then = d.thens[ri]
+            own = [k for k in range(start, end + 1) if k in shown]
+            if then is not None:
+                own += [k for k in span_items(then) if k in shown]
             routes.append({
                 "id": _str(route.get("id")),
                 "label": text_tags.plain_text(label),
                 "start": _item_id(items[start], start),
                 "end": _item_id(items[end], end),
                 "result": "continuing" if ri == d.continuing else result,
+                "then": (decisions[then[0]].shared[then[1]].id
+                         if then is not None else None),
                 "nested": [n.id for n in children.get(d.index, [])
                            if start <= n.after <= end],
-                **figure([k for k in range(start, end + 1) if k in shown]),
+                **figure(own),
             })
         decision_rows.append({
             "id": d.id,
@@ -458,6 +533,15 @@ def timing_section(manifest: dict[str, Any]) -> dict[str, Any]:
             "continueAt": (_item_id(items[d.continue_at], d.continue_at)
                            if d.continue_at >= 0 else None),
             "routes": routes,
+            "shared": [{
+                "id": span.id,
+                "start": _item_id(items[span.start], span.start),
+                "end": _item_id(items[span.end], span.end),
+                "result": span.result,
+                "reachedFrom": reached_from.get((d.index, k), []),
+                **figure([i for i in span_items((d.index, k))
+                          if i in shown]),
+            } for k, span in enumerate(d.shared)],
         })
     return {
         "rule": rule,
@@ -839,9 +923,15 @@ def format_text(report: dict[str, Any]) -> str:
             nested = (f"; holds decision{'s' if len(route['nested']) > 1 else ''} "
                       f"{', '.join(map(str, route['nested']))}"
                       if route["nested"] else "")
+            then = f", then {route['then']}" if route["then"] else ""
             add(f"    route {route['id']} \"{_one_line(route['label'])}\" "
-                f"({route['start']}..{route['end']}, {route['result']}): "
-                f"{_figure(route)}{nested}")
+                f"({route['start']}..{route['end']}, {route['result']}"
+                f"{then}): {_figure(route)}{nested}")
+        for span in decision["shared"]:
+            reached = ", ".join(span["reachedFrom"]) or "none"
+            add(f"    shared span {span['id']} ({span['start']}.."
+                f"{span['end']}, {span['result']}): {_figure(span)}; "
+                f"reached from routes {reached}")
     if timing["unreachable"]:
         ids = timing["unreachable"]
         add(f"  never reached from the opening, not counted: "

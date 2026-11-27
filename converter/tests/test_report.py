@@ -117,8 +117,8 @@ def test_reading_time_per_route_main_line_and_shortest(tmp_path: Path
     assert decision["prompt"] == "Go where?"
     left, right = decision["routes"]
     assert left == {"id": "left", "label": "Left", "start": "left-1",
-                    "end": "left-2", "result": "continuing", "nested": [],
-                    "items": 2, "ms": 8400}
+                    "end": "left-2", "result": "continuing", "then": None,
+                    "nested": [], "items": 2, "ms": 8400}
     assert right["result"] == "ending"
     assert (right["items"], right["ms"]) == (1, 1500)
 
@@ -359,6 +359,78 @@ def test_shortest_reading_plays_every_route_of_a_pure_choice(
         "schemaVersion": 1, "width": 10, "height": 10, "items": items,
         "branches": branches}))
     assert report.build_report(folder)["timing"]["shortestMs"] == 2 * 1500
+
+
+def test_shared_spans_count_once_and_per_route_with_then(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A shared span's items count once in the story's total and not in
+    the main line; a route with `then` counts its span, which is listed
+    after its decision's routes; the shortest reading goes through a
+    route's span, a nested route's to an enclosing decision included
+    (fixtures/route-shapes.json, "shared spans"; every item 1.5 s)."""
+    shapes = json.loads((REPO_ROOT / "fixtures" / "route-shapes.json")
+                        .read_text(encoding="utf-8"))["cases"]
+    shape = next(c for c in shapes if c["name"] == "shared spans")
+    items = [_image(shape["items"][0], "x")] + [
+        _text(i, "x") for i in shape["items"][1:]]
+    folder = _write_folder(tmp_path / "spans", {
+        "schemaVersion": 1, "width": 10, "height": 10, "items": items,
+        "branches": shape["branches"]}, ["s0.jpg"])
+    timing = report.build_report(folder)["timing"]
+    # y0, w0, k0 and b2 are never shown (sneak/x leaves fight/b).
+    assert timing["unreachable"] == ["y0", "w0", "k0", "b2"]
+    assert timing["everything"] == {"items": 13, "ms": 13 * 1500}
+    assert timing["mainLine"] == {"items": 3, "ms": 3 * 1500}
+    # fight/a then fail: s0, a0, a1, f0, f1.
+    assert timing["shortestMs"] == 5 * 1500
+    fight, sneak, look = timing["decisions"]
+    a, b, _c = fight["routes"]
+    assert (a["then"], a["items"], a["ms"]) == ("fail", 4, 4 * 1500)
+    assert (b["then"], b["items"]) == (None, 2)
+    assert fight["shared"] == [{
+        "id": "fail", "start": "f0", "end": "f1", "result": "ending",
+        "reachedFrom": ["fight/a", "sneak/x"], "items": 2, "ms": 3000}]
+    x = sneak["routes"][0]
+    assert (x["then"], x["items"]) == ("fail", 3)
+    u1 = look["routes"][0]
+    assert (u1["then"], u1["items"]) == ("tail", 2)
+    code, out, _err = run_cli(["report", str(folder)], capsys)
+    assert code == 0
+    lines = out.splitlines()
+    for expected in [
+        '    route a "Attack" (a0..a1, ending, then fail): 6 s, 4 items',
+        '    route b "Sneak" (b0..b2, continue): 3 s, 2 items; holds '
+        'decision sneak',
+        "    shared span fail (f0..f1, ending): 3 s, 2 items; reached from "
+        "routes fight/a, sneak/x",
+        '    route x "Run" (x0..x0, ending, then fail): 4 s, 3 items',
+    ]:
+        assert expected in lines, (expected, out)
+
+
+def test_shortest_reading_through_a_continuing_shared_span(
+        tmp_path: Path) -> None:
+    """A route whose span continues is a way on through its decision,
+    timed with its span."""
+    items = [_image("a", "x"), _text("b", "x"), _text("c", "x"),
+             _text("k", "x"), _text("k2", "x"), _text("j", "x")]
+    branches = [{"id": "d", "after": "a", "prompt": "?",
+                 "continuingRoute": "r2", "continueAt": "j",
+                 "routes": [
+                     {"id": "r1", "label": "1", "start": "b", "end": "b",
+                      "result": "continue", "then": "s"},
+                     {"id": "r2", "label": "2", "start": "c", "end": "c",
+                      "then": "s"}],
+                 "shared": [{"id": "s", "start": "k", "end": "k2",
+                             "result": "continue"}]}]
+    folder = _write_folder(tmp_path / "cont", {
+        "schemaVersion": 1, "width": 10, "height": 10, "items": items,
+        "branches": branches}, ["a.jpg"])
+    timing = report.build_report(folder)["timing"]
+    # a, a route, its span's two items, j.
+    assert timing["shortestMs"] == 5 * 1500
+    assert timing["everything"] == {"items": 6, "ms": 6 * 1500}
+    assert timing["mainLine"] == {"items": 2, "ms": 2 * 1500}
 
 
 def test_unreachable_items_are_counted_apart(tmp_path: Path) -> None:

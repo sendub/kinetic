@@ -403,6 +403,10 @@ export const EN = {
   "map.route.returns": "returns to the choice",
   /** Branch map, a route's outcome: it ends the story. */
   "map.route.ends": "an ending",
+  /** Branch map, a route's outcome: it goes on to a scene several routes share. */
+  "map.route.shared": "goes on to a shared scene",
+  /** Branch map tooltip: a box for a scene several routes go on to, drawn once. */
+  "map.span.title": "Shared scene",
   /** Branch map, a route's status: the route last picked there. */
   "map.route.lastPick": "your last pick",
   /** Branch map, a route's status: its decision not reached. */

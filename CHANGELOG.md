@@ -65,6 +65,23 @@ something more of an author.
   it, and a bookmark, save or reload inside a span keeps the route
   that led in. The validator's never-shown warnings follow spans, and a
   pure choice's region runs to its last route or span end.
+- The branch map draws a shared span once, as a box with rounded
+  corners after its decision's routes, with a line into it from each
+  route that goes on to it (a route of a nested decision too), and
+  shows where the span leads as a route's: back to the story, back to
+  the choice, or an ending. The box fills in as a route pill does, "you
+  are here" follows the reader through the span, and a click on the box
+  plays the span from its start as one of the routes going on to it.
+  `kinetic routes` lists each decision's shared spans after its routes,
+  with the routes reaching each, and a route with `then` names its span
+  (`--dot` draws the span as a box, `--json` carries `shared`, `then`
+  and `thenDecision`); `kinetic export` prints a span once, after its
+  routes, under a heading naming the routes that reach it (`--out`
+  writes it a file of its own); `kinetic report` counts a span's items
+  once in the story's reading time, adds a span to each route with
+  `then` and lists the spans, and its shortest reading goes through
+  them. A pure choice's line on the map and in these tools now carries
+  on past its spans, where it went into them.
 - The converter makes a decision of a menu whose choices set variables
   and `jump` (or `call`, or `return`) elsewhere, the commonest Ren'Py
   menu, where it used to keep it linear (`jump inside a choice block`).

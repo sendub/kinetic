@@ -20,6 +20,7 @@ SHAPES = json.loads((REPO_ROOT / "fixtures" / "route-shapes.json")
 NESTED = next(c for c in SHAPES if c["name"] == "nested decisions and rejoins")
 FOLLOWS = next(c for c in SHAPES
                if c["name"] == "a decision that follows another")
+SPANS = next(c for c in SHAPES if c["name"] == "shared spans")
 
 needs_demo = pytest.mark.skipif(
     not (DEMO / "manifest.json").is_file(),
@@ -202,6 +203,108 @@ route, carries on at j0 -->
 <!-- choice second: carries on at j0 -->""" in out
     assert ("1. Door A (first/a, continue: joins at m0)\n") in out
     assert "<!-- choice first follows" not in out
+
+
+def spans_folder(tmp_path: Path) -> Path:
+    manifest = {"schemaVersion": 1, "title": "Spans",
+                "items": [{"id": i, "type": "text", "text": f"Line {i}."}
+                          for i in SPANS["items"]],
+                "branches": SPANS["branches"]}
+    folder = tmp_path / "game"
+    folder.mkdir()
+    (folder / "manifest.json").write_text(json.dumps(manifest),
+                                          encoding="utf-8")
+    return folder
+
+
+def test_a_shared_span_once_after_its_routes(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A span is printed once, after its decision's routes, under a
+    heading naming the routes that reach it, a nested route included;
+    each route with `then` ends going on to it (docs/content-format.md,
+    "Branches")."""
+    code, out, _err = run_cli(["export", str(spans_folder(tmp_path))],
+                              capsys)
+    assert code == 0
+    headings = [line for line in out.splitlines()
+                if line.startswith("## ") or line.startswith("### ")
+                or line.startswith("<!-- end of ")]
+    assert headings == [
+        "## Main line",
+        "### Choice fight: What now?",
+        "## Route fight/a: Attack",
+        "<!-- end of route fight/a (ending): goes on to shared span "
+        "fight/fail -->",
+        "## Route fight/b: Sneak",
+        "### Choice sneak: Where?",
+        "## Route sneak/x: Run",
+        "<!-- end of route sneak/x (ending): goes on to shared span "
+        "fight/fail -->",
+        "## Route sneak/y: Wait",
+        "<!-- end of route sneak/y (continuing): joins at b2 -->",
+        "## Route sneak/w: Peek",
+        "<!-- end of route sneak/w (continue): goes on to shared span "
+        "sneak/caught -->",
+        "## Shared span sneak/caught: reached from routes sneak/w",
+        "<!-- end of shared span sneak/caught (continue): joins at b2 -->",
+        "## Route fight/b, after choice sneak",
+        "<!-- end of route fight/b (continue): joins at j0 -->",
+        "## Route fight/c: Talk",
+        "<!-- end of route fight/c (continuing): joins at j0 -->",
+        "## Shared span fight/fail: reached from routes fight/a, sneak/x",
+        "<!-- end of shared span fight/fail (ending): the choice is offered "
+        "again -->",
+        "## Main line, after choice fight",
+        "### Choice look: Look at?",
+        "## Route look/u1: The sea",
+        "<!-- end of route look/u1 (ending): goes on to shared span "
+        "look/tail -->",
+        "## Route look/u2: The sky",
+        "<!-- end of route look/u2 (return): returns to the choice -->",
+        "## Shared span look/tail: reached from routes look/u1",
+        "<!-- end of shared span look/tail (ending): the choice is offered "
+        "again -->",
+        "## Main line, after choice look",
+    ]
+    assert """\
+### Choice fight: What now?
+
+1. Attack (fight/a, ending: goes on to shared span fight/fail)
+2. Sneak (fight/b, continue: joins at j0)
+3. Talk (fight/c, continuing: joins at j0)
+
+- shared span fight/fail (ending: the choice is offered again; reached \
+from routes fight/a, sneak/x)
+
+<!-- choice fight: carries on at j0 -->""" in out
+    assert ("## Shared span fight/fail: reached from routes fight/a, "
+            "sneak/x\n\n<!-- 2 items, f0..f1, ending -->\n\n"
+            '<a id="f0"></a>\nLine f0.') in out
+    # Every item exactly once: a span's items only under its heading.
+    ids = ANCHOR.findall(out)
+    assert sorted(ids) == sorted(SPANS["items"])
+
+
+def test_out_writes_a_file_per_shared_span(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    out_dir = tmp_path / "export"
+    code, out, _err = run_cli(["export", str(spans_folder(tmp_path)),
+                               "--out", str(out_dir)], capsys)
+    assert code == 0
+    assert out == f"kinetic export: wrote 12 files to {out_dir}\n"
+    names = sorted(p.name for p in out_dir.iterdir())
+    assert {"fight.fail.md", "sneak.caught.md", "look.tail.md"} <= set(names)
+    main = (out_dir / "main.md").read_text(encoding="utf-8")
+    assert ("- shared span [fight/fail](fight.fail.md) (ending: the choice "
+            "is offered again; reached from routes fight/a, sneak/x)") in main
+    fail = (out_dir / "fight.fail.md").read_text(encoding="utf-8")
+    assert blocks(fail)[2] == ("## Shared span fight/fail: reached from "
+                               "routes fight/a, sneak/x")
+    assert ANCHOR.findall(fail) == ["f0", "f1"]
+    # A route's file holds its nested decision's span inline, not the
+    # span of the decision holding it.
+    b = (out_dir / "fight.b.md").read_text(encoding="utf-8")
+    assert ANCHOR.findall(b) == ["b0", "x0", "y0", "w0", "k0", "b2"]
 
 
 def test_lang_reads_the_language_file_marking_the_base(

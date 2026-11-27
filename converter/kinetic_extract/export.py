@@ -30,17 +30,22 @@ the route labels, each with its route's result; a decision that follows
 an earlier one (docs/content-format.md, "Branches") adds the pick each
 route takes and a comment saying what it follows. A route starts at a
 `## Route DECISION/ROUTE: label` heading and ends in a comment saying
-where it leads. Items on no line (kinetic routes lists them) close the
-export under their own heading.
+where it leads. A decision's shared spans (docs/content-format.md,
+"Branches") come once each, after its routes, under a `## Shared span
+DECISION/SPAN: reached from routes ...` heading naming every route whose
+`then` leads there, nested ones included; such a route's end says it
+goes on to the span. Items on no line (kinetic routes lists them) close
+the export under their own heading.
 
 `--lang TAG` reads the texts, speaker names, prompts, labels and title
 from that language file (docs/content-format.md, "Translations"), each
 falling back on its own to the manifest's, marked `[base] ` where it
 does. `--out DIR` writes one file per route in place of stdout:
 `main.md`, the main line with each choice's labels linking to its
-routes' files, and `DECISION.ROUTE.md` for each route, the route's whole
-line with the choices and routes nested in it, so each file reads start
-to finish like its label in the script.
+routes' files, `DECISION.ROUTE.md` for each route, the route's whole
+line with the choices, routes and shared spans nested in it, so each
+file reads start to finish like its label in the script, and
+`DECISION.SPAN.md` for each shared span.
 
 Exit codes, as `kinetic routes`: 0 when it ran; 1, writing nothing, when
 a decision breaks the span rules (listed on stderr); 2 for bad
@@ -74,6 +79,7 @@ from kinetic_extract.routes import (
     DecisionNode,
     Model,
     Route,
+    SpanNode,
     Stretch,
     build_model,
 )
@@ -274,13 +280,17 @@ def item_block(item: Any, index: int, tracks: dict[str, Any],
 # The document
 # ---------------------------------------------------------------------------
 
-def route_name(decision: DecisionNode, route: Route) -> str:
-    return f"{decision.decision.id}/{route.id}"
+def route_name(decision: DecisionNode, route: Route | SpanNode) -> str:
+    """A route, or a shared span, by its decision (span ids are unique
+    among the decision's route ids)."""
+    own = route.span.id if isinstance(route, SpanNode) else route.id
+    return f"{decision.decision.id}/{own}"
 
 
-def route_file(decision: DecisionNode, route: Route) -> str:
+def route_file(decision: DecisionNode, route: Route | SpanNode) -> str:
+    own = route.span.id if isinstance(route, SpanNode) else route.id
     return (f"{_UNSAFE.sub('_', str(decision.decision.id))}."
-            f"{_UNSAFE.sub('_', str(route.id))}.md")
+            f"{_UNSAFE.sub('_', str(own))}.md")
 
 
 class Writer:
@@ -296,8 +306,16 @@ class Writer:
     def iid(self, k: int) -> str:
         return _item_id(self.items[k], k)
 
-    def leads(self, decision: DecisionNode, route: Route) -> str:
-        """Where a route leads once read."""
+    def span_name(self, route: Route) -> str:
+        """The shared span a route's `then` names, by its decision."""
+        assert route.then is not None
+        holder = self.model.decisions[route.then[0]]
+        return f"{holder.id}/{holder.shared[route.then[1]].id}"
+
+    def leads(self, decision: DecisionNode, route: Route | SpanNode) -> str:
+        """Where a route, or a shared span, leads once read."""
+        if isinstance(route, Route) and route.then is not None:
+            return f"goes on to shared span {self.span_name(route)}"
         if route.outcome == CONTINUES:
             return f"joins at {self.iid(decision.decision.continue_at)}"
         if route.outcome == RETURNS:
@@ -329,10 +347,24 @@ class Writer:
             rows.append(f"{route.index + 1}. {label} ({where}, "
                         f"{route.result}: {self.leads(node, route)}"
                         f"{self.after(node, route)})")
+        spans = []
+        for span in node.spans:
+            where = f"[{route_name(node, span)}]" \
+                f"({route_file(node, span)})" if link_files \
+                else route_name(node, span)
+            spans.append(f"- shared span {where} ({span.span.result}: "
+                         f"{self.leads(node, span)}; {self.reached(span)})")
         return [f"### Choice {decision.id}: {prompt}",
                 "\n".join(rows),
+                *(["\n".join(spans)] if spans else []),
                 *self.follows(node),
                 f"<!-- choice {decision.id}: {self.carries_on(node)} -->"]
+
+    @staticmethod
+    def reached(span: SpanNode) -> str:
+        names = ", ".join(route_name(node, route)
+                          for node, route in span.leads)
+        return f"reached from routes {names or 'none'}"
 
     @staticmethod
     def after(node: DecisionNode, route: Route) -> str:
@@ -377,6 +409,19 @@ class Writer:
                 f"<!-- end of route {route_name(node, route)} "
                 f"({route.result}): {self.leads(node, route)} -->"]
 
+    def span(self, node: DecisionNode, span: SpanNode) -> list[str]:
+        """A shared span's heading, its items, and where it leads."""
+        name = route_name(node, span)
+        first, last = self.iid(span.span.start), self.iid(span.span.end)
+        count = span.span.end - span.span.start + 1
+        return [f"## Shared span {name}: {self.reached(span)}",
+                f"<!-- {count} item{'s' if count != 1 else ''}, "
+                f"{first if first == last else f'{first}..{last}'}, "
+                f"{span.span.result} -->",
+                *self.line(span.line, f"Shared span {name}", inline=True),
+                f"<!-- end of shared span {name} ({span.span.result}): "
+                f"{self.leads(node, span)} -->"]
+
     def line(self, elements: list[Stretch | DecisionNode], name: str,
              inline: bool) -> list[str]:
         """A line's blocks. With `inline`, each decision's routes follow
@@ -391,6 +436,8 @@ class Writer:
             if inline:
                 for route in element.routes:
                     out.extend(self.route(element, route))
+                for span in element.spans:
+                    out.extend(self.span(element, span))
                 out.append(f"## {name}, after choice {element.decision.id}")
         if inline and out and out[-1].startswith(f"## {name}, after "):
             out.pop()  # nothing follows on this line
@@ -453,6 +500,11 @@ def export_files(folder: Path, manifest: dict[str, Any], words: Words,
                 *_header(manifest, folder, words, tag,
                          f"route {route_name(node, route)}"),
                 *writer.route(node, route)])
+        for span in node.spans:
+            files[route_file(node, span)] = _document([
+                *_header(manifest, folder, words, tag,
+                         f"shared span {route_name(node, span)}"),
+                *writer.span(node, span)])
     return files
 
 
@@ -502,6 +554,6 @@ def register(subcommands: Any) -> None:
                       help="read the texts from this language file, the "
                            "base's marked [base] where it lacks one")
     argp.add_argument("--out", metavar="DIR",
-                      help="write main.md and one file per route here, in "
-                           "place of stdout")
+                      help="write main.md and one file per route and "
+                           "shared span here, in place of stdout")
     argp.set_defaults(run=run)

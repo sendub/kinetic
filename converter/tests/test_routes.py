@@ -22,6 +22,7 @@ SHAPES = json.loads((REPO_ROOT / "fixtures" / "route-shapes.json")
 NESTED = next(c for c in SHAPES if c["name"] == "nested decisions and rejoins")
 FOLLOWS = next(c for c in SHAPES
                if c["name"] == "a decision that follows another")
+SPANS = next(c for c in SHAPES if c["name"] == "shared spans")
 
 needs_demo = pytest.mark.skipif(
     not (DEMO / "manifest.json").is_file(),
@@ -187,6 +188,102 @@ def test_a_follows_the_player_ignores_is_not_printed(
                                                           manifest))], capsys)
     assert code == 0
     assert ", follows" not in out and "after a at first" not in out
+
+
+def test_outline_of_shared_spans(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Each decision's shared spans after its routes, with where each
+    leads and the routes reaching it, nested ones included; each route
+    with `then` names its span (docs/content-format.md, "Branches"). A
+    pure choice's line carries on past its spans too."""
+    folder = write_folder(tmp_path, shape_manifest(SPANS))
+    code, out, err = run_cli(["routes", str(folder)], capsys)
+    assert code == 0 and err == ""
+    body = out.split("\n", 1)[1]
+    assert body == """\
+shared spans: 17 items, 3 decisions, 8 routes, 3 endings, 3 shared spans
+
+main line: 3 items
+  items s0 (1 item)
+  decision fight after s0, carries on at j0: "What now?"
+    1. route a "Attack": ending, 2 items, a0..a1; then fail
+      items a0..a1 (2 items)
+    2. route b "Sneak": continue, 6 items, b0..b2; joins at j0
+      items b0 (1 item)
+      decision sneak after b0, carries on at b2: "Where?"
+        1. route x "Run": ending, 1 item, x0; then fail (decision fight)
+          items x0 (1 item)
+        2. route y "Wait": continuing, 1 item, y0; joins at b2
+          items y0 (1 item)
+        3. route w "Peek": continue, 1 item, w0; then caught
+          items w0 (1 item)
+        shared span caught: continue, 1 item, k0; joins at b2; reached from routes sneak/w
+          items k0 (1 item)
+      items b2 (1 item)
+    3. route c "Talk": continuing, 1 item, c0; joins at j0
+      items c0 (1 item)
+    shared span fail: ending, 2 items, f0..f1; an ending (the choice is offered again); reached from routes fight/a, sneak/x
+      items f0..f1 (2 items)
+  items j0 (1 item)
+  decision look after j0, a pure choice: carries on at e0 once every route has played: "Look at?"
+    1. route u1 "The sea": ending, 1 item, u1a; then tail
+      items u1a (1 item)
+    2. route u2 "The sky": return, 1 item, u2a; returns to the choice
+      items u2a (1 item)
+    shared span tail: ending, 1 item, t0; an ending (the choice is offered again); reached from routes look/u1
+      items t0 (1 item)
+  items e0 (1 item)
+  the story ends at e0
+
+never reached from the opening: 4 items (y0, w0, k0, b2)
+"""
+
+
+def test_json_and_dot_of_shared_spans(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    folder = write_folder(tmp_path, shape_manifest(SPANS))
+    code, out, _err = run_cli(["routes", str(folder), "--json"], capsys)
+    assert code == 0
+    data = json.loads(out)
+    assert data["counts"] == SPANS["expect"]
+    fight = data["mainLine"]["line"][1]
+    a, b, c = fight["routes"]
+    assert (a["outcome"], a["then"], a["thenDecision"], a["joinsAt"]) == \
+        ("shared", "fail", "fight", None)
+    assert (c["outcome"], c["then"], c["thenDecision"]) == \
+        ("continues", None, None)
+    sneak = b["line"][1]
+    x = sneak["routes"][0]
+    assert (x["then"], x["thenDecision"]) == ("fail", "fight")
+    assert fight["shared"] == [{
+        "id": "fail", "result": "ending", "outcome": "ends", "items": 2,
+        "first": "f0", "last": "f1", "joinsAt": None,
+        "reachedFrom": ["fight/a", "sneak/x"],
+        "line": [{"kind": "items", "first": "f0", "last": "f1",
+                  "items": 2}]}]
+    caught = sneak["shared"][0]
+    assert (caught["outcome"], caught["joinsAt"], caught["reachedFrom"]) == \
+        ("continues", "b2", ["sneak/w"])
+    assert data["offLine"] == []
+    code, out, _err = run_cli(["routes", str(folder), "--dot"], capsys)
+    assert code == 0
+    lines = out.splitlines()
+    # fight is decision 0, sneak 1, look 2; a span is one node, its items.
+    for line in [
+        'x0_0 [shape=box, style="rounded,bold", '
+        'label="shared span fail\\nf0..f1\\n2 items"];',
+        's1 -> x0_0 [label="then"];',  # a's line into the span
+        's4 -> x0_0 [label="then"];',  # sneak/x, nested, out to fight's
+        's6 -> x1_0 [label="then"];',  # sneak/w into its own decision's
+        'x1_0 -> s8;',  # caught continues: joins at b2
+        'x2_0 [shape=box, style="rounded,bold", '
+        'label="shared span tail\\nt0\\n1 item"];',
+        'd2 -> s16 [style=dotted, label="after every route"];',
+    ]:
+        assert f"  {line}" in lines, (line, out)
+    assert sum("shape=doublecircle" in line for line in lines) == \
+        SPANS["expect"]["endings"]
+    assert re.search(r"\bs10\b", out) is None  # fail's items: its node
 
 
 def test_a_pure_choice_running_to_the_end(tmp_path: Path) -> None:

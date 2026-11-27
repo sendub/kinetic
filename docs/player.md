@@ -206,15 +206,24 @@ The map shows:
   played ("1/2", "?" before you reach it);
 - its routes as numbered pills, played ones filled and unseen ones
   dashed, the route you picked last at each decision outlined in gold;
+- a scene several routes share, drawn once as a box with rounded
+  corners after its decision's routes, below them: each route that goes
+  on to it has a line running into the box, a route of a decision
+  nested in another one included, and from the box its screens lead on
+  as a route's would (back to the story, back to the choice, or to an
+  ending); the box fills in as a pill does once you have played through
+  it;
 - the stretches between them as lines with their screen counts;
 - your bookmarks on those lines (a stretch holding some grows to fit
   them side by side);
 - a gold "you are here" marker;
 - decisions you have not reached yet, faded.
 
-Hover a node or pill for its full text. Click a decision you have
-reached to go to its choice screen, or one of its routes to play that
-route from its start (a pick, as on the choice screen); unreached ones
+Hover a node, pill or box for its full text. Click a decision you have
+reached to go to its choice screen, one of its routes to play that
+route from its start (a pick, as on the choice screen), or one of its
+shared scene boxes to play that scene from its start, as one of the
+routes going on to it (the one you picked last, if any); unreached ones
 do nothing.
 
 ### Full size and Fit

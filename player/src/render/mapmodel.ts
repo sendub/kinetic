@@ -16,6 +16,16 @@
 // machine's own flow, docs/content-format.md "Branches"). An ending route
 // stops in an end mark.
 //
+// A decision's shared spans (docs/content-format.md, "Branches", `shared`
+// and `then`) are drawn once each, after its routes: a box like a pill, on
+// a row of its own below every route of the decision, in a column right of
+// every route's line, its items one stretch on from it. Each route with
+// `then` feeds it: the route's line runs on along its row, then turns down
+// to the box (a `feed` line), a route nested in another decision as well
+// (its line feeds out past its own decision to the span's). A span's
+// result is drawn as a route's is: it joins or returns at its decision's
+// join, or stops in an end mark.
+//
 // Two rules keep a large game screen-shaped and its connectors short:
 //
 // - Bands like the systems of a music score (docs/plan.md Phase 41, "Band
@@ -235,11 +245,21 @@ export interface MapDecision {
   readonly y: number;
   /** Positions in `MapModel.routes` of this decision's routes, in order. */
   readonly routes: readonly number[];
+  /** Positions in `MapModel.spans` of its shared spans, in order. */
+  readonly spans: readonly number[];
 }
+
+/**
+ * A connector's kind: a decision's curve out to a route pill (`branch`),
+ * a route's (or a shared span's) line into its decision's join (`join`)
+ * or back towards it (`return`), and a route's line on into the shared
+ * span its `then` names (`feed`).
+ */
+export type LinkKind = "branch" | "join" | "return" | "feed";
 
 /** One connector's SVG path data, its kind and its bounding box. */
 export interface MapLink {
-  readonly kind: "branch" | "join" | "return";
+  readonly kind: LinkKind;
   readonly d: string;
   readonly x0: number;
   readonly y0: number;
@@ -250,9 +270,11 @@ export interface MapLink {
 /**
  * How a route's span ends (docs/content-format.md, "Branches"):
  * `continues` for the continuing route and a `continue` route (both join
- * at `continueAt`), `returns` for a `return` route, `ends` otherwise.
+ * at `continueAt`), `returns` for a `return` route, `shared` for a route
+ * going on into a shared span (`then`), `ends` otherwise. A shared span's
+ * is one of the first three, by its `result`.
  */
-export type RouteOutcome = "continues" | "returns" | "ends";
+export type RouteOutcome = "continues" | "returns" | "ends" | "shared";
 
 /** One route pill and the line after it. */
 export interface MapRoute {
@@ -272,6 +294,28 @@ export interface MapRoute {
    */
   readonly endX: number;
   readonly endY: number;
+  /** The shared span it feeds, by position in `MapModel.spans`; else -1. */
+  readonly span: number;
+}
+
+/** One shared span's box and the line after it. */
+export interface MapSpan {
+  /** Its decision (machine index) and its place in that one's `shared`. */
+  readonly decision: number;
+  readonly span: number;
+  readonly id: string;
+  readonly startIndex: number;
+  readonly endIndex: number;
+  /** By its `result`: never `shared`. */
+  readonly outcome: RouteOutcome;
+  /** Left edge and row centre of the box. */
+  readonly x: number;
+  readonly y: number;
+  /** Where its line ends, as a route's (`MapRoute.endX`). */
+  readonly endX: number;
+  readonly endY: number;
+  /** The routes feeding it, by position in `MapModel.routes`. */
+  readonly leads: readonly number[];
 }
 
 /**
@@ -285,7 +329,7 @@ export interface MapTick {
   readonly x: number;
   readonly y: number;
   readonly side: "out" | "in";
-  readonly line: "run" | "join" | "return";
+  readonly line: "run" | "join" | "return" | "feed";
   /** The stretch, by position in `MapModel.runs`; -1 for a connector. */
   readonly run: number;
   /** The band it is drawn in, by position in `MapModel.bands`. */
@@ -318,11 +362,14 @@ export interface MapModel {
   readonly runs: readonly MapRun[];
   readonly decisions: readonly MapDecision[];
   readonly routes: readonly MapRoute[];
+  /** The shared span boxes, each decision's after its routes. */
+  readonly spans: readonly MapSpan[];
   /**
    * The connectors, each with its bounding box (for culling): decision ->
-   * route pill curves (`branch`), continuing and `continue` routes into
-   * their join (`join`), returning routes back towards it (`return`). A
-   * join or return line a band cut crosses is one link per band.
+   * route pill curves (`branch`), continuing and `continue` routes (and
+   * shared spans) into their join (`join`), returning ones back towards it
+   * (`return`), routes with `then` on to their span's box (`feed`). A
+   * join, return or feed line a band cut crosses is one link per band.
    */
   readonly links: readonly MapLink[];
   /** The "continues" ticks, an out and an in for every line a cut crosses. */
@@ -354,11 +401,26 @@ export interface MapModel {
   readonly decisionById: ReadonlyMap<string, number>;
 }
 
+/**
+ * A decision's menu-region end: the last end of its routes and its shared
+ * spans (machine.ts `regionEnd`; a pure choice's close continues past both).
+ */
 function regionEndOf(decision: ResolvedDecision): number {
   let end = -1;
   for (const route of decision.routes)
     if (route.endIndex > end) end = route.endIndex;
+  for (const span of decision.shared)
+    if (span.endIndex > end) end = span.endIndex;
   return end;
+}
+
+/** How a shared span's end leads on, by its `result`. */
+function spanOutcome(result: string): RouteOutcome {
+  return result === "continue"
+    ? "continues"
+    : result === "return"
+      ? "returns"
+      : "ends";
 }
 
 /** Where a decision's line carries on after it (the machine's flow). */
@@ -372,24 +434,45 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /**
  * A connector before its path data is written: a branch curve from (ax, ay)
- * to (bx, by), or a route's line from its end (ax, ay) along its row to the
- * join column bx, then up to the decision's row by. Kept as numbers so a
- * block laid out once can be moved (tucked in, then placed in its band) by
- * adding offsets.
+ * to (bx, by), a route's line from its end (ax, ay) along its row to the
+ * join column bx, then up to the decision's row by, or a feed line from a
+ * route's end (ax, ay) along its row to the column mx, down it to the
+ * span's row by and along that into the span's box at bx. Kept as numbers
+ * so a block laid out once can be moved (tucked in, then placed in its
+ * band) by adding offsets.
  */
 interface RawLink {
-  kind: "branch" | "join" | "return";
+  kind: LinkKind;
   ax: number;
   ay: number;
   bx: number;
   by: number;
+  /** A feed line's column down (`FEED_R` left of its box); else bx. */
+  mx: number;
 }
 
 /** The radius of a join or return line's turn up to its decision's row. */
 const TURN_R = 24;
+/**
+ * A feed line's turns' radius: its column down lies this far left of its
+ * span's box, half the gap there.
+ */
+const FEED_R = MAP_GEOMETRY.gap / 2;
+/** How far apart the columns down of one decision's spans' feed lines are. */
+const FEED_STEP = 12;
 
 function linkOf(raw: RawLink): MapLink {
-  const { kind, ax, ay, bx, by } = raw;
+  const { kind, ax, ay, bx, by, mx } = raw;
+  if (kind === "feed") {
+    // Along the route's row, a quarter turn down the column, down to the
+    // span's row, a quarter turn into its box.
+    const r = Math.min(FEED_R, (by - ay) / 2);
+    const d =
+      r <= 0
+        ? `M${ax} ${ay}H${bx}`
+        : `M${ax} ${ay}H${mx - r}Q${mx} ${ay} ${mx} ${ay + r}V${by - r}Q${mx} ${by} ${mx + r} ${by}H${bx}`;
+    return { kind, d, x0: ax, y0: ay, x1: bx, y1: by };
+  }
   if (kind === "branch") {
     const midX = (ax + bx) / 2;
     return {
@@ -409,9 +492,9 @@ function linkOf(raw: RawLink): MapLink {
   return { kind, d, x0: ax, y0: by, x1: bx, y1: ay };
 }
 
-/** A join or return line's straight piece in a band it only crosses. */
+/** A join, return or feed line's straight piece in a band it only crosses. */
 function straightLink(
-  kind: "join" | "return",
+  kind: "join" | "return" | "feed",
   x0: number,
   x1: number,
   y: number,
@@ -468,6 +551,7 @@ export interface StripNode extends OnLine {
   readonly afterIndex: number;
   readonly x: number;
   readonly routes: readonly number[];
+  readonly spans: readonly number[];
 }
 
 /** A route pill on the strip, its line ending at `endX` at its height. */
@@ -480,15 +564,30 @@ export interface StripRoute extends OnLine {
   readonly outcome: RouteOutcome;
   readonly x: number;
   readonly endX: number;
+  readonly span: number;
+}
+
+/** A shared span's box on the strip, its line ending at `endX`. */
+export interface StripSpan extends OnLine {
+  readonly decision: number;
+  readonly span: number;
+  readonly id: string;
+  readonly startIndex: number;
+  readonly endIndex: number;
+  readonly outcome: RouteOutcome;
+  readonly x: number;
+  readonly endX: number;
+  readonly leads: readonly number[];
 }
 
 /** A connector on the strip: from (ax, ay) to (bx, by) (`RawLink`). */
 export interface StripLink {
-  readonly kind: "branch" | "join" | "return";
+  readonly kind: LinkKind;
   readonly ax: number;
   readonly ay: number;
   readonly bx: number;
   readonly by: number;
+  readonly mx: number;
 }
 
 /** A join dot or end mark on the strip. */
@@ -518,6 +617,8 @@ export interface MapStrip {
   readonly nodes: readonly StripNode[];
   /** Its route pills (what `StripNode.routes` and `MapModel.routes` index). */
   readonly routes: readonly StripRoute[];
+  /** Its shared span boxes (what `StripNode.spans` and `MapModel.spans` index). */
+  readonly spans: readonly StripSpan[];
   readonly links: readonly StripLink[];
   readonly joins: readonly StripPoint[];
   readonly ends: readonly StripPoint[];
@@ -634,11 +735,16 @@ function stripOf(
   const runs: Laid<StripRun>[] = [];
   const mapDecisions: Laid<StripNode>[] = [];
   const routes: Laid<StripRoute>[] = [];
+  const spans: (Laid<StripSpan> & { leads: number[] })[] = [];
   const raw: (RawLink & { lineA: number; lineB: number })[] = [];
   const joins: Laid<StripPoint>[] = [];
   const ends: Laid<StripPoint>[] = [];
   const placed = new Set<number>();
   let lineCount = 1;
+  // The routes with `then` laid out so far whose span is not yet: by
+  // "decision:span", the routes' keys (a nested route's span is its
+  // enclosing decision's, laid out after it).
+  const feeds = new Map<string, number[]>();
 
   // Everything is laid out where its block starts and then moved as a
   // block: `mark` notes how much of each list exists, `shift` moves what
@@ -651,6 +757,7 @@ function stripOf(
     raw.length,
     joins.length,
     ends.length,
+    spans.length,
   ];
   function shift(from: Mark, to: Mark, dx: number, dy: number): void {
     for (let i = from[0]; i < to[0]; i += 1) {
@@ -670,6 +777,7 @@ function stripOf(
     for (let i = from[3]; i < to[3]; i += 1) {
       raw[i].ax += dx;
       raw[i].bx += dx;
+      raw[i].mx += dx;
       raw[i].ay += dy;
       raw[i].by += dy;
     }
@@ -680,6 +788,11 @@ function stripOf(
     for (let i = from[5]; i < to[5]; i += 1) {
       ends[i].x += dx;
       ends[i].y += dy;
+    }
+    for (let i = from[6]; i < to[6]; i += 1) {
+      spans[i].x += dx;
+      spans[i].endX += dx;
+      spans[i].y += dy;
     }
   }
 
@@ -759,11 +872,14 @@ function stripOf(
     let furthest = bx + g.routeW;
     const pending: { key: number; endX: number; y: number }[] = [];
     decision.routes.forEach((route, routeIdx) => {
-      const outcome: RouteOutcome = joinsAtContinue(route)
-        ? "continues"
-        : route.result === "return"
-          ? "returns"
-          : "ends";
+      const outcome: RouteOutcome =
+        route.then !== undefined
+          ? "shared"
+          : joinsAtContinue(route)
+            ? "continues"
+            : route.result === "return"
+              ? "returns"
+              : "ends";
       // Laid out under everything so far, then, for an ending, moved up
       // to the first row where it clears what is already there.
       const own = routeIdx === 0 ? ln : lineCount++;
@@ -796,6 +912,7 @@ function stripOf(
         ay: y,
         bx,
         by: ry,
+        mx: bx,
         lineA: ln,
         lineB: own,
       });
@@ -810,28 +927,126 @@ function stripOf(
         x: bx,
         y: ry,
         endX: inner.x,
+        span: -1,
         line: own,
       });
       routeKeys.push(key);
-      pending.push({ key, endX: inner.x, y: ry });
+      if (route.then !== undefined) {
+        const at = `${route.then.decision}:${route.then.span}`;
+        const list = feeds.get(at) ?? [];
+        list.push(key);
+        feeds.set(at, list);
+      } else pending.push({ key, endX: inner.x, y: ry });
       if (inner.x > furthest) furthest = inner.x;
     });
-    const joinX = furthest + g.gap;
+    // The shared spans: each on a row of its own under every route, the
+    // boxes in one column right of every route's line (nested lines
+    // included), each with its own column down for its feed lines, a
+    // lower span's further left. A route of this decision feeds along its
+    // row to that column, down it and into the box; a nested route's row
+    // goes on past its end (its own decision's join, the enclosing
+    // route's line), so its feed turns down at once and runs along the
+    // span's row, which nothing else is on.
+    const n = decision.shared.length;
+    const spanX = furthest + g.gap + Math.max(0, n - 1) * FEED_STEP;
+    let reach = furthest;
+    const spanKeys: number[] = [];
+    decision.shared.forEach((span, at) => {
+      const sy = y + bottom * g.rowH;
+      bottom += 1;
+      const own = lineCount++;
+      const endX = addRun(
+        span.startIndex,
+        span.endIndex,
+        spanX + g.routeW,
+        sy,
+        own,
+      );
+      const key = spans.length;
+      const leads = feeds.get(`${decision.index}:${at}`) ?? [];
+      feeds.delete(`${decision.index}:${at}`);
+      const column = spanX - FEED_R - (n - 1 - at) * FEED_STEP;
+      for (const lead of leads) {
+        const route = routes[lead];
+        route.span = key;
+        if (route.decision === decision.index) {
+          raw.push({
+            kind: "feed",
+            ax: route.endX,
+            ay: route.y,
+            bx: spanX,
+            by: sy,
+            mx: column,
+            lineA: route.line,
+            lineB: own,
+          });
+          continue;
+        }
+        const down = route.endX + 2 * FEED_R;
+        raw.push({
+          kind: "feed",
+          ax: route.endX,
+          ay: route.y,
+          bx: down,
+          by: sy,
+          mx: route.endX + FEED_R,
+          lineA: route.line,
+          lineB: own,
+        });
+        raw.push({
+          kind: "feed",
+          ax: down,
+          ay: sy,
+          bx: spanX,
+          by: sy,
+          mx: spanX,
+          lineA: own,
+          lineB: own,
+        });
+      }
+      spans.push({
+        decision: decision.index,
+        span: at,
+        id: span.id,
+        startIndex: span.startIndex,
+        endIndex: span.endIndex,
+        outcome: spanOutcome(span.result),
+        x: spanX,
+        endX,
+        y: sy,
+        leads,
+        line: own,
+      });
+      spanKeys.push(key);
+      if (endX > reach) reach = endX;
+    });
+    const joinX = reach + g.gap;
     let joined = false;
-    for (const { key, endX, y: routeY } of pending) {
-      const route = routes[key];
-      if (route.outcome === "ends") {
-        ends.push({ x: endX + END_MARK_DX, y: routeY, line: route.line });
+    // Where each route's and span's line ends: an end mark, or a line on
+    // into the join (or back towards it).
+    const ending = [
+      ...pending.map(({ key, endX, y: at }) => ({
+        outcome: routes[key].outcome,
+        endX,
+        y: at,
+        line: routes[key].line,
+      })),
+      ...spanKeys.map((key) => spans[key]),
+    ];
+    for (const { outcome, endX, y: lineY, line: lineOf } of ending) {
+      if (outcome === "ends") {
+        ends.push({ x: endX + END_MARK_DX, y: lineY, line: lineOf });
         continue;
       }
       joined = true;
       raw.push({
-        kind: route.outcome === "continues" ? "join" : "return",
+        kind: outcome === "continues" ? "join" : "return",
         ax: endX,
-        ay: routeY,
+        ay: lineY,
         bx: joinX,
         by: y,
-        lineA: route.line,
+        mx: joinX,
+        lineA: lineOf,
         lineB: ln,
       });
     }
@@ -845,6 +1060,7 @@ function stripOf(
       x,
       y,
       routes: routeKeys,
+      spans: spanKeys,
       line: ln,
     });
     const rows = Math.max(1, bottom);
@@ -906,12 +1122,21 @@ function stripOf(
     rows[r.line] = Math.round(r.y / g.rowH);
     span(r.line, r.x - g.gap, r.x + g.routeW);
   }
-  for (const l of raw) if (l.kind !== "branch") span(l.lineA, l.ax, l.bx);
+  for (const r of spans) {
+    rows[r.line] = Math.round(r.y / g.rowH);
+    span(r.line, r.x - g.gap, r.x + g.routeW);
+  }
+  for (const l of raw)
+    if (l.kind === "feed") {
+      // Along its route's row to its column down, along its span's after.
+      span(l.lineA, l.ax, l.mx);
+      span(l.lineB, l.mx, l.bx);
+    } else if (l.kind !== "branch") span(l.lineA, l.ax, l.bx);
   for (const p of joins) span(p.line, p.x - 5, p.x + 5);
   for (const p of ends) span(p.line, p.x - 7, p.x + DRAWN_REACH.here);
   rows[0] = 0;
   const offset = lineOffsets(rows, from, to, cardRanges);
-  for (const list of [runs, mapDecisions, routes, joins, ends])
+  for (const list of [runs, mapDecisions, routes, spans, joins, ends])
     for (const e of list) e.y = offset[e.line];
   for (const l of raw) {
     l.ay = offset[l.lineA];
@@ -922,6 +1147,7 @@ function stripOf(
   const stripRuns: readonly StripRun[] = runs;
   const nodes: readonly StripNode[] = mapDecisions;
   const stripRoutes: readonly StripRoute[] = routes;
+  const stripSpans: readonly StripSpan[] = spans;
   const links: readonly StripLink[] = raw;
   const stripJoins: readonly StripPoint[] = joins;
   const stripEnds: readonly StripPoint[] = ends;
@@ -932,9 +1158,10 @@ function stripOf(
   // long as they can get.
   let cardCount = 0;
   for (const r of stripRuns) cardCount += r.bookmarks.length;
-  const elements = nodes.length + stripJoins.length + stripEnds.length;
+  const elements =
+    nodes.length + stripSpans.length + stripJoins.length + stripEnds.length;
   const held = new Float64Array(
-    4 * (1 + stripRuns.length + links.length + elements),
+    4 * (1 + stripRuns.length + 2 * links.length + elements),
   );
   const blocked = new Float64Array(
     2 * (1 + 2 * stripRuns.length + cardCount + 2 * links.length + elements),
@@ -993,13 +1220,27 @@ function stripOf(
     hold(d.x, d.x + g.decW, d.y, reach.decision);
     block(d.x - CUT_CLEAR, d.x + pillsEnd + CUT_CLEAR);
   }
+  // A span's box as a node's (its stretch starts at the box).
+  for (const sp of stripSpans) {
+    hold(sp.x, sp.x + g.routeW, sp.y, reach.decision);
+    block(sp.x - CUT_CLEAR, sp.x + g.routeW + CUT_CLEAR);
+  }
   // A pill and its branch curve need no record: its route's first stretch
-  // starts at the pill, on its line, in the same band.
+  // starts at the pill, on its line, in the same band. A join, return or
+  // feed line may be cut only along its straight run, not its turns.
   for (const l of links) {
     if (l.kind === "branch") continue;
-    hold(l.ax, l.bx, Math.max(l.ay, l.by), reach.tick);
+    // A feed line runs along its route's row, then down to its span's
+    // (below it): each where it lies. A join or return line's turn up
+    // ends at its decision's join dot, which is held.
+    if (l.kind === "feed") {
+      hold(l.ax, l.mx, l.ay, reach.tick);
+      if (l.ay !== l.by) hold(l.mx - FEED_R, l.bx, l.by, reach.tick);
+    } else hold(l.ax, l.bx, Math.max(l.ay, l.by), reach.tick);
     block(l.ax - CUT_JOINT, l.ax + CUT_JOINT);
-    if (l.ay !== l.by) block(l.bx - TURN_R - CUT_CLEAR, l.bx + CUT_CLEAR);
+    if (l.ay === l.by) continue;
+    if (l.kind === "feed") block(l.mx - FEED_R - CUT_CLEAR, l.bx + CUT_CLEAR);
+    else block(l.bx - TURN_R - CUT_CLEAR, l.bx + CUT_CLEAR);
   }
   for (const p of stripJoins) {
     hold(p.x - 5, p.x + 5, p.y, reach.join);
@@ -1086,6 +1327,7 @@ function stripOf(
     runs: stripRuns,
     nodes,
     routes: stripRoutes,
+    spans: stripSpans,
     links,
     joins: stripJoins,
     ends: stripEnds,
@@ -1517,6 +1759,7 @@ export function cutBands(strip: MapStrip, width: number): MapModel {
       x: wx(b, d.x),
       y: wy(b, d.y),
       routes: d.routes,
+      spans: d.spans,
     };
   });
   const routes: MapRoute[] = strip.routes.map((r) => {
@@ -1533,11 +1776,29 @@ export function cutBands(strip: MapStrip, width: number): MapModel {
       y: wy(b, r.y),
       endX: wx(e, r.endX),
       endY: wy(e, r.y),
+      span: r.span,
     };
   });
-  // A branch curve is never cut. A join or return line is cut only along
-  // its straight run: a straight piece per band it crosses, its turn up
-  // to the decision's row in the last.
+  const spans: MapSpan[] = strip.spans.map((sp) => {
+    const b = bandOf(sp.x);
+    const e = bandOf(sp.endX);
+    return {
+      decision: sp.decision,
+      span: sp.span,
+      id: sp.id,
+      startIndex: sp.startIndex,
+      endIndex: sp.endIndex,
+      outcome: sp.outcome,
+      x: wx(b, sp.x),
+      y: wy(b, sp.y),
+      endX: wx(e, sp.endX),
+      endY: wy(e, sp.y),
+      leads: sp.leads,
+    };
+  });
+  // A branch curve is never cut. A join, return or feed line is cut only
+  // along its straight run: a straight piece per band it crosses, its
+  // turns (up to the decision's row, down to the span's) in the last.
   const links: MapLink[] = [];
   for (const l of strip.links) {
     const first = bandOf(l.ax);
@@ -1573,6 +1834,7 @@ export function cutBands(strip: MapStrip, width: number): MapModel {
           ay,
           bx: wx(b, l.bx),
           by: wy(b, l.by),
+          mx: wx(b, l.mx),
         }),
       );
     }
@@ -1602,13 +1864,23 @@ export function cutBands(strip: MapStrip, width: number): MapModel {
     runs,
     decisions,
     routes,
+    spans,
     links,
     ticks,
     joins,
     ends,
     start,
     storyEnd: strip.storyEnd >= 0 ? ends[strip.storyEnd] : null,
-    bounds: boundsOf(runs, decisions, routes, links, joins, ends, start, ticks),
+    bounds: boundsOf(
+      runs,
+      decisions,
+      [...routes, ...spans],
+      links,
+      joins,
+      ends,
+      start,
+      ticks,
+    ),
     width: plan.width,
     height: plan.height,
     bands,
@@ -1654,7 +1926,8 @@ export function tickPaths(tick: MapTick): { stub: string; slash: string } {
 function boundsOf(
   runs: readonly MapRun[],
   decisions: readonly MapDecision[],
-  routes: readonly MapRoute[],
+  /** The route pills and the span boxes, the same size. */
+  routes: readonly { x: number; y: number }[],
   links: readonly MapLink[],
   joins: readonly { x: number; y: number }[],
   ends: readonly { x: number; y: number }[],
@@ -1736,6 +2009,12 @@ export interface MapMarks {
   readonly routes: readonly RouteMark[];
   /** Per `MapModel.routes` entry: the last pick at its decision. */
   readonly lastPick: readonly boolean[];
+  /**
+   * Per `MapModel.spans` entry, as a route's: played once a route feeding
+   * it was played through it (completed, or entered and the span's last
+   * screen seen), partly once any of its screens was seen.
+   */
+  readonly spans: readonly RouteMark[];
   /** Per `MapModel.runs` entry. */
   readonly runs: readonly RunMark[];
   /** The "you are here" point, in world units. */
@@ -1794,6 +2073,18 @@ export function markMap(model: MapModel, reader: MapReader): MapMarks {
   const lastPick = model.routes.map(
     (route) => picks.get(route.decision) === route.route,
   );
+  const spans: RouteMark[] = model.spans.map((span) => {
+    const through = span.leads.some((key) => {
+      const lead = model.routes[key];
+      return (
+        completed.get(lead.decision)?.has(lead.route) === true ||
+        (played.get(lead.decision)?.has(lead.route) === true &&
+          seen[span.endIndex] === 1)
+      );
+    });
+    if (through) return "played";
+    return seenIn(span.startIndex, span.endIndex) > 0 ? "partly" : "unseen";
+  });
   const runs: RunMark[] = model.runs.map((run) => {
     const n = seenIn(run.start, run.end);
     if (n === 0) return "unseen";
@@ -1805,6 +2096,7 @@ export function markMap(model: MapModel, reader: MapReader): MapMarks {
     playedCount,
     routes,
     lastPick,
+    spans,
     runs,
     here: hereOf(model, reader),
     ...(reader.words === undefined ? {} : { words: reader.words }),
@@ -1970,9 +2262,10 @@ function itemAlong(run: MapRun, index: number): number {
 /**
  * The end mark the reader stands on, or null: `cursor` is the last item of
  * `run` (the stretch holding it), and that stretch is the last of a line
- * ending in a mark — an ending route's own line (nested ones included), or
- * the main line. A route whose line ends in a nested decision's join has
- * no stretch ending there, so its mark is never matched by one inside.
+ * ending in a mark — an ending route's own line (nested ones included), an
+ * ending shared span's, or the main line. A route whose line ends in a
+ * nested decision's join has no stretch ending there, so its mark is never
+ * matched by one inside.
  */
 function endMarkAt(
   model: MapModel,
@@ -1989,6 +2282,14 @@ function endMarkAt(
       route.endY === last.y
     )
       return { x: route.endX + END_MARK_DX, y: route.endY };
+  for (const span of model.spans)
+    if (
+      span.outcome === "ends" &&
+      span.endIndex === cursor &&
+      span.endX === last.x1 &&
+      span.endY === last.y
+    )
+      return { x: span.endX + END_MARK_DX, y: span.endY };
   if (cursor === model.itemCount - 1 && model.storyEnd !== null)
     return model.storyEnd;
   return null;
@@ -2012,10 +2313,11 @@ export function runAt<R extends { readonly start: number }>(
   return found ?? runs[0];
 }
 
-/** Something on the map the reader clicked. */
+/** Something on the map the reader clicked (a span by `MapModel.spans`). */
 export type MapTarget =
   | { readonly kind: "decision"; readonly decision: number }
-  | { readonly kind: "route"; readonly key: number };
+  | { readonly kind: "route"; readonly key: number }
+  | { readonly kind: "span"; readonly key: number };
 
 /** What a click asks the machine for, or null for an inert target. */
 export type MapJump =
@@ -2024,12 +2326,19 @@ export type MapJump =
       readonly kind: "route";
       readonly decision: number;
       readonly route: number;
+    }
+  | {
+      readonly kind: "span";
+      readonly decision: number;
+      readonly span: number;
     };
 
 /**
  * The click rule: a reached decision opens its choice screen; a route of a
- * reached decision is entered at its first screen, as a pick would. Anything
- * else — an unreached decision, its routes — is inert (null).
+ * reached decision is entered at its first screen, as a pick would, and a
+ * shared span of one at its first screen, by a route leading in
+ * (`Machine.enterSpan`). Anything else — an unreached decision, its routes
+ * and spans — is inert (null).
  */
 export function jumpFor(
   model: MapModel,
@@ -2039,6 +2348,12 @@ export function jumpFor(
   if (target.kind === "decision") {
     if (marks.reached[target.decision] !== true) return null;
     return { kind: "choice", decision: target.decision };
+  }
+  if (target.kind === "span") {
+    const span = model.spans[target.key];
+    if (span === undefined || marks.reached[span.decision] !== true)
+      return null;
+    return { kind: "span", decision: span.decision, span: span.span };
   }
   const route = model.routes[target.key];
   if (route === undefined || marks.reached[route.decision] !== true)
@@ -2054,6 +2369,7 @@ export interface JumpOps {
   walkedChoice(): boolean;
   showChoice(decision: number): void;
   choose(route: number): void;
+  enterSpan(decision: number, span: number): void;
 }
 
 /**
@@ -2062,8 +2378,13 @@ export interface JumpOps {
  * from that screen (`choose`), so seen marks, played routes and last picks
  * move exactly as they would for a reader who wheeled there and picked.
  * A choice the reading itself opened is left as it is (answered in place).
+ * A shared span is entered as `u` enters content (`Machine.enterSpan`).
  */
 export function runJump(jump: MapJump, ops: JumpOps): void {
+  if (jump.kind === "span") {
+    ops.enterSpan(jump.decision, jump.span);
+    return;
+  }
   const open = ops.openChoice();
   if (jump.kind === "choice") {
     if (open === jump.decision && !ops.walkedChoice()) return;
@@ -2328,8 +2649,8 @@ export function placeY(model: MapModel, place: MapPlace): number {
 }
 
 /**
- * A fingerprint of a strip (`layOutStrip`): every stretch, box and pill
- * position on it (its x and its line's height) and the item count, each
+ * A fingerprint of a strip (`layOutStrip`): every stretch, box, pill and
+ * span box position on it (its x and its line's height) and the item count, each
  * to a hundredth, hashed (FNV-1a
  * over their 16-bit halves, 32 bits; no strings, so it is cheap). Another
  * game version, or another set of bookmarked screens, gives another one;
@@ -2359,6 +2680,12 @@ export function stripSignature(strip: MapStrip): string {
     mix(d.y);
   }
   for (const r of strip.routes) {
+    mix(r.decision);
+    mix(r.x);
+    mix(r.y);
+    mix(r.endX);
+  }
+  for (const r of strip.spans) {
     mix(r.decision);
     mix(r.x);
     mix(r.y);
@@ -2531,6 +2858,15 @@ export function hitTest(
       Math.abs(wy - route.y) <= g.routeH / 2
     )
       return { kind: "route", key };
+  }
+  for (let key = 0; key < model.spans.length; key += 1) {
+    const span = model.spans[key];
+    if (
+      wx >= span.x &&
+      wx <= span.x + g.routeW &&
+      Math.abs(wy - span.y) <= g.routeH / 2
+    )
+      return { kind: "span", key };
   }
   return null;
 }

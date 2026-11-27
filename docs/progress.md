@@ -6775,7 +6775,34 @@ truthful: an unchecked box means nothing was accepted.
       gender is chosen. The audit exemption in i18n.mjs is gone; no key
       is exempted. Orchestrator: `npm run i18n` leaves the generated
       files current, npm test 1952 passed, check clean.)
-- [ ] Shared spans on the branch map and in the tools (item 9h).
+- [x] Shared spans on the branch map and in the tools (item 9h).
+      (2026-11-27: mapmodel.ts draws a span once, a rounded box on a row
+      of its own below its decision's routes, right of every route line,
+      its result drawn as a route's (join, dashed return, end mark); a
+      new `feed` line runs from each route with `then` into it (a nested
+      route drops at its end and runs along the span's row); a route
+      with `then` has outcome `"shared"` and the tooltip "goes on to a
+      shared scene"; span marks: played once a feeding route completed
+      or was entered with the span's last item seen, partly once any
+      item is seen, never the last-pick gold; a click on the box enters
+      the span (new `Machine.enterSpan`, frames as `u` builds them, the
+      lead route the last pick, arrival `jump`); `regionEndOf` and
+      routes.py's region include spans. `kinetic routes` lists spans
+      after their routes (text, `--json` with `shared[]`/`reachedFrom`,
+      `--dot` span nodes and `then` edges); fixtures/route-shapes.json
+      counts spans and has a "shared spans" case; `kinetic export`
+      prints a span once after its routes (and `DEC.SPAN.md` with
+      `--out`); `kinetic report` counts span items once in the total,
+      in each route with `then`, and in the shortest reading. New
+      strings `map.route.shared` and `map.span.title` in all 38
+      locales. README screenshots unchanged (no spans in the showcase).
+      Lead: the validator's never-shown text for a span item names
+      "none of its routes" (to item 9i). Tests: routes 11, export 2,
+      report 2, mapmodel and routeshape 14 failing first.
+      Orchestrator: npm test 1959 passed, check clean, smoke 6/6;
+      branchmap, bookmarkmap, branches and shared 184/184 Chrome;
+      branchmap and shared 72/72 WebKit; routes, export, report,
+      malformed, jump-menu and build-apps tests 294 passed.)
 - [ ] The converter lays a shared tail out once (item 9i).
 - [ ] Conditions only on story state (item 9k).
 - [ ] Joins through calls and returns (item 9l).

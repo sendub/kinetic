@@ -196,6 +196,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "يواصل القصة",
     "map.route.returns": "يعود إلى الاختيار",
     "map.route.ends": "نهاية",
+    "map.route.shared": "ينتقل إلى مشهد مشترك",
+    "map.span.title": "مشهد مشترك",
     "map.route.lastPick": "اختيارك الأخير",
     "map.route.notReached": "لم تصل إلى الاختيار بعد",
     "map.decision.played": {
@@ -444,6 +446,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "продължава историята",
     "map.route.returns": "връща се към решението",
     "map.route.ends": "край",
+    "map.route.shared": "продължава към обща сцена",
+    "map.span.title": "Обща сцена",
     "map.route.lastPick": "последният ви избор",
     "map.route.notReached": "решението още не е достигнато",
     "map.decision.played": {
@@ -682,6 +686,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "continua la història",
     "map.route.returns": "torna a la decisió",
     "map.route.ends": "un final",
+    "map.route.shared": "continua cap a una escena compartida",
+    "map.span.title": "Escena compartida",
     "map.route.lastPick": "la vostra última tria",
     "map.route.notReached": "decisió encara no assolida",
     "map.decision.played": {
@@ -925,6 +931,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "pokračuje v příběhu",
     "map.route.returns": "vrací se k rozhodnutí",
     "map.route.ends": "konec příběhu",
+    "map.route.shared": "pokračuje do společné scény",
+    "map.span.title": "Společná scéna",
     "map.route.lastPick": "vaše poslední volba",
     "map.route.notReached": "rozhodnutí ještě nedosaženo",
     "map.decision.played": {
@@ -1167,6 +1175,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "fortsætter historien",
     "map.route.returns": "vender tilbage til valget",
     "map.route.ends": "en slutning",
+    "map.route.shared": "fortsætter til en fælles scene",
+    "map.span.title": "Fælles scene",
     "map.route.lastPick": "dit seneste valg",
     "map.route.notReached": "valget er ikke nået endnu",
     "map.decision.played": {
@@ -1403,6 +1413,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "setzt die Geschichte fort",
     "map.route.returns": "kehrt zur Entscheidung zurück",
     "map.route.ends": "ein Ende",
+    "map.route.shared": "führt zu einer gemeinsamen Szene",
+    "map.span.title": "Gemeinsame Szene",
     "map.route.lastPick": "zuletzt gewählt",
     "map.route.notReached": "Entscheidung noch nicht erreicht",
     "map.decision.played": {
@@ -1639,6 +1651,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "συνεχίζει την ιστορία",
     "map.route.returns": "επιστρέφει στην επιλογή",
     "map.route.ends": "ένα τέλος",
+    "map.route.shared": "συνεχίζει σε κοινή σκηνή",
+    "map.span.title": "Κοινή σκηνή",
     "map.route.lastPick": "η τελευταία σας επιλογή",
     "map.route.notReached": "δεν έχετε φτάσει ακόμη στην επιλογή",
     "map.decision.played": {
@@ -1877,6 +1891,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "continúa la historia",
     "map.route.returns": "vuelve a la decisión",
     "map.route.ends": "un final",
+    "map.route.shared": "sigue a una escena compartida",
+    "map.span.title": "Escena compartida",
     "map.route.lastPick": "tu última elección",
     "map.route.notReached": "decisión aún no alcanzada",
     "map.decision.played": {
@@ -2118,6 +2134,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "continúa la historia",
     "map.route.returns": "vuelve a la decisión",
     "map.route.ends": "un final",
+    "map.route.shared": "sigue a una escena compartida",
+    "map.span.title": "Escena compartida",
     "map.route.lastPick": "tu última elección",
     "map.route.notReached": "decisión aún no alcanzada",
     "map.decision.played": {
@@ -2357,6 +2375,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "ادامهٔ داستان",
     "map.route.returns": "بازگشت به انتخاب",
     "map.route.ends": "یک پایان",
+    "map.route.shared": "به صحنه‌ای مشترک می‌رسد",
+    "map.span.title": "صحنهٔ مشترک",
     "map.route.lastPick": "آخرین انتخاب شما",
     "map.route.notReached": "هنوز به این انتخاب نرسیده‌اید",
     "map.decision.played": {
@@ -2593,6 +2613,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "jatkaa tarinaa",
     "map.route.returns": "palaa valintaan",
     "map.route.ends": "loppu",
+    "map.route.shared": "jatkuu yhteiseen kohtaukseen",
+    "map.span.title": "Yhteinen kohtaus",
     "map.route.lastPick": "viimeisin valintasi",
     "map.route.notReached": "valintaa ei ole vielä saavutettu",
     "map.decision.played": {
@@ -2831,6 +2853,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "poursuit l’histoire",
     "map.route.returns": "revient au choix",
     "map.route.ends": "une fin",
+    "map.route.shared": "mène à une scène commune",
+    "map.span.title": "Scène commune",
     "map.route.lastPick": "votre dernier choix",
     "map.route.notReached": "choix pas encore atteint",
     "map.decision.played": {
@@ -3072,6 +3096,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "ממשיך את הסיפור",
     "map.route.returns": "חוזר לצומת",
     "map.route.ends": "סוף",
+    "map.route.shared": "ממשיך לסצנה משותפת",
+    "map.span.title": "סצנה משותפת",
     "map.route.lastPick": "הבחירה האחרונה שלך",
     "map.route.notReached": "טרם הגעת לצומת",
     "map.decision.played": {
@@ -3311,6 +3337,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "कहानी जारी रखता है",
     "map.route.returns": "चुनाव पर लौटता है",
     "map.route.ends": "एक अंत",
+    "map.route.shared": "एक साझा दृश्य तक जाता है",
+    "map.span.title": "साझा दृश्य",
     "map.route.lastPick": "आपका पिछला चुनाव",
     "map.route.notReached": "चुनाव तक अभी नहीं पहुँचे",
     "map.decision.played": {
@@ -3549,6 +3577,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "nastavlja priču",
     "map.route.returns": "vraća se na odluku",
     "map.route.ends": "kraj priče",
+    "map.route.shared": "nastavlja se u zajedničku scenu",
+    "map.span.title": "Zajednička scena",
     "map.route.lastPick": "vaš posljednji izbor",
     "map.route.notReached": "odluka još nije dosegnuta",
     "map.decision.played": {
@@ -3788,6 +3818,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "folytatja a történetet",
     "map.route.returns": "visszatér a választáshoz",
     "map.route.ends": "befejezés",
+    "map.route.shared": "egy közös jelenetbe torkollik",
+    "map.span.title": "Közös jelenet",
     "map.route.lastPick": "legutóbbi választása",
     "map.route.notReached": "a választást még nem érte el",
     "map.decision.played": {
@@ -4022,6 +4054,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "melanjutkan cerita",
     "map.route.returns": "kembali ke pilihan",
     "map.route.ends": "sebuah akhir cerita",
+    "map.route.shared": "berlanjut ke adegan bersama",
+    "map.span.title": "Adegan bersama",
     "map.route.lastPick": "pilihan terakhir Anda",
     "map.route.notReached": "pilihan belum tercapai",
     "map.decision.played": {
@@ -4257,6 +4291,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "prosegue la storia",
     "map.route.returns": "torna alla scelta",
     "map.route.ends": "un finale",
+    "map.route.shared": "prosegue in una scena comune",
+    "map.span.title": "Scena comune",
     "map.route.lastPick": "la tua ultima scelta",
     "map.route.notReached": "scelta non ancora raggiunta",
     "map.decision.played": {
@@ -4494,6 +4530,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "ストーリーに合流",
     "map.route.returns": "選択肢に戻る",
     "map.route.ends": "エンディング",
+    "map.route.shared": "共通シーンへ続く",
+    "map.span.title": "共通シーン",
     "map.route.lastPick": "前回の選択",
     "map.route.notReached": "選択肢に未到達",
     "map.decision.played": {
@@ -4725,6 +4763,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "스토리로 이어짐",
     "map.route.returns": "선택지로 돌아옴",
     "map.route.ends": "엔딩",
+    "map.route.shared": "공통 장면으로 이어짐",
+    "map.span.title": "공통 장면",
     "map.route.lastPick": "마지막 선택",
     "map.route.notReached": "아직 도달하지 않은 선택지",
     "map.decision.played": {
@@ -4956,6 +4996,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "menyambung cerita",
     "map.route.returns": "kembali ke pilihan",
     "map.route.ends": "satu pengakhiran",
+    "map.route.shared": "bersambung ke babak bersama",
+    "map.span.title": "Babak bersama",
     "map.route.lastPick": "pilihan terakhir anda",
     "map.route.notReached": "pilihan belum dicapai",
     "map.decision.played": {
@@ -5189,6 +5231,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "fortsetter historien",
     "map.route.returns": "går tilbake til valget",
     "map.route.ends": "en slutt",
+    "map.route.shared": "fortsetter til en felles scene",
+    "map.span.title": "Felles scene",
     "map.route.lastPick": "ditt siste valg",
     "map.route.notReached": "valget er ikke nådd ennå",
     "map.decision.played": {
@@ -5425,6 +5469,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "zet het verhaal voort",
     "map.route.returns": "keert terug naar de keuze",
     "map.route.ends": "een einde",
+    "map.route.shared": "gaat verder naar een gedeelde scène",
+    "map.span.title": "Gedeelde scène",
     "map.route.lastPick": "je laatste keuze",
     "map.route.notReached": "keuze nog niet bereikt",
     "map.decision.played": {
@@ -5665,6 +5711,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "kontynuuje historię",
     "map.route.returns": "wraca do decyzji",
     "map.route.ends": "zakończenie",
+    "map.route.shared": "prowadzi do wspólnej sceny",
+    "map.span.title": "Wspólna scena",
     "map.route.lastPick": "ostatni wybór",
     "map.route.notReached": "decyzja jeszcze nieosiągnięta",
     "map.decision.played": {
@@ -5909,6 +5957,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "continua a história",
     "map.route.returns": "volta à decisão",
     "map.route.ends": "um final",
+    "map.route.shared": "segue para uma cena compartilhada",
+    "map.span.title": "Cena compartilhada",
     "map.route.lastPick": "sua última escolha",
     "map.route.notReached": "decisão ainda não alcançada",
     "map.decision.played": {
@@ -6150,6 +6200,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "continua a história",
     "map.route.returns": "volta à decisão",
     "map.route.ends": "um final",
+    "map.route.shared": "segue para uma cena partilhada",
+    "map.span.title": "Cena partilhada",
     "map.route.lastPick": "a sua última escolha",
     "map.route.notReached": "decisão ainda não alcançada",
     "map.decision.played": {
@@ -6391,6 +6443,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "continuă povestea",
     "map.route.returns": "revine la decizie",
     "map.route.ends": "un final",
+    "map.route.shared": "continuă într-o scenă comună",
+    "map.span.title": "Scenă comună",
     "map.route.lastPick": "ultima ta alegere",
     "map.route.notReached": "decizia nu a fost atinsă încă",
     "map.decision.played": {
@@ -6634,6 +6688,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "продолжает историю",
     "map.route.returns": "возвращает к выбору",
     "map.route.ends": "концовка",
+    "map.route.shared": "ведёт к общей сцене",
+    "map.span.title": "Общая сцена",
     "map.route.lastPick": "ваш последний выбор",
     "map.route.notReached": "выбор ещё не достигнут",
     "map.decision.played": {
@@ -6880,6 +6936,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "pokračuje v príbehu",
     "map.route.returns": "vracia sa k rozhodnutiu",
     "map.route.ends": "koniec príbehu",
+    "map.route.shared": "pokračuje do spoločnej scény",
+    "map.span.title": "Spoločná scéna",
     "map.route.lastPick": "vaša posledná voľba",
     "map.route.notReached": "rozhodnutie ešte nedosiahnuté",
     "map.decision.played": {
@@ -7122,6 +7180,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "fortsätter berättelsen",
     "map.route.returns": "återgår till valet",
     "map.route.ends": "ett slut",
+    "map.route.shared": "fortsätter till en gemensam scen",
+    "map.span.title": "Gemensam scen",
     "map.route.lastPick": "ditt senaste val",
     "map.route.notReached": "valet är inte nått än",
     "map.decision.played": {
@@ -7358,6 +7418,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "inaendeleza hadithi",
     "map.route.returns": "inarudi kwenye chaguo",
     "map.route.ends": "mwisho mmojawapo",
+    "map.route.shared": "inaendelea kwenye onyesho la pamoja",
+    "map.span.title": "Onyesho la pamoja",
     "map.route.lastPick": "chaguo lako la mwisho",
     "map.route.notReached": "chaguo bado halijafikiwa",
     "map.decision.played": {
@@ -7592,6 +7654,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "ดำเนินเรื่องต่อ",
     "map.route.returns": "กลับไปที่ทางเลือก",
     "map.route.ends": "เป็นฉากจบ",
+    "map.route.shared": "ไปต่อยังฉากร่วม",
+    "map.span.title": "ฉากร่วม",
     "map.route.lastPick": "ตัวเลือกล่าสุดของคุณ",
     "map.route.notReached": "ยังไปไม่ถึงทางเลือกนี้",
     "map.decision.played": {
@@ -7825,6 +7889,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "hikâyeye devam eder",
     "map.route.returns": "seçime geri döner",
     "map.route.ends": "bir son",
+    "map.route.shared": "ortak bir sahneye geçer",
+    "map.span.title": "Ortak sahne",
     "map.route.lastPick": "son seçiminiz",
     "map.route.notReached": "seçime henüz ulaşılmadı",
     "map.decision.played": {
@@ -8065,6 +8131,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "продовжує історію",
     "map.route.returns": "повертається до рішення",
     "map.route.ends": "кінцівка",
+    "map.route.shared": "веде до спільної сцени",
+    "map.span.title": "Спільна сцена",
     "map.route.lastPick": "ваш останній вибір",
     "map.route.notReached": "рішення ще не досягнуто",
     "map.decision.played": {
@@ -8307,6 +8375,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "کہانی جاری رکھتا ہے",
     "map.route.returns": "انتخاب پر واپس آتا ہے",
     "map.route.ends": "ایک اختتام",
+    "map.route.shared": "ایک مشترکہ منظر تک جاتا ہے",
+    "map.span.title": "مشترکہ منظر",
     "map.route.lastPick": "آپ کا آخری انتخاب",
     "map.route.notReached": "انتخاب تک ابھی نہیں پہنچے",
     "map.decision.played": {
@@ -8541,6 +8611,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "tiếp tục câu chuyện",
     "map.route.returns": "quay về lựa chọn",
     "map.route.ends": "một kết thúc",
+    "map.route.shared": "dẫn tới một cảnh chung",
+    "map.span.title": "Cảnh chung",
     "map.route.lastPick": "lựa chọn gần nhất của bạn",
     "map.route.notReached": "chưa đến lựa chọn này",
     "map.decision.played": {
@@ -8772,6 +8844,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "继续故事",
     "map.route.returns": "返回选择点",
     "map.route.ends": "结局",
+    "map.route.shared": "进入共通场景",
+    "map.span.title": "共通场景",
     "map.route.lastPick": "你上次的选择",
     "map.route.notReached": "尚未到达选择点",
     "map.decision.played": {
@@ -9003,6 +9077,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "map.route.continues": "繼續故事",
     "map.route.returns": "回到選擇點",
     "map.route.ends": "結局",
+    "map.route.shared": "進入共通場景",
+    "map.span.title": "共通場景",
     "map.route.lastPick": "你上次的選擇",
     "map.route.notReached": "尚未到達選擇點",
     "map.decision.played": {

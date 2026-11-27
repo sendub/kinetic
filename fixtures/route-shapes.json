@@ -1,24 +1,24 @@
 {
-  "about": "Branch shapes and what the branch map draws for each: decisions resolved, decisions drawn, route pills, stretches, end marks and join dots. player/src/render/routeshape.test.ts holds the map (mapmodel.ts layOutStrip) to these counts and converter/tests/test_routes.py holds kinetic routes to them. A case names a built fixture folder (skipped when it is not built) or lists item ids (text items) and branches.",
+  "about": "Branch shapes and what the branch map draws for each: decisions resolved, decisions drawn, route pills, stretches, end marks, join dots and shared span boxes. player/src/render/routeshape.test.ts holds the map (mapmodel.ts layOutStrip) to these counts and converter/tests/test_routes.py holds kinetic routes to them. A case names a built fixture folder (skipped when it is not built) or lists item ids (text items) and branches.",
   "cases": [
     {
       "name": "demo",
       "folder": "fixtures/demo",
       "expect": {"resolved": 2, "decisions": 2, "routes": 4, "stretches": 7,
-                 "endings": 2, "joins": 2}
+                 "endings": 2, "joins": 2, "spans": 0}
     },
     {
       "name": "lang-demo",
       "folder": "fixtures/lang-demo",
       "expect": {"resolved": 2, "decisions": 2, "routes": 4, "stretches": 7,
-                 "endings": 2, "joins": 2}
+                 "endings": 2, "joins": 2, "spans": 0}
     },
     {
       "name": "linear",
       "items": ["a", "b", "c"],
       "branches": [],
       "expect": {"resolved": 0, "decisions": 0, "routes": 0, "stretches": 1,
-                 "endings": 1, "joins": 0}
+                 "endings": 1, "joins": 0, "spans": 0}
     },
     {
       "name": "nested decisions and rejoins",
@@ -60,7 +60,7 @@
          ]}
       ],
       "expect": {"resolved": 4, "decisions": 3, "routes": 8, "stretches": 12,
-                 "endings": 4, "joins": 3}
+                 "endings": 4, "joins": 3, "spans": 0}
     },
     {
       "name": "a nested join past its route's end",
@@ -80,7 +80,7 @@
          ]}
       ],
       "expect": {"resolved": 2, "decisions": 2, "routes": 4, "stretches": 5,
-                 "endings": 2, "joins": 2}
+                 "endings": 2, "joins": 2, "spans": 0}
     },
     {
       "name": "pure choice to the end",
@@ -94,7 +94,7 @@
          ]}
       ],
       "expect": {"resolved": 1, "decisions": 1, "routes": 2, "stretches": 3,
-                 "endings": 1, "joins": 1}
+                 "endings": 1, "joins": 1, "spans": 0}
     },
     {
       "name": "a decision that follows another",
@@ -119,7 +119,45 @@
          ]}
       ],
       "expect": {"resolved": 2, "decisions": 2, "routes": 5, "stretches": 8,
-                 "endings": 1, "joins": 2}
+                 "endings": 1, "joins": 2, "spans": 0}
+    },
+    {
+      "name": "shared spans",
+      "items": ["s0", "a0", "a1", "b0", "x0", "y0", "w0", "k0", "b2", "c0",
+                "f0", "f1", "j0", "u1a", "u2a", "t0", "e0"],
+      "branches": [
+        {"id": "fight", "after": "s0", "prompt": "What now?",
+         "continuingRoute": "c", "continueAt": "j0",
+         "routes": [
+           {"id": "a", "label": "Attack", "start": "a0", "end": "a1",
+            "then": "fail"},
+           {"id": "b", "label": "Sneak", "start": "b0", "end": "b2",
+            "result": "continue"},
+           {"id": "c", "label": "Talk", "start": "c0", "end": "c0"}
+         ],
+         "shared": [{"id": "fail", "start": "f0", "end": "f1"}]},
+        {"id": "sneak", "after": "b0", "prompt": "Where?",
+         "continuingRoute": "y", "continueAt": "b2",
+         "routes": [
+           {"id": "x", "label": "Run", "start": "x0", "end": "x0",
+            "then": "fail"},
+           {"id": "y", "label": "Wait", "start": "y0", "end": "y0"},
+           {"id": "w", "label": "Peek", "start": "w0", "end": "w0",
+            "result": "continue", "then": "caught"}
+         ],
+         "shared": [{"id": "caught", "start": "k0", "end": "k0",
+                     "result": "continue"}]},
+        {"id": "look", "after": "j0", "prompt": "Look at?",
+         "routes": [
+           {"id": "u1", "label": "The sea", "start": "u1a", "end": "u1a",
+            "then": "tail"},
+           {"id": "u2", "label": "The sky", "start": "u2a", "end": "u2a",
+            "result": "return"}
+         ],
+         "shared": [{"id": "tail", "start": "t0", "end": "t0"}]}
+      ],
+      "expect": {"resolved": 3, "decisions": 3, "routes": 8, "stretches": 15,
+                 "endings": 3, "joins": 3, "spans": 3}
     }
   ]
 }

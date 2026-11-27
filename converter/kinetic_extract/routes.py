@@ -28,9 +28,15 @@ A decision that follows an earlier one (docs/content-format.md,
 "Branches") names it, each of its routes the picks there it takes, and
 any pick no route takes, which passes the decision on to `continueAt`.
 
+A decision's shared spans (`shared`, the same "Branches") come after its
+routes, each once, as the map draws them: where it leads (its `result`)
+and the routes reaching it, a route nested in another decision included
+(`then`); each route with `then` says which span it goes on to.
+
 Default output: an indented outline. `--dot` prints Graphviz DOT
-(stretches as boxes, decisions as diamonds, endings as double circles;
-each route's edge from its decision labelled with its number and label).
+(stretches as boxes, decisions as diamonds, endings as double circles,
+shared spans as bold rounded boxes; each route's edge from its decision
+labelled with its number and label, and a `then` edge into its span).
 `--json` prints the model as one JSON object.
 
 Exit codes, as `kinetic report`: 0 when it ran, whatever it found; 1,
@@ -54,6 +60,7 @@ from typing import Any, Callable
 from kinetic_extract import text_tags
 from kinetic_extract.folder_model import (
     Decision,
+    SharedSpan,
     resolve_decisions,
     shown_by_play_all,
 )
@@ -70,10 +77,12 @@ from kinetic_extract.version import kinetic_version
 
 # How a route's span ends, as the map draws it (mapmodel.ts RouteOutcome):
 # the continuing route and a "continue" route join at `continueAt`, a
-# "return" route returns to its choice, any other ends.
+# "return" route returns to its choice, any other ends; a route with `then`
+# goes on into a shared span, whose own `result` is one of the first three.
 CONTINUES = "continues"
 RETURNS = "returns"
 ENDS = "ends"
+SHARED = "shared"
 
 # How much of a prompt or label a DOT node or edge shows.
 DOT_TEXT = 40
@@ -102,12 +111,27 @@ class Route:
     start: int
     end: int
     result: str  # "continuing", "continue", "return" or "ending"
-    outcome: str  # CONTINUES, RETURNS or ENDS
+    outcome: str  # CONTINUES, RETURNS, ENDS or SHARED
     line: list[Stretch | DecisionNode] = field(default_factory=list)
     # On a following decision: the followed decision's route ids its
     # `when` names; None for a route without `when` (it takes the rest)
     # and on any other decision.
     when: list[Any] | None = None
+    # The shared span its `then` names, as (decision index, place in that
+    # decision's resolved `shared`); None without one (outcome SHARED).
+    then: tuple[int, int] | None = None
+
+
+@dataclass
+class SpanNode:
+    """A shared span of a drawn decision, drawn once after its routes."""
+
+    span: SharedSpan
+    outcome: str  # CONTINUES, RETURNS or ENDS, by its `result`
+    line: list[Stretch]
+    # The routes reaching it: (their decision's node, the route), in the
+    # order the map lays them out.
+    leads: list[tuple[DecisionNode, Route]] = field(default_factory=list)
 
 
 @dataclass
@@ -126,6 +150,7 @@ class DecisionNode:
     # of this one takes, where a reader's pick passes it on to continueAt.
     follows: Any = None
     passes: list[Any] = field(default_factory=list)
+    spans: list[SpanNode] = field(default_factory=list)
 
     @property
     def pure(self) -> bool:
@@ -152,6 +177,8 @@ class Model:
                 else:
                     for route in element.routes:
                         walk(route.line)
+                    for span in element.spans:
+                        walk(span.line)
 
         walk(self.line)
         return out
@@ -163,11 +190,15 @@ class Model:
 
     def counts(self) -> dict[str, int]:
         """What the branch map draws (mapmodel.ts `MapStrip`): decision
-        nodes, route pills, stretches, end marks and join dots; and how
-        many decisions the player resolves, drawn or not."""
+        nodes, route pills, stretches, end marks, join dots and shared
+        span boxes; and how many decisions the player resolves, drawn or
+        not."""
         routes = [r for d in self.drawn for r in d.routes]
+        spans = [span for d in self.drawn for span in d.spans]
+        joining = (CONTINUES, RETURNS)
         joins = sum(1 for d in self.drawn
-                    if any(r.outcome != ENDS for r in d.routes)
+                    if any(r.outcome in joining for r in d.routes)
+                    or any(span.outcome in joining for span in d.spans)
                     or d.carries_on > d.decision.after)
         return {
             "resolved": len(self.decisions),
@@ -175,16 +206,25 @@ class Model:
             "routes": len(routes),
             "stretches": len(self.stretches()),
             "endings": sum(1 for r in routes if r.outcome == ENDS)
+                       + sum(1 for span in spans if span.outcome == ENDS)
                        + (1 if self.story_end else 0),
             "joins": joins,
+            "spans": len(spans),
         }
+
+
+def _outcome(result: str, continuing: bool = False) -> str:
+    """How a route's or a shared span's end leads on, by its `result`."""
+    return CONTINUES if continuing or result == "continue" \
+        else RETURNS if result == "return" else ENDS
 
 
 def _carries_on(decision: Decision) -> int:
     """Where a decision's line carries on after it (mapmodel.ts
-    `continuationOf`): `continueAt`, else past the menu region."""
+    `continuationOf`): `continueAt`, else past the menu region, its
+    shared spans included."""
     return decision.continue_at if decision.continuing >= 0 \
-        else decision.region_end + 1
+        else decision.menu_end + 1
 
 
 def _hashable(value: Any) -> bool:
@@ -264,21 +304,33 @@ def build_model(manifest: dict[str, Any]) -> Model:
         for ri, (start, end, result) in enumerate(decision.routes):
             route = route_defs[ri] if ri < len(route_defs) else {}
             continuing = ri == decision.continuing
-            outcome = CONTINUES if continuing or result == "continue" \
-                else RETURNS if result == "return" else ENDS
+            then = decision.thens[ri]
+            outcome = SHARED if then is not None \
+                else _outcome(result, continuing)
             when = route.get("when") if followed_ids else None
             node.routes.append(Route(
                 ri, route.get("id"), _str(route.get("label")) or "", start,
                 end, "continuing" if continuing else str(result), outcome,
-                when=list(when) if isinstance(when, list) else None))
+                when=list(when) if isinstance(when, list) else None,
+                then=then))
         # Each route's line after the route records exist, in route order,
-        # as the map lays them out.
+        # as the map lays them out; then the shared spans, each one
+        # stretch (a span holds no decision).
         for route in node.routes:
             route.line = line(route.start, route.end, decision.index)
+        node.spans = [SpanNode(span, _outcome(span.result),
+                               [Stretch(span.start, span.end)])
+                      for span in decision.shared]
         return node
 
     main = line(0, len(items) - 1, -1) if items else []
     story_end = bool(main) and isinstance(main[-1], Stretch)
+    # Each route with `then` reaches its span, once both are drawn.
+    for node in (placed[d.index] for d in decisions if d.index in placed):
+        for route in node.routes:
+            if route.then is not None and route.then[0] in placed:
+                placed[route.then[0]].spans[route.then[1]].leads.append(
+                    (node, route))
     shown = shown_by_play_all(items, decisions) if decisions and items \
         else set(range(len(items)))
     resolved_ids = {d.id for d in decisions if _hashable(d.id)}
@@ -316,6 +368,28 @@ def model_json(model: Model, folder: Path, manifest: dict[str, Any]
     def maybe(k: int) -> str | None:
         return iid(k) if 0 <= k < len(items) else None
 
+    def then_of(route: Route) -> tuple[Any, Any]:
+        """The span a route's `then` names and the decision holding it."""
+        if route.then is None:
+            return None, None
+        holder = model.decisions[route.then[0]]
+        return holder.shared[route.then[1]].id, holder.id
+
+    def span_json(d: Decision, span: SpanNode) -> dict[str, Any]:
+        return {
+            "id": span.span.id,
+            "result": span.span.result,
+            "outcome": span.outcome,
+            "items": span.span.end - span.span.start + 1,
+            "first": iid(span.span.start),
+            "last": iid(span.span.end),
+            "joinsAt": (maybe(d.continue_at)
+                        if span.outcome == CONTINUES else None),
+            "reachedFrom": [route_name(node.decision.id, route.id)
+                            for node, route in span.leads],
+            "line": line_json(span.line),
+        }
+
     def line_json(line: list[Stretch | DecisionNode]) -> list[Any]:
         out: list[Any] = []
         for element in line:
@@ -346,8 +420,11 @@ def model_json(model: Model, folder: Path, manifest: dict[str, Any]
                     "joinsAt": (maybe(d.continue_at)
                                 if route.outcome == CONTINUES else None),
                     "when": route.when,
+                    "then": then_of(route)[0],
+                    "thenDecision": then_of(route)[1],
                     "line": line_json(route.line),
                 } for route in element.routes],
+                "shared": [span_json(d, span) for span in element.spans],
             })
         return out
 
@@ -378,6 +455,11 @@ def _span(first: str, last: str) -> str:
     return first if first == last else f"{first}..{last}"
 
 
+def route_name(decision_id: Any, route_id: Any) -> str:
+    """A route by its decision, as `kinetic export` heads it."""
+    return f"{decision_id}/{route_id}"
+
+
 def _quote(text: str) -> str:
     return '"' + " ".join(text.split()) + '"'
 
@@ -387,8 +469,14 @@ def _list(ids: list[str], limit: int = 10) -> str:
     return ", ".join(ids[:limit]) + more
 
 
-def route_then(route: dict[str, Any]) -> str:
-    """Where a route leads once read, in words."""
+def route_then(route: dict[str, Any], decision: Any = None) -> str:
+    """Where a route (or a shared span) leads once read, in words; a
+    route with `then` names its span, and the decision holding it when
+    that is not `decision`, the route's own."""
+    if route["outcome"] == SHARED:
+        holder = route["thenDecision"]
+        of = f" (decision {holder})" if holder != decision else ""
+        return f"then {route['then']}{of}"
     if route["outcome"] == CONTINUES:
         return f"joins at {route['joinsAt']}"
     if route["outcome"] == RETURNS:
@@ -424,10 +512,12 @@ def format_outline(data: dict[str, Any]) -> str:
     add = out.append
     counts = data["counts"]
     add(f"kinetic routes: {data['folder']} (Kinetic {data['kinetic']})")
+    spans = f", {_plural(counts['spans'], 'shared span')}" \
+        if counts["spans"] else ""
     add(f"{data['title'] or '(no title)'}: {_plural(data['items'], 'item')}, "
         f"{_plural(counts['decisions'], 'decision')}, "
         f"{_plural(counts['routes'], 'route')}, "
-        f"{_plural(counts['endings'], 'ending')}")
+        f"{_plural(counts['endings'], 'ending')}{spans}")
     add("")
 
     def line(elements: list[Any], depth: int) -> None:
@@ -447,8 +537,15 @@ def format_outline(data: dict[str, Any]) -> str:
                 add(f"{pad}  {n}. route {r['id']} {_quote(r['label'])}: "
                     f"{r['result']}, {_plural(r['items'], 'item')}, "
                     f"{_span(r['first'], r['last'])}; {after}"
-                    f"{route_then(r)}")
+                    f"{route_then(r, e['id'])}")
                 line(r["line"], depth + 2)
+            for span in e["shared"]:
+                reached = _list(span["reachedFrom"]) or "none"
+                add(f"{pad}  shared span {span['id']}: {span['result']}, "
+                    f"{_plural(span['items'], 'item')}, "
+                    f"{_span(span['first'], span['last'])}; "
+                    f"{route_then(span)}; reached from routes {reached}")
+                line(span["line"], depth + 2)
             if e["passesOn"]:
                 add(f"{pad}  after {_picks(e['passesOn'])} at "
                     f"{e['follows']}: no route, the decision passes on to "
@@ -568,15 +665,23 @@ def format_dot(model: Model, manifest: dict[str, Any]) -> str:
             if node.follows is not None:
                 label += f"\nfollows {node.follows}"
             add(f"  {name} [shape=diamond, label={_dot_str(label)}];")
+            def lead_on(outcome: str, name: str = name,
+                        after: Follow = after) -> Follow:
+                """Where a route's or a span's end leads, by its outcome."""
+                if outcome == CONTINUES:
+                    return after
+                if outcome == RETURNS:
+                    return (lambda: (name, ' [style=dashed, label="back"]'))
+                return (lambda: (end_node(), ""))
+
             for route in node.routes:
                 route_follow: Follow
-                if route.outcome == CONTINUES:
-                    route_follow = after
-                elif route.outcome == RETURNS:
-                    route_follow = (lambda name=name: (
-                        name, ' [style=dashed, label="back"]'))
+                if route.then is not None:
+                    span_name = f"x{route.then[0]}_{route.then[1]}"
+                    route_follow = (lambda span_name=span_name: (
+                        span_name, ' [label="then"]'))
                 else:
-                    route_follow = (lambda: (end_node(), ""))
+                    route_follow = lead_on(route.outcome)
                 text = f"{route.index + 1}. " \
                     f"{_cut(text_tags.plain_text(route.label))}"
                 if node.follows is not None:
@@ -585,6 +690,16 @@ def format_dot(model: Model, manifest: dict[str, Any]) -> str:
                 add(f"  {name} -> {first_node(route.line[0])} "
                     f"[label={_dot_str(text)}];")
                 line(route.line, route_follow)
+            # A shared span is one node, its items.
+            for k, span in enumerate(node.spans):
+                span_name = f"x{node.decision.index}_{k}"
+                first, last = span.span.start, span.span.end
+                label = (f"shared span {span.span.id}\n"
+                         f"{_span(iid(first), iid(last))}\n"
+                         f"{_plural(last - first + 1, 'item')}")
+                add(f'  {span_name} [shape=box, style="rounded,bold", '
+                    f"label={_dot_str(label)}];")
+                edge(span_name, lead_on(span.outcome))
             if node.pure:
                 target = after()
                 if target is not None:

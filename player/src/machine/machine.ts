@@ -519,6 +519,21 @@ export interface Machine {
    */
   choose(routeIdx: number, source?: "map"): void;
   /**
+   * Branch map click on a shared span's box (docs/plan.md Phase 60 item
+   * 9h): enter shared span `span` (its place in the decision's `shared`)
+   * of decision `decision` at its first item, as `jumpToUnseen()` enters
+   * its target: the open frames become the item's enclosing route frames
+   * with the route leading in innermost (the reader's last pick that
+   * leads there, else a played one, else the first; docs/content-format.md,
+   * "Branches"), each of those routes marked played and made its
+   * decision's last pick, so reading on carries on through the span and
+   * its `result` acts at its end. Skip ends, any open choice is left, and
+   * the item arrives as a `jump` (`Machine.arrival`), shown as a forward
+   * read. Inert unless the decision's `after` item has been seen (the
+   * reader reached it), or for a span that does not resolve.
+   */
+  enterSpan(decision: number, span: number): void;
+  /**
    * "Return to main route" on a decision whose CONTINUING route has
    * completed: proceed to the decision's `continueAt`. Inert unless the open
    * choice offers it (`MachineState.choice.continueOption`, which requires a
@@ -4214,6 +4229,18 @@ export function createMachine(options: MachineOptions): Machine {
         },
         "jump",
       );
+    },
+
+    enterSpan(decisionIndex, spanIdx) {
+      if (destroyed || count === 0) return;
+      const decision = decisions[decisionIndex];
+      if (decision === undefined || !visited.has(decision.afterIndex)) return;
+      const span = Number.isInteger(spanIdx)
+        ? decision.shared[spanIdx]
+        : undefined;
+      if (span === undefined) return;
+      enterRoutesAround(span.startIndex);
+      showItem(span.startIndex, "advance", "jump");
     },
 
     jumpToUnseen() {

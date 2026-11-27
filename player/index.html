@@ -2416,17 +2416,20 @@
       .map-conn,
       .map-join,
       .map-return,
+      .map-feed,
       .map-run {
         fill: none;
         stroke-linecap: round;
       }
-      /* Connectors: the branches out to each route and back; returns
+      /* Connectors: the branches out to each route and back, and a route's
+         line on into the shared span it goes on to (a feed); returns
          dashed. Where a band cut crosses a line, the line ends in a
          "continues" tick (a slash) in its own look, and resumes from one at
          the next band's left edge (render/branchmap.ts `linesMarkup`). */
       .map-conn,
       .map-join,
-      .map-return {
+      .map-return,
+      .map-feed {
         stroke: var(--k-line-conn);
         stroke-width: calc(4px * var(--line-px, 1));
         stroke-linejoin: round;
@@ -2504,6 +2507,11 @@
       }
       .map-dec rect {
         rx: 14px;
+      }
+      /* A shared span's box (render/branchmap.ts `SPAN_RX`): a route
+         pill's looks, as a box with rounded corners, not a capsule. */
+      .map-span rect {
+        rx: 5px;
       }
       .map-node.map-reached {
         cursor: pointer;

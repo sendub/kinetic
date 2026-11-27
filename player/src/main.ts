@@ -1033,7 +1033,8 @@ function start(): void {
       // decision or route closes the map and moves through the machine's
       // own operations (mapmodel.ts `runJump`): the choice screen as a
       // wheel step shows it — a walk, so no route pill — and a route
-      // entered by a real pick from it, whose pill names the route.
+      // entered by a real pick from it, whose pill names the route; a
+      // shared span entered at its first screen by a route leading in.
       let mapStrip: MapStrip | null = null;
       const mapStripNow = (): MapStrip => {
         mapStrip ??= layOutStrip(manifest.items, manifest.branches);
@@ -1169,6 +1170,7 @@ function start(): void {
               walk(() => machine.showChoice(decision))(),
             // A map click arrives as a jump, not a read (Machine.arrival).
             choose: (route) => machine.choose(route, "map"),
+            enterSpan: (decision, span) => machine.enterSpan(decision, span),
           });
           syncMenuPause();
         },

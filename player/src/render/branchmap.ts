@@ -21,9 +21,9 @@
 // reached (mapmodel.ts `MapMarks.hidden`). Esc or M closes. The header is
 // the title and its buttons (Spoilers, Newest bookmark, Centre, Full size,
 // Fit), each naming its key in a hover/focus hint (index.html
-// `[data-hint]`). A click on a reached decision or one of its routes asks
-// the shell to jump there (the machine does the moving; see mapmodel.ts
-// `runJump`).
+// `[data-hint]`). A click on a reached decision, one of its routes or one
+// of its shared span boxes asks the shell to jump there (the machine does
+// the moving; see mapmodel.ts `runJump`).
 //
 // Bookmarks (Phase 35, replacing the `t` screen): each is a card centred
 // on its stretch's line at its screen's place (mapmodel.ts `cardSlots`),
@@ -321,6 +321,7 @@ const OUTCOME_WORD = {
   continues: "map.route.continues",
   returns: "map.route.returns",
   ends: "map.route.ends",
+  shared: "map.route.shared",
 } as const satisfies Record<string, MessageKey>;
 
 /** A node's accessible name: its title, then its status. */
@@ -360,6 +361,16 @@ export function describeTarget(
       ...(lang ? { lang } : {}),
     };
   }
+  if (target.kind === "span") {
+    // A span has no text of its own to hide: its title is the catalogue's.
+    const span = model.spans[target.key];
+    const parts = [
+      t(ROUTE_WORD[marks.spans[target.key]]),
+      t(OUTCOME_WORD[span.outcome]),
+    ];
+    if (!marks.reached[span.decision]) parts.push(t("map.route.notReached"));
+    return { title: t("map.span.title"), status: parts.join(" · ") };
+  }
   const route = model.routes[target.key];
   const parts: string[] = [
     t(ROUTE_WORD[marks.routes[target.key]]),
@@ -396,6 +407,7 @@ const LINK_CLASS = {
   branch: "map-conn",
   join: "map-join",
   return: "map-return",
+  feed: "map-feed",
 } as const;
 
 /**
@@ -426,6 +438,7 @@ export function linesMarkup(
     "map-conn": [],
     "map-join": [],
     "map-return": [],
+    "map-feed": [],
     "map-run map-run-unseen": [],
     "map-run map-run-partly": [],
     "map-run map-run-seen": [],
@@ -473,16 +486,17 @@ export function linesMarkup(
 /**
  * A node's outline as a path: the capsule a `<rect>` of this box draws
  * with `rx` half its height (index.html `.map-dec rect`; a pill's own
- * `rx`), traced as the rect's outline is (from (x + r, top), clockwise),
- * so a dash pattern falls on it exactly as on the rect. Pure.
+ * `rx`), or with corners of radius `r` (a shared span's box, `SPAN_RX`),
+ * traced as the rect's outline is (from (x + r, top), clockwise), so a
+ * dash pattern falls on it exactly as on the rect. Pure.
  */
 export function capsulePath(
   x: number,
   top: number,
   w: number,
   h: number,
+  r: number = h / 2,
 ): string {
-  const r = h / 2;
   return `M${x + r} ${top}H${x + w - r}A${r} ${r} 0 0 1 ${x + w - r} ${top + h}H${x + r}A${r} ${r} 0 0 1 ${x + r} ${top}Z`;
 }
 
@@ -500,10 +514,17 @@ export function boxesMarkup(
 ): string {
   const g = MAP_GEOMETRY;
   const paths: Record<string, string[]> = {};
-  const add = (cls: string, x: number, y: number, w: number, h: number) => {
+  const add = (
+    cls: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    r = h / 2,
+  ) => {
     if (!within(rect, x, y - h / 2, x + w, y + h / 2)) return;
     paths[cls] ??= [];
-    paths[cls].push(capsulePath(x, y - h / 2, w, h));
+    paths[cls].push(capsulePath(x, y - h / 2, w, h, r));
   };
   for (const node of model.decisions)
     add(
@@ -520,6 +541,16 @@ export function boxesMarkup(
       route.y,
       g.routeW,
       g.routeH,
+    );
+  });
+  model.spans.forEach((span, key) => {
+    add(
+      `map-route map-span ${spanClasses(marks, key, span.decision)}`,
+      span.x,
+      span.y,
+      g.routeW,
+      g.routeH,
+      SPAN_RX,
     );
   });
   return Object.entries(paths)
@@ -583,7 +614,30 @@ export function detailMarkup(
         `<rect x="0" y="${-g.routeH / 2}" width="${g.routeW}" height="${g.routeH}" rx="${g.routeH / 2}"/></g>`,
     );
   });
+  model.spans.forEach((span, key) => {
+    const top = span.y - g.routeH / 2;
+    if (!within(rect, span.x, top, span.x + g.routeW, top + g.routeH)) return;
+    const { title, status } = describeTarget(model, marks, {
+      kind: "span",
+      key,
+    });
+    out.push(
+      `<g class="map-node map-route map-span ${spanClasses(marks, key, span.decision)}" data-s="${key}" data-state="${marks.spans[key]}" transform="translate(${span.x} ${span.y})"${marks.reached[span.decision] ? ' tabindex="0" role="button"' : ""} aria-label="${escapeXml(nodeLabel(title, status))}">` +
+        `<rect x="0" y="${-g.routeH / 2}" width="${g.routeW}" height="${g.routeH}" rx="${SPAN_RX}"/></g>`,
+    );
+  });
   return out.join("");
+}
+
+/**
+ * A shared span box's corner radius: a box with rounded corners, where a
+ * route's pill is a capsule (index.html `.map-span`).
+ */
+export const SPAN_RX = 5;
+
+/** A span box's state classes: how much is read, reached or not. */
+function spanClasses(marks: MapMarks, key: number, decision: number): string {
+  return `map-route-${marks.spans[key]} ${marks.reached[decision] ? "map-reached" : "map-inert"}`;
 }
 
 /** A route's state classes: how much is read, reached or not, last pick. */
@@ -701,11 +755,14 @@ function targetOf(element: Element | null): {
   node: Element;
   target: MapTarget;
 } | null {
-  const node = element?.closest("[data-d],[data-r]") ?? null;
+  const node = element?.closest("[data-d],[data-r],[data-s]") ?? null;
   if (node === null) return null;
   const d = node.getAttribute("data-d");
   if (d !== null)
     return { node, target: { kind: "decision", decision: Number(d) } };
+  const span = node.getAttribute("data-s");
+  if (span !== null)
+    return { node, target: { kind: "span", key: Number(span) } };
   return {
     node,
     target: { kind: "route", key: Number(node.getAttribute("data-r")) },
@@ -1488,7 +1545,9 @@ export function mountBranchMap({
     const m = model;
     const k = marks;
     const key =
-      target.kind === "decision" ? `d${target.decision}` : `r${target.key}`;
+      target.kind === "decision"
+        ? `d${target.decision}`
+        : `${target.kind === "span" ? "s" : "r"}${target.key}`;
     placeTip(
       key,
       () => {
