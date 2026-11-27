@@ -3188,6 +3188,9 @@ The user's decisions (2026-11-14 and 2026-11-15):
   it; a later route reaching it runs a skip through it on its own, as
   Tab does (Space stops it), with a pill saying it was read already;
   then the span's `result` acts.
+- **The picture at a join follows the reader's path** (the user,
+  2026-11-27): a line at a join shows what the reader's own route left
+  on screen, as Ren'Py does (item 9r).
 - **The corpus survey's converter gaps join the phase** (the user,
   2026-11-27, after a survey of 71 projects found 40% of story lines
   reaching the output): items 9k to 9q. Free-roam stories and
@@ -5099,6 +5102,19 @@ The orchestrator's choices, within those decisions:
     where the translation keeps `[var]`. An unknown one stays, reported
     by `kinetic report`. Tests: substitution in lines, speakers and
     translations.
+9r. The picture at a join follows the reader's path (the user,
+    2026-11-27, moved here from docs/future.md). A `text` item shows the
+    latest media-bearing item on the reader's path in story order, as
+    the wheel walks it, not the nearest earlier one in array order: at a
+    decision's `continueAt`, a span's first item or a nested join, the
+    picture the reader's route (or span) left on screen. With no pick
+    known (a bookmark, a jump) the path is the wheel's fallback, the
+    longest route holding seen content. Rewind, bookmarks, thumbnails,
+    the map's previews and reloads use the same path; an older player
+    keeps array order. docs/content-format.md (Text items, Timing)
+    states the rule. Tests: the visual resolution at joins after routes
+    ending on different pictures, a span, a nested join, a reload and a
+    bookmark; a scenario part.
 9j. Fixtures and docs for shared spans. `fixtures/renpy_demo` gains a
     failure scene reached from a choice and a nested choice;
     package-proof's counts; CREATE.md, docs/extracting.md,
@@ -5108,7 +5124,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9n -> 9o -> 9p -> 9q -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9n -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

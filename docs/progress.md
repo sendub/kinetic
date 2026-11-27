@@ -6874,6 +6874,7 @@ truthful: an unchecked box means nothing was accepted.
 - [ ] Menus no longer kept linear (item 9o).
 - [ ] More `if` chains become decisions (item 9p).
 - [ ] Variables shown in text (item 9q).
+- [ ] The picture at a join follows the reader's path (item 9r).
 - [ ] Fixtures and docs for shared spans (item 9j).
 - [ ] Phase-closer (Phase 60): full suites; VERSION 1.15.0, the
       CHANGELOG dated, tag v1.15.0, `main` fast-forwarded, the wheel
