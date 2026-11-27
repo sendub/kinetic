@@ -3176,6 +3176,19 @@ The user's decisions (2026-11-14 and 2026-11-15):
   `"$schema": "./manifest.schema.json"`. The upgrade command refreshes
   the copy and the assembler leaves it out of the folder readers get.
 
+- **Routes that share a tail: shared spans** (the user, 2026-11-27,
+  moved here from docs/future.md). Ren'Py often sends several choices,
+  across nested menus, to one scene (a failure scene) before the story
+  goes on. A decision may list `shared` spans, laid out once after its
+  routes; a route says `then: <span id>` (a span of its own decision or
+  of one enclosing it) to read that span after its end, and the span's
+  own `result` then acts. The reader stays in the route they picked.
+- **Play all routes and a shared span: auto-skip the repeats** (the
+  user, 2026-11-27). The first route in a pass to reach a span reads
+  it; a later route reaching it runs a skip through it on its own, as
+  Tab does (Space stops it), with a pill saying it was read already;
+  then the span's `result` acts.
+
 The orchestrator's choices, within those decisions:
 
 - One source of truth for Kinetic's version: a `VERSION` file at the
@@ -4951,11 +4964,61 @@ The orchestrator's choices, within those decisions:
     a route's join included; a wheel, bookmark or route-entry arrival
     stays a still (`playbackModeFor`). Tests: the playback rule; a
     scenario part on the demo's held animation and on a join.
+9e. Shared spans in the format (the user's decisions above). A
+    decision's optional `shared` lists spans `{id, start, end, result}`:
+    ids unique among the decision's routes and spans; each span after
+    the decision's `after`, outside every route span of the decision
+    and of the other spans, before `continueAt` when there is one;
+    `result` as a route's, default `"ending"`, `"continue"` needing the
+    join. A route's optional `then` names a span of its decision or of
+    an enclosing decision (whose route span holds this decision); a
+    route naming an enclosing decision's span leaves its own enclosing
+    route there. A route with `then` completes when its span completes;
+    its own `result` is moot. docs/content-schema.json,
+    docs/content-format.md (Branches, the rules list),
+    validate_content.py, folder_model.py, and an older player's reading
+    (it ignores both fields: a route with `then` acts on its own
+    `result`, the span unreached). Tests: the validator's accepts and
+    refusals.
+9f. Shared spans in the player. After a route's end with `then`, flow
+    enters the span; the route pill, `u`, played and completion marks
+    stay the route's; at the span's end its `result` acts as the
+    route's would, the re-offer rules of Play all routes included. Under
+    Play all routes the first route of a pass to reach a span reads it,
+    a later one runs a skip burst through it (the skip machinery,
+    `skipDwellMs`; Space stops it as it stops Tab's) under a pill
+    ("Read already: skipping"), then the result acts. The wheel walks
+    a span after the last-picked route reaching it; a save, reload,
+    bookmark and resume inside a span keep the route that led in.
+    Tests: machine tests (off and on, nested `then`, a span ending the
+    story, a span returning to the choice); a scenario file.
+9g. The pill's words in every interface language (as item 6b).
+9h. Shared spans on the branch map and in the tools. The map draws a
+    span once, as a box its routes feed into (mapmodel.ts);
+    `kinetic routes` (text, `--dot`, `--json`), `fixtures/route-shapes.json`,
+    `kinetic export` (the span once, after its routes) and `kinetic
+    report` (reading time counts it once, per route that reaches it
+    where it says per route). Tests: mapmodel and the tools' tests.
+9i. The converter lays a shared tail out once. Where the walk finds a
+    label reached from two or more routes of one decision, nested
+    routes included, before the decision's join (today's "rejoins
+    content read at ..."), it becomes a `shared` span of the innermost
+    decision enclosing every route that reaches it, those routes get
+    `then`, and the span's `result` follows where the label goes (the
+    join: `"continue"`; the story's end: `"ending"`; back to the menu:
+    `"return"`). Shapes that still do not fit stay linear, reported.
+    Tests: synthetic projects for each shape; the reporting game's
+    linear-menu count checked read-only.
+9j. Fixtures and docs for shared spans. `fixtures/renpy_demo` gains a
+    failure scene reached from a choice and a nested choice;
+    package-proof's counts; CREATE.md, docs/extracting.md,
+    docs/player.md (the pill), the CHANGELOG; the docs/future.md entry
+    removed. Tests: package-proof.
 10. Phase-closer: full suites; VERSION 1.15.0, the CHANGELOG dated, tag
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

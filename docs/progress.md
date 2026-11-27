@@ -6684,6 +6684,12 @@ truthful: an unchecked box means nothing was accepted.
       Orchestrator: npm test 1925 passed, check clean, smoke 6/6,
       branches 82/82 Chrome and 82/82 WebKit.)
 - [ ] An animation read again plays again (item 9d).
+- [ ] Shared spans in the format (docs/plan.md Phase 60, item 9e).
+- [ ] Shared spans in the player (item 9f).
+- [ ] The read-already pill in every interface language (item 9g).
+- [ ] Shared spans on the branch map and in the tools (item 9h).
+- [ ] The converter lays a shared tail out once (item 9i).
+- [ ] Fixtures and docs for shared spans (item 9j).
 - [ ] Phase-closer (Phase 60): full suites; VERSION 1.15.0, the
       CHANGELOG dated, tag v1.15.0, `main` fast-forwarded, the wheel
       attached to the GitHub release, the Pages demo republished.
