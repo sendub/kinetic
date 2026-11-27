@@ -5062,6 +5062,15 @@ The orchestrator's choices, within those decisions:
     x()` with its `from` clause on the next line, and a parenthesised
     test `if (x == 1):`. Tests: parser cases for each form; the reports
     gone.
+9m2. Nameless speakers and monologue translations (leads from item
+    9m). A line by `Character(None, ...)` (about 10 corpus games) is
+    narration, as Ren'Py shows it, keeping the character's `what_`
+    styling where the converter reads it, instead of naming the
+    variable as the speaker. Each paragraph of a triple-quoted
+    (monologue) say string matches its own `translate` block, as
+    Ren'Py gives each its own say statement, instead of only the first
+    paragraph matching. Tests: one per form, translated paragraphs
+    included.
 9n. Pictures resolved as Ren'Py resolves them (about 30,000 lines in
     41 games dropped with an unresolved visual). `image a = "b c"` is
     the image named `b c`; `image` statements inside `init:` and `init
@@ -5124,7 +5133,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9n -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

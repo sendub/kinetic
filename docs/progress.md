@@ -6918,7 +6918,33 @@ truthful: an unchecked box means nothing was accepted.
       are mis-parsed (a continuation line read as `return`). Tests:
       test_call_joins.py, 15 (12 failed first). Orchestrator: converter/
       1357 passed, test_validate_content.py 536 passed.)
-- [ ] Say statements as Ren'Py reads them (item 9m).
+- [x] Say statements as Ren'Py reads them (item 9m).
+      (2026-11-27: the parser reads Ren'Py's logical lines (new
+      renpy_lexer.py, the lexer moved out of translations.py): a line
+      runs on while a string or bracket is open or after a backslash,
+      sits at its first physical line, and a line break inside a plain
+      string becomes one space; triple-quoted say strings are monologue
+      mode, one line per paragraph. `e happy "..."` is e's line, the
+      attributes changing the picture only when e's Character gives a
+      literal `image=` and that tag is on screen, chosen as Ren'Py's
+      `choose_image` does (`-x` removes, `@` lasts one line), else a
+      ledger note. `c.name "..."` resolves `define c.name = Character`
+      and `init python in c:`; a plain `e` finds `define character.e`.
+      `"Name" "text"` is Name's line; `call x()` with `from` on the
+      next line is one call; `if(`, `elif(`, `while(` read. Choices:
+      `hide` not tracked; a file-named picture changes only for a file
+      named exactly `tag attrs`; single-line double spaces kept
+      (future.md). Leads: `Character(None)` speakers and monologue
+      translations became item 9m2; Python-class speakers to future.md.
+      Corpus recount (all 71 games, parse-only, read-only), over the 46
+      that changed: text items 363,756 -> 486,690, say lines kept
+      427,702 -> 626,826, dropped as unrecognized say 26,147 -> 0, 8,979
+      lines read with corrected text, 17,415 with corrected speakers;
+      the multi-line game 345 -> 96,461 text items. renpy_demo golden
+      unchanged. Tests: test_say_forms.py, 24 (23 failed first).
+      Orchestrator: converter/ 1381 passed, test_validate_content.py
+      and test_translations.py 578 passed.)
+- [ ] Nameless speakers and monologue translations (item 9m2).
 - [ ] Pictures resolved as Ren'Py resolves them (item 9n).
 - [ ] Menus no longer kept linear (item 9o).
 - [ ] More `if` chains become decisions (item 9p).

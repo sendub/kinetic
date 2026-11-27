@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .parser import (_DEFINE_CHAR_RE, _KEYWORD_ARG_RE, FileParse, Report,
-                     _call_arguments, _literal_value)
+                     _call_arguments, _literal_value, define_var)
 
 # The colour forms Ren'Py's Color reads from a string, `#` optional:
 # rgb, rgba, rrggbb, rrggbbaa.
@@ -133,7 +133,7 @@ def _read_define(statement: str, source: str, order: int,
         own["name"] = name
     if "what_color" in found:
         own["text"] = found["what_color"]
-    return m.group(1), _Define(source, statement, order, kind, own)
+    return define_var(m), _Define(source, statement, order, kind, own)
 
 
 def character_colors(parses: list[tuple[str, FileParse]],

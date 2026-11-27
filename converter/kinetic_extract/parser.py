@@ -8,7 +8,15 @@ ledger can list what was skipped.
 
 Design notes:
 
-- Comments are stripped outside quoted strings.
+- Comments are stripped outside quoted strings. The lines are Ren'Py's
+  logical lines (renpy_lexer.story_lines, docs/plan.md Phase 60 item
+  9m): a line runs on while a string or bracket is open, each at the
+  index of its first physical line, the lines it runs onto blank.
+- Say statements follow Ren'Py's grammar (renpy_lexer.parse_say): a
+  lone string, or a speaker (a name, a dotted name or a string), image
+  attributes and `@` temporary ones, then a string; each becomes a
+  ``dialogue`` event carrying them, a triple-quoted string one per
+  paragraph.
 - A line ending in ":" opens a block: all following lines indented deeper
   than the opening line belong to it. ``label`` blocks continue the linear
   walk; blocks other than ``label`` and ``menu`` are skipped.
@@ -70,14 +78,19 @@ from . import conditions
 from .audio_statements import (AudioChannel, AudioStatement, mentions_audio,
                                read_audio_define, read_channel, read_python,
                                read_statement)
+from .renpy_lexer import (STATEMENT_WORDS, _parse_quoted, item_text,
+                          parse_say, renpy_newlines, say_texts, story_lines)
 
 # A Character made by `define e = Character(...)` (with or without an
 # init priority, `define -2 e = ...`), by `$ e = Character(...)`, or by
 # `e = Character(...)` in an `init python` block; `DynamicCharacter`,
 # `ADVCharacter` and `NVLCharacter` too. The display name is read from
-# the arguments by character_name.
+# the arguments by character_name. The variable may be dotted, a store
+# namespace's (`define c.ann = Character(...)`, docs/plan.md Phase 60
+# item 9m); `store.` names the main store (define_var).
 _DEFINE_CHAR_RE = re.compile(
-    r"(?:define\s+(?:[+-]?\d+\s+)?|\$\s*)?([A-Za-z_]\w*)\s*=\s*"
+    r"(?:define\s+(?:[+-]?\d+\s+)?|\$\s*)?"
+    r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*=\s*"
     r"(Character|DynamicCharacter|ADVCharacter|NVLCharacter)\s*\(")
 # A name argument the converter can read: a string literal, plain or
 # wrapped in Ren'Py's translation markers `_()` or `__()`.
@@ -86,11 +99,6 @@ _NAME_ARG_RE = re.compile(
     r"""\s*(\))?""", re.DOTALL)
 _KEYWORD_ARG_RE = re.compile(r"([A-Za-z_]\w*)\s*=(?!=)\s*(.*)", re.DOTALL)
 _DOTTED_NAME_RE = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
-# The speaker is any identifier at the line head followed by a quoted
-# string. The space between them is optional: the corpus writes both
-# `al "..."` and `al"..."` (docs/extracting.md BUG 3), and the keywords
-# the walker knows (`image`, `scene`, ...) are matched before this runs,
-# so the looser form cannot capture them.
 # The project settings that name the story (docs/plan.md Phase 21, Story
 # ID): `define config.save_directory = "..."` (or the older
 # `config.save_directory = "..."` inside an `init python` block), and
@@ -105,7 +113,24 @@ _CONFIG_STRING_RE = re.compile(
     r"""\s*=\s*"""
     r"""(_\(\s*)?(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
 _WHOLE_VALUE_SETTINGS = frozenset({"version"})
+# A say line the say grammar (renpy_lexer.parse_say) does not take, read
+# as before: a narration line whose quoted text comes first, or any
+# identifier at the line head followed by a quoted string. The space
+# between them is optional: the corpus writes both `al "..."` and
+# `al"..."` (docs/extracting.md BUG 3), and the keywords the walker knows
+# (`image`, `scene`, ...) are matched before this runs, so the looser form
+# cannot capture them.
 _SPEAKER_SAY_RE = re.compile(r"([A-Za-z_]\w*)\s*\"")
+# A speaker written as a string literal, `"Ann" "Hello."`.
+_QUOTED_WHO_RE = re.compile(r"[rRuU]?[\"'`]")
+# The first word of a statement, which says which statement it is
+# (Ren'Py matches a keyword, so `if(x):` is an `if`).
+_STATEMENT_WORD_RE = re.compile(r"\$|[^\W\d]\w*")
+# A `from` clause alone on its line, after its `call` (_join_from_clauses).
+_FROM_CLAUSE_RE = re.compile(r"from\s+[A-Za-z_][\w.]*")
+# `init python in NAME:`, whose assignments set the store NAME's variables.
+_PY_IN_RE = re.compile(r"init(?:\s+[+-]?\d+)?\s+python\b.*\bin\s+"
+                       r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*:")
 # `define NAME = value` with a plain name: transition aliases
 # (kinetic_extract.presentation) are read from these.
 _SIMPLE_DEFINE_RE = re.compile(
@@ -195,7 +220,6 @@ ID_MAX = 64            # docs/content-schema.json $defs/id pattern
 
 _DEFAULT_PROMPT = "What happens next?"
 
-_QUOTE_ESCAPES = {"\"": "\"", "\\": "\\", "n": "\n", "#": "#", "[": "["}
 
 
 _SLUG_BAD_RE = re.compile(r"[^A-Za-z0-9_-]+")
@@ -207,26 +231,6 @@ def slug(text: str | None, fallback: str) -> str:
     raw = _SLUG_BAD_RE.sub("-", (text or "").strip()).strip("-")
     return raw[:60] if raw else fallback
 
-
-
-def _parse_quoted(text: str, pos: int) -> tuple[str, int] | None:
-    """Parse a double-quoted string starting at text[pos]; return (value, end)."""
-    if pos >= len(text) or text[pos] != "\"":
-        return None
-    out: list[str] = []
-    i = pos + 1
-    while i < len(text):
-        ch = text[i]
-        if ch == "\\" and i + 1 < len(text):
-            nxt = text[i + 1]
-            out.append(_QUOTE_ESCAPES.get(nxt, "\\" + nxt))
-            i += 2
-            continue
-        if ch == "\"":
-            return "".join(out), i + 1
-        out.append(ch)
-        i += 1
-    return "".join(out), len(text)  # unterminated string: take the rest
 
 
 def _call_arguments(text: str, start: int) -> list[str] | None:
@@ -332,15 +336,65 @@ def character_name(line: str) -> tuple[str, str] | None:
                 or not _DOTTED_NAME_RE.fullmatch(value)):
             return None
         value = f"[{value}]"
-    return m.group(1), value
+    return define_var(m), value
 
 
-def renpy_newlines(text: str) -> str:
-    """A script's text as Ren'Py's lexer reads it: a leading BOM gone,
-    ``\\r\\n`` and ``\\r`` made ``\\n``, its only line break. Other
-    characters ``str.splitlines`` breaks at (``\\x0b``, ``\\x0c``,
-    ``\\x1c`` to ``\\x1e``, ``\\x85``, U+2028, U+2029) stay in the line."""
-    return text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
+def define_var(m: re.Match[str]) -> str:
+    """The variable a Character statement (_DEFINE_CHAR_RE) sets, as a
+    say statement names it: `store.e` is `e`."""
+    var = m.group(1)
+    return var[len("store."):] if var.startswith("store.") else var
+
+
+def character_image(line: str) -> str | None:
+    """The image tag a Character statement gives with a literal `image=`
+    (the tag its say statements' image attributes change, Ren'Py's
+    ``image_tag``), or None."""
+    m = _DEFINE_CHAR_RE.match(line)
+    args = _call_arguments(line, m.end()) if m else None
+    for arg in args or []:
+        kw = _KEYWORD_ARG_RE.fullmatch(arg)
+        if kw is not None and kw.group(1) == "image":
+            tag = _literal_value(kw.group(2).strip()) \
+                if kw.group(2).strip()[:1] in "\"'" else None
+            return tag.strip() or None if tag is not None else None
+    return None
+
+
+def parser_lines(text: str) -> list[str]:
+    """A script's lines as the statement walk reads them
+    (renpy_lexer.story_lines: each logical line at its first physical
+    line's index), with a `call`'s `from` clause written alone on the
+    next line joined onto the call (_join_from_clauses)."""
+    lines = story_lines(text)
+    _join_from_clauses(lines)
+    return lines
+
+
+def _join_from_clauses(lines: list[str]) -> None:
+    """Join each `from NAME` line onto the `call` before it, in place. A
+    `call x()` with its `from` clause alone on the next line is one
+    statement, as the game's compiled script has it (Ren'Py itself
+    refuses the indentation; docs/plan.md Phase 60 item 9m)."""
+    prev = None
+    for k, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if (prev is not None and _FROM_CLAUSE_RE.fullmatch(stripped)
+                and lines[prev].strip().startswith("call ")
+                and " from " not in lines[prev]):
+            lines[prev] = lines[prev].rstrip() + " " + stripped
+            lines[k] = ""
+            continue
+        prev = k
+
+
+def statement_word(line: str) -> str:
+    """The keyword a stripped statement line starts with (`if(x):` is
+    `if`), else its first space- or colon-separated part."""
+    m = _STATEMENT_WORD_RE.match(line)
+    return m.group(0) if m else line.split(" ", 1)[0].split(":", 1)[0]
 
 
 def script_lines(text: str) -> list[str]:
@@ -465,6 +519,14 @@ class Event:
     # chain, docs/plan.md Phase 60 item 6): the arm's index, whose words
     # each language file gets in its own language.
     arm: int | None = None
+    # A say statement's image attributes, `-` ones removing, and its
+    # temporary ones after `@` (docs/plan.md Phase 60 item 9m), which the
+    # timeline applies to the speaker's picture.
+    attributes: tuple[str, ...] = ()
+    temporary: tuple[str, ...] = ()
+    # The speaker is a name as written (`"Ann" "Hello."`), not a
+    # Character's variable.
+    speaker_named: bool = False
 
 
 @dataclass
@@ -828,7 +890,7 @@ def flow_statement(line: str, source: str, cur_global: str | None
     """The flow step of a `jump`, `call`, `return` or literal
     `$ renpy.jump/call(...)` line; a report reason for one the walk cannot
     read (`call screen`, no target); None for any other line."""
-    keyword = line.split(" ", 1)[0].split(":", 1)[0]
+    keyword = statement_word(line)
     if keyword == "return" or line == "$ renpy.return_statement()":
         return FlowStep("return", source, line)
     if line.startswith("$"):
@@ -864,8 +926,8 @@ def flow_statement(line: str, source: str, cur_global: str | None
 _LITERAL_RE = re.compile(r"""(\w?)(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
 # A say statement or a menu choice: its quoted text is not a name.
 _SAY_LINE_RE = re.compile(
-    r"""(?:[A-Za-z_]\w*\s*)?(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')"""
-    r"""(?:\s+with\s+\S+)?\s*$""")
+    r"""(?:[A-Za-z_][\w.]*(?:\s+-?[-\w]+)*(?:\s*@(?:\s*-?[-\w]+)+)?\s*)?"""
+    r"""(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')(?:\s+with\s+\S+)?\s*$""")
 
 
 def name_literals(line: str) -> list[str]:
@@ -941,13 +1003,13 @@ def _block_steps(entries: list[tuple[int, str, int]], relname: str,
         while j < len(entries) and entries[j][2] > indent:
             j += 1
         src = f"{relname}:{lineno}"
-        keyword = text.split(" ", 1)[0].split(":", 1)[0]
+        keyword = statement_word(text)
         if keyword in ("if", "while") and text.endswith(":"):
             alts = [_block_steps(entries[k + 1:j], relname, cur_global)]
             ends = keyword == "while"
             while (keyword == "if" and j < len(entries)
                    and entries[j][2] == indent
-                   and entries[j][1].split(" ", 1)[0].split(":", 1)[0]
+                   and statement_word(entries[j][1])
                    in ("elif", "else")):
                 head = j
                 j += 1
@@ -1040,7 +1102,7 @@ def _chain_fork(raw_lines: list[str], i: int, lineno: int, line: str,
             continue
         depth = len(content) - len(content.lstrip(" \t"))
         head = content.strip()
-        if depth != indent or head.split(" ", 1)[0].split(":", 1)[0] \
+        if depth != indent or statement_word(head) \
                 not in ("elif", "else"):
             break
         entries.append((j + 1, head, depth))
@@ -1064,7 +1126,7 @@ def _chain_heads(raw_lines: list[str], i: int, lineno: int, line: str,
             continue
         depth = len(content) - len(content.lstrip(" \t"))
         head = content.strip()
-        if depth != indent or head.split(" ", 1)[0].split(":", 1)[0] \
+        if depth != indent or statement_word(head) \
                 not in ("elif", "else"):
             break
         heads.append((j + 1, head))
@@ -1089,7 +1151,7 @@ def _handle_chain(raw_lines: list[str], i: int, relname: str, lineno: int,
     reported, their jumps and calls a fork the walk follows."""
     heads, j = _chain_heads(raw_lines, i, lineno, line, indent)
     source = f"{relname}:{lineno}"
-    keywords = [head.split(" ", 1)[0].split(":", 1)[0]
+    keywords = [statement_word(head)
                 for _n, head in heads]
     spans = [(n, heads[k + 1][0] - 1 if k + 1 < len(heads) else j)
              for k, (n, _head) in enumerate(heads)]
@@ -1102,7 +1164,7 @@ def _handle_chain(raw_lines: list[str], i: int, relname: str, lineno: int,
     read: conditions.ChainCondition | str
     if not all(head.endswith(":") for _n, head in heads):
         read = "an arm's head does not end in a colon"
-    elif any(text.split(" ", 1)[0].split(":", 1)[0] == "label"
+    elif any(statement_word(text) == "label"
              for block in blocks for _m, text in block):
         read = "a label inside an arm, where a jump could enter it"
     else:
@@ -1219,7 +1281,7 @@ def _menu_choices(block: list[tuple[int, str, int]], caption: str | None,
         if indent > base:
             if not choices:
                 return "statement before the first choice", caption, choices
-            if text.split(" ", 1)[0].split(":", 1)[0] == "label":
+            if statement_word(text) == "label":
                 return "label inside a choice block", caption, choices
             continue
         if indent < base:
@@ -1428,14 +1490,23 @@ def _scan_settings(raw_lines: list[str], relname: str,
     """Read the settings that live in `init` and `python` blocks the
     statement walk skips, so every line is scanned, block or not: the
     story id, title and version config, the voice file format,
-    `define audio.x` names and registered channels."""
+    `define audio.x` names and registered channels. A Character made in
+    an `init python in NAME:` block is the store NAME's (`NAME.var`)."""
     scope: str | None = None
+    # The `init python in NAME:` block the line is in: (NAME, its indent).
+    store: tuple[str, int] | None = None
     for n, raw in enumerate(raw_lines):
         text = strip_comment(raw)
         if "'" in text or "\"" in text:
             result.literals.update(name_literals(text))
         _scan_code(raw_lines, n, text, relname, result)
         stripped = text.strip()
+        indent = len(text) - len(text.lstrip(" \t"))
+        if stripped and store is not None and indent <= store[1]:
+            store = None
+        named_store = _PY_IN_RE.fullmatch(stripped)
+        if named_store:
+            store = (named_store.group(1), indent)
         if stripped and text[:1] not in " \t":  # Ren'Py's indent
             head = _LABEL_FULL_RE.match(stripped)
             scope = (None if head is None else
@@ -1461,9 +1532,11 @@ def _scan_settings(raw_lines: list[str], relname: str,
         defined = read_audio_define(text)
         if defined is not None:
             result.audio_defs[defined[0]] = defined[1]
-        if _DEFINE_CHAR_RE.match(text.strip()):
-            _read_character(_call_text(raw_lines, n), f"{relname}:{n + 1}",
-                            result)
+        if _DEFINE_CHAR_RE.match(stripped):
+            line = _call_text(raw_lines, n)
+            if store is not None and not line.startswith(("define", "$")):
+                line = f"{store[0]}.{line}"
+            _read_character(line, f"{relname}:{n + 1}", result)
         if "register_channel(" in text:
             channel = read_channel(_call_text(raw_lines, n))
             if channel is None:
@@ -1494,7 +1567,7 @@ def _read_character(line: str, source: str, result: FileParse) -> None:
     an `init python` assignment (Phase 57 item 4c). A later one for the
     same variable replaces an earlier one, as running them would."""
     m = _DEFINE_CHAR_RE.match(line)
-    var = m.group(1)
+    var = define_var(m)
     result.character_defs[var] = (source, line)
     result.characters.pop(var, None)
     result.character_kinds.pop(var, None)
@@ -1526,7 +1599,7 @@ def _audio_event(result: FileParse, events: list[Event], source: str,
 
 def creator_statement_names(text: str) -> set[str]:
     """The names a script registers with `renpy.register_statement`."""
-    raw_lines = script_lines(text)
+    raw_lines = parser_lines(text)
     names: set[str] = set()
     for n, raw in enumerate(raw_lines):
         if "register_statement(" in raw:
@@ -1749,7 +1822,7 @@ def parse_file(text: str, relname: str,
     this file's own), which an `if` chain is read by."""
     result = FileParse(relname=relname,
                        creator_statements=set(creator_statements))
-    raw_lines = script_lines(text)
+    raw_lines = parser_lines(text)
     result.assignment_scan = _scan_assignments(raw_lines, relname)
     _scan_labels(raw_lines, relname, result)
     result.known_variables = (variables if variables is not None else
@@ -1792,7 +1865,7 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
                         f"`{skip_opener}` block: not converted"))
                 continue
             skip_indent = None
-        keyword = line.split(" ", 1)[0].split(":", 1)[0]
+        keyword = statement_word(line)
         rest = line[len(keyword):].strip()
         if rest.startswith(":"):
             rest = rest[1:].strip()
@@ -1992,7 +2065,23 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
             open_block()
             continue
 
-        # Dialogue: `Speaker "text"` or a bare `"text"` narration line.
+        # Dialogue: a say statement (docs/plan.md Phase 60 item 9m): a
+        # lone string, or a speaker (a name, a dotted name or a string),
+        # image attributes, `@` temporary ones, then a string; a
+        # triple-quoted string is a line per paragraph. Never a
+        # statement's keyword (Ren'Py tries those first).
+        say = None if keyword in STATEMENT_WORDS else parse_say(line)
+        if say is not None:
+            speaker, named = say.who, False
+            if speaker is not None and _QUOTED_WHO_RE.match(speaker):
+                speaker, named = item_text(speaker), True
+            for said in say_texts(say):
+                events.append(Event(
+                    "dialogue", source, text=said, speaker=speaker,
+                    attributes=tuple(say.attributes),
+                    temporary=tuple(say.temporary), speaker_named=named))
+            continue
+        # Lines the say grammar does not take, read as before.
         quoted_start = line.find("\"")
         if quoted_start == 0:
             parsed = _parse_quoted(line, 0)
@@ -2275,7 +2364,7 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
     # An `if` chain's variable may be set in any file.
     variables = conditions.by_variable(
         [a for rel, text in texts
-         for a in _scan_assignments(script_lines(text), rel)])
+         for a in _scan_assignments(parser_lines(text), rel)])
     parses: list[tuple[str, FileParse]] = []
     image_defs: dict[str, tuple[str, Any]] = {}
     characters: dict[str, str] = {}
@@ -2291,6 +2380,35 @@ def parse_project(game_dir: Path, files_glob: str | None = None,
         kinds.update(parsed.character_kinds)
     characters.update(kind_names(characters, kinds))
     return parses, image_defs, characters, sources
+
+
+def character_images(parses: list[tuple[str, FileParse]]
+                     ) -> dict[str, str]:
+    """Variable -> the image tag of each Character define that gives one
+    (character_image), a later define replacing an earlier one; a define
+    without `image=` takes its literal `kind=`'s, as Ren'Py copies a
+    kind's properties."""
+    own: dict[str, str | None] = {}
+    kinds: dict[str, str] = {}
+    for _rel, parsed in parses:
+        for var, (_source, statement) in parsed.character_defs.items():
+            own[var] = character_image(statement)
+            kinds.pop(var, None)
+            m = _DEFINE_CHAR_RE.match(statement)
+            for arg in _call_arguments(statement, m.end()) or []:
+                kw = _KEYWORD_ARG_RE.fullmatch(arg)
+                if kw is not None and kw.group(1) == "kind" and \
+                        _DOTTED_NAME_RE.fullmatch(kw.group(2).strip()):
+                    kinds[var] = kw.group(2).strip()
+    out: dict[str, str] = {}
+    for var in own:
+        seen, at = {var}, var
+        while own.get(at) is None and at in kinds and kinds[at] not in seen:
+            at = kinds[at]
+            seen.add(at)
+        if own.get(at) is not None:
+            out[var] = own[at]
+    return out
 
 
 def kind_names(characters: dict[str, str],

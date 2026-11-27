@@ -133,7 +133,8 @@ game whose story order differs from its file order read out of order.
   follows in the same file (fall-through); to a `jump`'s label, wherever
   it is defined; into a `call`'s label and back to the statement after
   the call at its `return` or at the end of a file. `call x(args) from
-  y` calls `x`. Local labels (`label .x`, `label g.x`) and named menus
+  y` calls `x`, its `from` clause on the call's line or alone on the
+  next (Say statements, below). Local labels (`label .x`, `label g.x`) and named menus
   (`menu name:`) are labels too, as are literal `$ renpy.jump("x")` and
   `$ renpy.call("x")`. The end of a file returning is a deliberate
   difference: in Ren'Py, falling off the end of a file inside a call
@@ -369,6 +370,60 @@ added; the entry labels not walked), and the ledger's `walk` holds:
 With several projects `walk` is a list, one object per project with
 its `project` number, each walked from its own `label start`. A
 file-order walk records `{"order": "file names (no label start)"}`.
+
+### Say statements
+
+The converter reads say statements as Ren'Py's grammar reads them
+(docs/plan.md Phase 60 item 9m; `kinetic_extract/renpy_lexer.py`, the
+lexer translations use too). A say statement is a lone string, or a
+speaker, image attributes, `@` and temporary attributes, then a string,
+then any `with`, `id`, `nointeract` or argument clause. A line starting
+with a statement's keyword (`style`, `show`, `nvl`, ...) is that
+statement, never a say. Strings may be double-, single- or
+back-quoted.
+
+- **Lines over several physical lines.** A logical line runs on while
+  a string or a bracket is open, or after a backslash, as in Ren'Py's
+  lexer, so a line whose text breaks onto `return soon, ...` or `jump
+  ...` is one line and the label goes on. In the text a line break and
+  the spaces around it are one space. The line is named by its first
+  physical line, as Ren'Py names it. This holds for every statement: a
+  menu caption or choice, an `if` test, a `define` or `$` line. A string
+  or bracket left open to the end of the file, which Ren'Py refuses, is
+  read line by line, as before.
+- **Triple-quoted strings** are monologue mode: one line per paragraph
+  (paragraphs are separated by blank lines), each with its line breaks
+  and runs of spaces made one space. A file's `rpy monologue` setting is
+  not read: the default, one blank line, always splits.
+- **A speaker with image attributes**, `e happy "..."`, is e's line.
+  When e's Character gives a literal `image="tag"` (its own or its
+  literal `kind=`'s) and the picture on screen has that tag, the
+  attributes change the picture as `show tag happy` would: among the
+  `image` definitions with the tag, the one whose attributes are all
+  given or kept from the shown picture, with every given one and the
+  most attributes, as Ren'Py's `choose_image` picks; with no such
+  definition, the name `tag happy`, which the files may answer. A `-x`
+  attribute removes x. Attributes after `@` change the picture for that
+  one line, and the next line is said over the picture before them
+  again. The new picture takes the place of a picture no line has shown
+  yet, keeping its transition. Otherwise the picture stays and the
+  line's ledger notes say why the attributes were ignored: the speaker
+  has no image tag the converter reads, no picture with the tag is on
+  screen (Ren'Py shows the attributes only in a side image then), or no
+  image answers the name.
+- **A dotted speaker**, `c.ann "..."`, is the Character `define c.ann =
+  Character(...)` makes, or `ann = Character(...)` in an `init python
+  in c:` block. A speaker `e` with no Character of its own is
+  `define character.e = ...`'s, as Ren'Py also looks there. Any other
+  dotted speaker (an attribute of an object the script builds in
+  Python) keeps its name as written, `c.ann`, noted in the ledger.
+- **Two strings**, `"Ann" "Hello."`, are a line said by Ann, the name as
+  written (a Character named `Ann` is not looked up), translated like
+  any speaker's name.
+- **A call's `from` clause alone on the next line** (`call x()` then
+  `from _call_x`, as some games' scripts have it) is the call's.
+- **`if(x == 1):`**, with no space after the keyword, is an `if`, as are
+  `elif(...)` and `while(...)`.
 
 ### Conditions
 

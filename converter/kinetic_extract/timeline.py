@@ -58,7 +58,8 @@ from . import conditions
 from .audio_cues import AudioFiles, AudioTrack, CueWalker
 from .flow import follow_labels
 from .media import probe_duration_seconds
-from .parser import Event, FileParse, Report, slug as _slug
+from .parser import (Event, FileParse, Report, character_images,
+                     slug as _slug)
 from .presentation import (CharacterColors, Resolved, TransitionCounts,
                            character_colors, resolve_transition,
                            transition_defines)
@@ -240,6 +241,16 @@ class _Pending:
         # The emitted visual this one repeats at a route's start (Phase
         # 60 item 8b), else None. A repeat no line takes is dropped.
         self.origin: _Pending | None = None
+        # The picture a say statement's temporary attributes go back to
+        # after their line (Phase 60 item 9m): dropped, too, when no line
+        # takes it.
+        self.quiet = False
+
+    @property
+    def drops_bare(self) -> bool:
+        """Whether, with no line taking it, it is dropped rather than
+        emitted bare."""
+        return self.origin is not None or self.quiet
 
     def repeat(self, menu_source: str, note: str | None = None) -> _Pending:
         """This emitted visual again, for a route's first line (or, with
@@ -359,6 +370,17 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     cues = CueWalker(parses, audio_files or AudioFiles(game_dir))
     pending: _Pending | None = None
     colors = character_colors(parses)
+    # Each Character's image tag, and the `image` definitions by tag with
+    # their attributes, for say statements' image attributes (item 9m).
+    image_tags = character_images(parses)
+    tagged: dict[str, list[tuple[str, frozenset[str]]]] = {}
+    for key in image_defs:
+        parts = key.split()
+        if parts:
+            tagged.setdefault(parts[0], []).append(
+                (key, frozenset(parts[1:])))
+    # The parse whose statement say_picture is applying.
+    parsed_now: FileParse | None = None
     defines = transition_defines(parses)
     # Whether the pending visual changed since the last interaction, so
     # a bare `with` applies to it.
@@ -527,7 +549,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         the menu's visual that no line took."""
         nonlocal pending
         if (pending is not None and not pending.consumed
-                and not pending.unresolved and pending.origin is None):
+                and not pending.unresolved and not pending.drops_bare):
             emit_media(pending, speaker=None, text=None)
         pending = None
 
@@ -554,11 +576,113 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         if len(result.items) > menu_stack[-1]["starts"][-1]:
             return False
         return pending is None or pending.consumed or (
-            pending.origin is not None and not pending.unresolved)
+            pending.drops_bare and not pending.unresolved)
+
+    def attribute_name(tag: str, shown: list[str],
+                       attrs: tuple[str, ...]) -> str:
+        """The image a `show` of ``tag`` with ``attrs`` (`-x` removing x)
+        picks while ``tag`` shows with the attributes ``shown``, as
+        Ren'Py's ``choose_image`` picks among the `image` definitions:
+        each of the name's attributes given or kept from the shown ones,
+        every given one among them, the most attributes winning, a tie
+        none. With no such definition, the name `show tag attrs` writes
+        (the shown attributes, those removed aside, when none is given),
+        which the files may answer."""
+        remove = {a[1:] for a in attrs if a.startswith("-")}
+        required = {a for a in attrs if not a.startswith("-")}
+        allowed = required | {a for a in shown if a not in remove}
+        best: list[str] = []
+        size = -1
+        for key, have in tagged.get(tag, ()):
+            if required <= have <= allowed:
+                if len(have) > size:
+                    best, size = [key], len(have)
+                elif len(have) == size:
+                    best.append(key)
+        if len(best) == 1:
+            return best[0]
+        if required:
+            return " ".join([tag] + [a for a in attrs
+                                     if not a.startswith("-")])
+        return " ".join([tag] + [a for a in shown if a not in remove])
+
+    def say_pending(name: str, source: str) -> _Pending | None:
+        """The picture an image name shows, resolved as a `show` of it is,
+        or None when nothing answers it (nothing reported: the picture on
+        screen stays)."""
+        defined = image_defs.get(name)
+        if defined is not None and defined[0] == "atl":
+            pend = atl_pending(parsed_now, source, name, defined[1])
+            return None if pend.unresolved else pend
+        if name in _SOLID_COLORS and defined is None:
+            return None
+        _kind, _ref, resolved = resolve_name(name)
+        if resolved is None:
+            return None
+        kind, ledger_rel, abs_path, src_ref, n = resolved
+        pend = _Pending(kind, name, ledger_rel, abs_path, source, src_ref)
+        if n > 1:
+            chosen = ledger_rel.rsplit("!", 1)[-1]
+            pend.notes.append(
+                f"image name {name!r} is ambiguous: {n} assets answer it; "
+                f"using the first in sorted order ({chosen})")
+        pend.notes.append(f"picture {name!r} from the image attributes of "
+                          f"the say statement at {source}")
+        return pend
+
+    def say_picture(parsed: FileParse, event: Event
+                    ) -> tuple[_Pending | None, str | None]:
+        """Apply a say statement's image attributes (Phase 60 item 9m):
+        when the speaker's Character names an image tag and the picture
+        on screen has it, the attributes change that picture as `show tag
+        attrs` would, and temporary (`@`) ones last for the one line: the
+        answer is then the picture to go back to after it (None when it
+        is the same), with no note. Otherwise the picture stays, and the
+        note says why the attributes were ignored."""
+        nonlocal pending, parsed_now
+        parsed_now = parsed
+        words = " ".join(event.attributes + (
+            ("@",) + event.temporary if event.temporary else ()))
+        tag = (None if event.speaker_named or event.speaker is None
+               else image_tags.get(speaker_var(event.speaker)))
+        if tag is None:
+            return None, (f"image attributes {words!r} ignored: speaker "
+                          f"{event.speaker!r} has no image tag the "
+                          "converter reads (Character `image=`)")
+        current = pending if pending is not None else on_screen
+        shown = (current.name or "").split() if current is not None else []
+        if not shown or shown[0] != tag:
+            return None, (f"image attributes {words!r} ignored: no {tag!r} "
+                          "picture on screen (Ren'Py then shows them in a "
+                          "side image only)")
+        name = attribute_name(tag, shown[1:],
+                              event.attributes + event.temporary)
+        back = None
+        if event.temporary:
+            back_name = attribute_name(tag, shown[1:], event.attributes)
+            if back_name != name:
+                back = say_pending(back_name, event.source)
+                if back is not None:
+                    back.quiet = True
+        if name == current.name:
+            return back, None
+        new = say_pending(name, event.source)
+        if new is None:
+            return None, (f"image attributes {words!r} ignored: no image "
+                          f"answers {name!r}")
+        if pending is not None and not pending.consumed:
+            # Replaced before any line showed it: the line shows the
+            # changed picture in its place, with its transition.
+            new.transition = pending.transition
+        else:
+            flush_bare()
+        pending = new
+        return back, None
 
     def emit_media(pend: _Pending, speaker: str | None,
                    text: str | None,
-                   line_source: str | None = None) -> ItemRecord:
+                   line_source: str | None = None,
+                   named: bool = False) -> ItemRecord:
         nonlocal on_screen
         on_screen = pend
         item_id = result._next_id(_slug(pend.name or pend.asset_rel,
@@ -604,7 +728,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             record.notes.append("no source asset resolved")
         if pend.kind == "video":
             set_video_duration(record)
-        apply_line(item, record, speaker, text)
+        apply_line(item, record, speaker, text, named)
         if pend.transition is not None:
             item["transition"] = dict(pend.transition)
         cues.attach(record)
@@ -612,20 +736,37 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         check_limit()
         return item
 
+    def speaker_var(speaker: str) -> str:
+        """The Character variable a say statement's speaker names: itself,
+        or the `character` store's (`define character.e = ...`), which
+        Ren'Py's say statement also looks in."""
+        if speaker not in characters and f"character.{speaker}" in characters:
+            return f"character.{speaker}"
+        return speaker
+
     def apply_line(item: dict[str, Any], record: ItemRecord,
-                   speaker: str | None, text: str | None) -> None:
+                   speaker: str | None, text: str | None,
+                   named: bool = False) -> None:
         nonlocal last_line
         if text is None:
             return
-        if speaker is not None:
-            item["speaker"] = characters.get(speaker, speaker)
-            if speaker in colors:
+        if speaker is not None and named:
+            # `"Ann" "Hello."`: the speaker's name as written.
+            item["speaker"] = speaker
+        elif speaker is not None:
+            var = speaker_var(speaker)
+            item["speaker"] = characters.get(var, speaker)
+            if var in colors:
                 known = result.speaker_colors.setdefault(item["speaker"], [])
-                if colors[speaker] not in known:
-                    known.append(colors[speaker])
-            if speaker in characters:
+                if colors[var] not in known:
+                    known.append(colors[var])
+            if var in characters:
                 record.notes.append(
                     f"speaker {speaker!r} display name from Character define")
+            elif "." in speaker:
+                record.notes.append(
+                    f"dotted speaker {speaker!r}: no Character the converter "
+                    "reads; its name kept as written")
         item["text"] = text
         if record.text_source is not None:
             record.text_parts = [(record.text_source, text)]
@@ -944,6 +1085,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     # No line before it in the walk: Ren'Py's
                     # narrator says it.
                     speaker = None
+                restore, attribute_note = None, None
+                if event.attributes or event.temporary:
+                    restore, attribute_note = say_picture(parsed, event)
                 if pending is not None and pending.unresolved:
                     # The line belongs to a dropped visual (BUG 1):
                     # a text item needs a visual, so it drops with it.
@@ -956,7 +1100,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     continue
                 if pending is not None and not pending.consumed:
                     emit_media(pending, speaker, event.text,
-                               event.source)
+                               event.source, event.speaker_named)
                     pending.consumed = True
                 else:
                     item_id = result._next_id("line")
@@ -968,10 +1112,16 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     if pending is None:
                         record.notes.append(
                             "dialogue with no preceding visual in flow")
-                    apply_line(item, record, speaker, event.text)
+                    apply_line(item, record, speaker, event.text,
+                               event.speaker_named)
                     cues.attach(record)
                     result.items.append(record)
                     check_limit()
+                if attribute_note is not None and last_line is not None:
+                    last_line.notes.append(attribute_note)
+                if restore is not None:
+                    # The picture the temporary attributes go back to.
+                    pending = restore
                 if event.from_strings and last_line is not None:
                     last_line.string_sources.add(event.source)
                 if event.arm is not None and last_line is not None \

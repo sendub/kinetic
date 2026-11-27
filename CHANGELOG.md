@@ -210,6 +210,19 @@ something more of an author.
   label of but never lays out says why in `branchDetection` (after a
   `jump` or `return`, or inside a block the walk does not read) instead
   of "menu region not completed".
+- The converter reads say statements as Ren'Py does. A line whose
+  string runs over several physical lines is one line, where a
+  continuation starting `return` or `jump` used to end the label there;
+  a test or call over several lines is one statement too. `e happy
+  "..."` is e's line, where it used to be dropped, and when e's
+  Character has `image="e"` and an `e` picture is on screen the
+  attributes change that picture (`@` ones for the one line). `c.ann
+  "..."` is said by `define c.ann = Character(...)`'s name (or, kept as
+  written, by `c.ann`); `"Ann" "Hello."` is Ann's line, where the item
+  used to read "Ann"; single-quoted and triple-quoted lines are read, a
+  triple-quoted one as a line per paragraph; `if(x):` is an `if`; and a
+  `call`'s `from` clause alone on the next line is the call's
+  (docs/extracting.md, "Say statements").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds` and `holdLastFrame` once
   upgraded. Converting a Ren'Py game again with this release gains its

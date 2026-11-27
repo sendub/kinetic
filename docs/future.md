@@ -360,6 +360,13 @@ Found by the 2026-11-27 survey; none loses a line:
   stripped.
 - `renpy.movie_cutscene` calls (304 in 19 games) play nothing.
 - `nvl` mode, `show text`, and transitions that become cuts.
+- Speakers that are Character objects built by the game's own Python
+  classes (`self.c = Character(name)`, a `.t` property; 4,757 lines in
+  3 games after Phase 60 item 9m) keep the dotted name as the speaker:
+  reading them needs the converter to run the game's Python.
+- Double spaces inside one line of a say string stay, where Ren'Py
+  collapses them; changing it would alter existing texts and
+  translation matching.
 
 ## Not wanted
 
