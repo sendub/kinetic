@@ -217,9 +217,12 @@ game whose story order differs from its file order read out of order.
   over the visual on screen at the menu and an earlier route showed
   another, that line's item repeats the menu's visual: the same
   picture, the animation played again, the video from its start (with
-  its own sound), or the last frame of an animation that holds it,
-  with no transition; its ledger note says `repeats the visual on
-  screen at the menu`. The ledger's
+  its own sound), the last frame of an animation that holds it, or,
+  for a video that holds it (a `Movie` that plays once), that video's
+  `lastFrame` still as an image item (Phase 60 item 9n6: the same file,
+  one ledger entry), with no transition; its ledger note says `repeats
+  the visual on screen at the menu`, with `(its held last frame)` for
+  the last two. The ledger's
   `branchDetection` note for a decision gives each route's result and
   how the walk proved it (`reaches the join at game/script.rpy:58`,
   `jumps back to the menu`, `jumps back to the menu through its
@@ -836,7 +839,10 @@ entry has `asset: null`, `decision: "frames"` and `frames`, one
 above; a solid-colour frame has `asset: null` and `decision:
 "generated"`). A generated still's item entry (the black still, a solid
 colour) has `asset: null` and `decision: "generated"` (Finding a
-script's files, below). Every dict in
+script's files, below). An image item repeating a held video's
+picture (The walk follows labels, above) has the video's `asset`,
+`decision: "lastFrame"` and that video's `lastFrame` as its `file`.
+Every dict in
 `mediaTools` and `media` has sorted keys (step and argument lists keep
 their order), so the same input gives the same ledger bytes. A shortened
 example:
@@ -1617,6 +1623,10 @@ in POSIX form, and may not be absolute or contain `..`:
   file's last frame ships too, as the result's `lastFrame`, the still a
   video item that holds its last frame (`holdLastFrame`) names
   (docs/content-format.md, "Text items").
+- `endSeconds` (only with `"lastFrame": true`, a number greater than
+  `startSeconds`): the item's range ends there, so the `lastFrame` is
+  the frame before it rather than the file's last (docs/plan.md Phase
+  60 item 9n6; `kinetic-media posters --fix` asks for it).
 - `loops` (audio only, `true` or `false`, default `false`): the track
   loops, as music, ambience or a video's sound do, so it ships in a
   loop-safe format (Audio policy, above). Leave it out for one-shots
@@ -1968,14 +1978,17 @@ Exit codes:
 
 Checks that every video item's poster is the frame at the item's
 `startSeconds`, as docs/content-format.md ("Video playback ranges")
-requires, and with `--fix` ships the posters that are not
-(docs/plan.md Phases 44 and 45):
+requires, and that every video that holds its last frame
+(`holdLastFrame`) has the last frame of its range as its `lastFrame`
+(Text items there), and with `--fix` ships the stills that are not
+(docs/plan.md Phases 44 and 45, Phase 60 item 9n6):
 
 ```sh
 .venv/bin/kinetic-media posters <game_root> <folder> [--manifest FILE] \
     [--ledger FILE] [--items FILE] [--first-frame FILE ...] \
     [--first-frame-all] [--decoder MODULE:FUNC ...] \
-    [--fix --remap FILE] [--out FILE] [--jobs N] [--video-jobs N]
+    [--fix --remap FILE [--last-frame-remap FILE]] [--out FILE] \
+    [--jobs N] [--video-jobs N]
 ```
 
 - `<game_root>`: the root the folder's media was shipped from. Ledger
@@ -2042,6 +2055,34 @@ are a near-static logo fade (0.75) and slow loops of one moving figure
 JPEG q90 poster to 3-9; such a poster fails, and `--fix` only ships a
 lossless one in its place.
 
+### Held videos' last frames
+
+A video item with `holdLastFrame: true` has its `lastFrame` checked
+too, after its poster, by the same two rules:
+
+- By ledger: it passes when a ledger record that made the still has a
+  `lastFrame` step (Build ledger, above) at the item's end, made from a
+  source whose sha256 also made the item's video file. The end is the
+  item's `endSeconds`, compared to six decimals, or the file's end (the
+  step's null `endSeconds`) when the item has none. An end within
+  1e-6 s of the item's `durationSeconds` counts as the file's end, so a
+  null recorded end matches an item ending at its duration, and a
+  recorded end at the duration matches an item with no `endSeconds`
+  (`END_AT_DURATION_SECONDS`; a frame's length would need the video
+  probed). A recorded other end or other source fails.
+- By pixels, when the ledger cannot say (no entry for the still or the
+  video, or no `lastFrame` step that records `endSeconds`, as for a
+  still the ledger holds as a poster): the still and the range's last
+  frame are compared as a poster and its frame are, within the same
+  3.0. The frame is decoded as the ship step takes it: the frame
+  before `endSeconds` (the file's last frame without one), from a
+  second before that end (`endSeconds`, else the item's
+  `durationSeconds`), and from the file's start when that window holds
+  no frame.
+
+`--first-frame` and `--first-frame-all` skip posters only: a last frame
+is always checked.
+
 ### Report and exit codes
 
 One line per failing item, then a summary:
@@ -2089,6 +2130,28 @@ was measured with the pinned tools on synthetic fade-in clips and on
 6.0 sits in the gap between the brightest near-black start (2.4) and
 the darkest real picture (9.9).
 
+A failing last frame is its own line, `FAIL <id> lastFrame:`, after
+the item's poster line if that fails too:
+
+```text
+FAIL ep2-40 lastFrame: file media/3f/3f…e1.webm, endSeconds 2.0, lastFrame media/7c/7c…0a.jxl, lastFrame endSeconds file end, difference 12.80 (ledger: last frame made at another end), end luma 40.2, lastFrame luma 44.9
+```
+
+It gives the item's `file` and `endSeconds` (`file end` without one),
+its `lastFrame`, the ends the ledger records for that still (`file end`
+for a null one, `none` when it records none), the difference, why
+(`ledger: last frame made at another end`, `ledger: last frame made
+from another source`, `pixels: lastFrame not in the ledger`, `pixels:
+video not in the ledger` or `pixels: the ledger records no lastFrame
+endSeconds`, then `above 3.0` or what could not be decoded) and the
+mean luma of the range's last frame and of the still. When the
+manifest holds a held video, a second summary line counts them (with
+`--items`, `last frames: 1 of 4 held video items selected: ...`):
+
+```text
+last frames: 4 held video items: 4 checked, 2 passed (1 by ledger, 1 by pixels), 2 failed
+```
+
 `checked` counts the items not skipped; it is `passed` plus `failed`.
 
 Exit codes:
@@ -2097,7 +2160,7 @@ Exit codes:
 - 1: anything fails (with `--fix`: anything is not fixable).
 - 2: it cannot start: no manifest or ledger, a bad game root, media
   tools not ready, or bad arguments (`--fix` without `--remap`,
-  `--remap` or `--out` without `--fix`, `--fix` with a `--ledger` other
+  `--remap`, `--last-frame-remap` or `--out` without `--fix`, `--fix` with a `--ledger` other
   than `<folder>/media-ledger.json`, an `--items` file that cannot be
   read or parsed, or one listing an id that is no manifest item).
 
@@ -2171,10 +2234,24 @@ posters: 12 of 1504 video items selected: 12 checked, 12 passed (12 by ledger, 0
    manifest order. `--out FILE` gets the requests it shipped, in ship's
    `--list` format.
 
-It does not edit the manifest: set each remapped item's `poster`, then
-run the check again, which exits 0. The run ends `fix: N failing items,
-M requests shipped (one per video source and startSeconds), K items
-remapped in FILE`.
+A failing last frame is fixed the same way, with its own request per
+(video source sha256, `startSeconds`, end): `{"source": {...}, "kind":
+"video", "lastFrame": true}`, with the item's `startSeconds` (unless 0)
+and `endSeconds` (unless it has none). Its new path goes to
+`--last-frame-remap FILE`, a JSON object of item id -> new `lastFrame`
+in manifest order, so `--remap` keeps its shape, item id -> new poster,
+and holds posters only: a caller that applies it as before still can.
+Without `--last-frame-remap`, each failing last frame is `NOT FIXABLE
+<id> lastFrame: --fix needs --last-frame-remap FILE ...`, nothing is
+shipped for it, and the posters are still fixed.
+
+It does not edit the manifest: set each remapped item's `poster` (and
+`lastFrame`), then run the check again, which exits 0. The run ends
+`fix: N failing items, M requests shipped (one per video source and
+startSeconds), K items remapped in FILE`; with failing last frames it
+also says `L failing last frames` after the items, `and per held
+video's range end` in the brackets and, with `--last-frame-remap`, `J
+last frames remapped in FILE`.
 
 A failing item it cannot fix is a `NOT FIXABLE <id>: <why>` line: the
 ledger has no entry for its video (so names no source to ship), its

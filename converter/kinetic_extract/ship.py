@@ -26,7 +26,8 @@ from .timeline import ItemRecord, set_video_duration
 
 LEDGER_NAME = "media-ledger.json"
 KINDS = ("image", "video", "audio")
-_KEYS = {"source", "kind", "startSeconds", "lastFrame", "loops", "id"}
+_KEYS = {"source", "kind", "startSeconds", "lastFrame", "endSeconds",
+         "loops", "id"}
 _SOURCE_SHAPE = 'either {"path"} or {"archive", "member"}'
 
 
@@ -67,8 +68,9 @@ def _check_request(entry: Any) -> dict[str, Any]:
         raise ListError("must be an object")
     unknown = sorted(set(entry) - _KEYS)
     if unknown:
-        raise ListError(f"unknown key {unknown[0]!r} (allowed: id, kind, "
-                        "lastFrame, loops, source, startSeconds)")
+        raise ListError(f"unknown key {unknown[0]!r} (allowed: endSeconds, "
+                        "id, kind, lastFrame, loops, source, "
+                        "startSeconds)")
     if "source" not in entry:
         raise ListError("source is required")
     request: dict[str, Any] = {"source": _check_source(entry["source"])}
@@ -93,6 +95,19 @@ def _check_request(entry: Any) -> dict[str, Any]:
             raise ListError(f"lastFrame must be true or false, got "
                             f"{entry['lastFrame']!r}")
         request["lastFrame"] = entry["lastFrame"]
+    if "endSeconds" in entry:
+        # Where a held video's range ends: its last frame is the one
+        # before it (docs/plan.md Phase 60 item 9n6).
+        if request.get("lastFrame") is not True:
+            raise ListError("endSeconds goes with lastFrame true (a held "
+                            "video's range end)")
+        end = entry["endSeconds"]
+        if isinstance(end, bool) or not isinstance(end, (int, float)) \
+                or not math.isfinite(end) \
+                or end <= request.get("startSeconds", 0):
+            raise ListError(f"endSeconds must be a number greater than "
+                            f"startSeconds, got {end!r}")
+        request["endSeconds"] = end
     if "loops" in entry:
         if kind != "audio":
             raise ListError("loops is for audio only")
@@ -170,7 +185,7 @@ def request_records(requests: list[dict[str, Any]], root: Path,
                     jobs: int = 1) -> list[ItemRecord]:
     """One asset-pass record per request: a bare item (a video with its
     ``startSeconds``, probed ``durationSeconds`` and, for ``lastFrame``,
-    ``holdLastFrame``, a looping audio
+    ``holdLastFrame`` and any ``endSeconds``, a looping audio
     track with ``loops``), its source identity and the file holding the
     source bytes. Each video file is probed once however many requests
     name it, on `jobs` threads."""
@@ -183,8 +198,11 @@ def request_records(requests: list[dict[str, Any]], root: Path,
         if request.get("loops"):
             item["loops"] = True
         if request.get("lastFrame"):
-            # Its file's last frame ships as its `lastFrame` (item 9n4).
+            # Its range's last frame ships as its `lastFrame` (item 9n4):
+            # the file's, or the one before `endSeconds` (item 9n6).
             item["holdLastFrame"] = True
+            if "endSeconds" in request:
+                item["endSeconds"] = request["endSeconds"]
         source = request["source"]
         notes: list[str] = []
         if "path" in source:

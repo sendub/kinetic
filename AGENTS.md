@@ -144,8 +144,9 @@ are implementing and docs/stack.md for settled decisions.
   [--manifest FILE] [--items FILE]` (writes nothing; exit 1 lists the
   wrong ones; `--items` limits it to listed ids);
   `--fix --remap FILE` ships the right ones and writes item id -> new
-  poster for the caller to apply (docs/extracting.md, "kinetic-media
-  posters").
+  poster for the caller to apply; a held video's `lastFrame` is checked
+  too, and `--last-frame-remap FILE` gets item id -> new `lastFrame`
+  (docs/extracting.md, "kinetic-media posters").
 - Step-by-step use of all of this (decoder hooks, a game-specific helper
   shipping per episode, rebuild on another machine, troubleshooting):
   CREATE.md, "Converting a Ren'Py project".

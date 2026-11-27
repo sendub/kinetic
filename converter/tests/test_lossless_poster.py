@@ -357,6 +357,23 @@ def test_a_last_frame_request_ships_and_rebuilds(root: Path,
     assert ledger_of(out)["requests"][0]["result"]["lastFrame"] == last
 
 
+def test_a_last_frame_request_may_end_the_range(root: Path,
+                                               tmp_path: Path) -> None:
+    """`endSeconds` with `lastFrame` (item 9n6, what `posters --fix`
+    asks for a held video whose range ends inside its file): the still
+    is the frame before that end, recorded with it."""
+    out = tmp_path / "out"
+    request = {**COPY, "lastFrame": True, "endSeconds": 1.5}
+    assert ship(root, out, [request]) == 0
+    ledger = ledger_of(out)
+    last = ledger["requests"][0]["result"]["lastFrame"]
+    assert ledger["media"][last]["steps"][0]["endSeconds"] == 1.5
+    video = root / "clips" / "h264.mp4"
+    assert open_image(out / last).convert("RGB").tobytes() == \
+        frame_pixels(video, 1.4, tmp_path)
+    assert media_main(["rebuild", str(root), str(out)]) == 0
+
+
 def test_last_frame_is_for_videos_only(root: Path, tmp_path: Path) -> None:
     out = tmp_path / "out"
     bad = {"source": {"path": "clips/h264.mp4"}, "kind": "image",

@@ -7150,7 +7150,32 @@ truthful: an unchecked box means nothing was accepted.
       go to docs/future.md's cosmetic gaps, not items. Orchestrator:
       converter/ 1495 passed, test_validate_content.py 545 passed,
       recount status logs checked.)
-- [ ] Held videos repeated and checked (item 9n6).
+- [x] Held videos repeated and checked (item 9n6).
+      (Where the converter repeats a held video's picture (a route's
+      start), the item is an image whose `file` is the video's
+      `lastFrame`, one ledger entry, its item entry `decision:
+      "lastFrame"`, dropped with its video. `kinetic media posters`
+      checks each held video's `lastFrame` by ledger (the `lastFrame`
+      step's end and source) or by pixels (decoded as item 9n4's step
+      takes it, the poster tolerance), with `FAIL <id> lastFrame:`
+      lines and a `last frames:` summary printed only when the manifest
+      has held videos. Choices: `--fix` writes last frames to a new
+      `--last-frame-remap FILE` so `--remap` keeps its id -> poster
+      shape; without that flag a wrong last frame is `NOT FIXABLE`
+      (exit 1) and posters are still fixed; `kinetic media ship` takes
+      `endSeconds` with `"lastFrame": true`; `--first-frame` skips
+      posters only. Lead fixed in the item at the orchestrator's
+      request: an end within 1e-6 s of `durationSeconds` reads as the
+      file's end in the by-ledger check, both ways. Lead noted: the
+      still keeps the video's `asset` in its ledger item entry, marked
+      by its `decision`. No new self-test case: the still uses item
+      9n4's recipe. Tests: the route opening after a held video
+      (validated `--strict`, `kinetic routes`, `kinetic check`), the
+      checker finding wrong stills by ledger and by pixels, the fix
+      into its own remap, the remap flag's absence and misuse, the end
+      at the duration, ship's `endSeconds`; all failed first.
+      Orchestrator: converter/ 1505 passed, test_validate_content.py
+      545 passed; AGENTS.md's posters line names the new flag.)
 - [ ] Menus no longer kept linear (item 9o).
 - [ ] More `if` chains become decisions (item 9p).
 - [ ] Variables shown in text (item 9q).

@@ -21,8 +21,9 @@ hangs inside the route. A `text` item shows the nearest earlier media
 item in array order, so a route after the first whose first line is said
 over the visual on screen at the menu, when an earlier route changed the
 visual, gets that line on a repeat of the menu's visual: the same picture,
-animation or video, or an animation that holds its last frame as that
-frame's picture.
+animation or video, an animation that holds its last frame as that
+frame's picture, or a video that holds it as its `lastFrame` still
+(item 9n6, ItemRecord.last_frame_of).
 
 Conditions (docs/plan.md Phase 60 item 6): an `if` chain the walk lays
 out as a menu becomes a candidate the same way. One on what a single
@@ -385,6 +386,11 @@ class ItemRecord:
     # ships once the game's size is known; None for a picture from a
     # game file.
     generated: str | None = None
+    # A still that repeats a held video's picture (a route's start,
+    # Phase 60 item 9n6): that video's record. The still's source is the
+    # video's, and the asset pass ships the video's `lastFrame` as its
+    # `file` (kinetic_extract.assets._ship_held_still).
+    last_frame_of: "ItemRecord | None" = None
 
 
 def set_video_duration(record: ItemRecord,
@@ -493,6 +499,11 @@ class _Pending:
         # A solid colour no line, pause, menu or transition has shown yet
         # (item 9n3): replaced now, Ren'Py never shows it.
         self.unseen = False
+        # The record emit_media made of it, once emitted.
+        self.emitted: ItemRecord | None = None
+        # For a still repeating a held video (item 9n6): that video's
+        # record, whose `lastFrame` the still shows.
+        self.held_video: ItemRecord | None = None
 
     @property
     def drops_bare(self) -> bool:
@@ -503,11 +514,21 @@ class _Pending:
     def repeat(self, menu_source: str, note: str | None = None) -> _Pending:
         """This emitted visual again, for a route's first line (or, with
         ``note``, a shared span's): no transition (no new entrance); an
-        animation that holds its last frame is that frame's picture, as
-        Ren'Py shows it by then."""
-        held = self.kind == "animation" and bool(
-            self.timing.get("holdLastFrame"))
-        if held:
+        animation that holds its last frame is that frame's picture, and
+        a video that holds it its `lastFrame` still (item 9n6), as
+        Ren'Py shows them by then."""
+        holds = bool(self.timing.get("holdLastFrame"))
+        held_video = self.emitted if self.kind == "video" and holds \
+            else None
+        held = held_video is not None or (self.kind == "animation"
+                                          and holds)
+        if held_video is not None:
+            # The video's source: the asset pass ships the still as the
+            # video's `lastFrame` (assets._ship_held_still).
+            again = _Pending("image", self.name, self.asset_rel,
+                             self.asset_abs, self.source, self.source_ref)
+            again.held_video = held_video
+        elif held:
             rel, path, ref, generated = self.frames[-1]
             again = _Pending("image", self.name, rel, path, self.source, ref)
             again.generated = generated
@@ -516,6 +537,7 @@ class _Pending:
                              self.asset_abs, self.source, self.source_ref)
             again.frames, again.timing = self.frames, self.timing
             again.generated = self.generated
+            again.held_video = self.held_video
         again.notes = list(self.notes) + [note or (
             f"repeats the visual on screen at the menu at {menu_source}"
             f"{' (its held last frame)' if held else ''}: a route's first "
@@ -1265,7 +1287,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                             asset=pend.asset_rel, asset_abs=pend.asset_abs,
                             source_ref=pend.source_ref,
                             text_source=line_source,
-                            generated=pend.generated)
+                            generated=pend.generated,
+                            last_frame_of=pend.held_video)
+        pend.emitted = record
         record.notes.extend(pend.notes)
         if pend.kind == "animation":
             item.update(pend.timing)

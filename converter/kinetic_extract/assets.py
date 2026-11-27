@@ -1967,6 +1967,8 @@ def _ship_record(record: ItemRecord, run: _Pass,
     generated picture ships later (``ship_generated``)."""
     if record.generated is not None:
         return 0
+    if record.last_frame_of is not None:
+        return _ship_held_still(record, run)
     kind = record.item.get("type")
     if kind == "animation":
         return _ship_animation(record, run, decoded_sizes)
@@ -2231,6 +2233,8 @@ def _plan_ahead(records: list[ItemRecord], run: _Pass) -> None:
         if kind == "audio":
             _plan_audio(found, run, planned_audio, _loops(record))
             continue
+        if record.last_frame_of is not None:
+            continue  # its video's record plans the still
         if kind == "image":
             data = found.path.read_bytes()
             fmt, offset, digest = run.sniff(found, data)
@@ -2459,16 +2463,18 @@ def _last_frame_end(item: dict[str, Any]) -> tuple[float | None, float]:
     return end, end if end is not None else float(item["durationSeconds"])
 
 
-def _ship_last_frame(record: ItemRecord, found: _Input,
-                     run: _Pass) -> str | None:
+def _ship_last_frame(record: ItemRecord, found: _Input, run: _Pass,
+                     video: dict[str, Any] | None = None) -> str | None:
     """Ship the last-frame still of a video that holds it
     (``holdLastFrame``, docs/content-format.md "Text items"): the frame
     before its ``endSeconds``, else its file's last frame, made once per
     video and end, recorded in the ledger as ``lastFrame`` with its
-    recipe, as a poster is. None (the item dropped, noted) when it
-    cannot be made: a held video without its still would not validate."""
+    recipe, as a poster is. `video` is that video item when it is not
+    ``record.item`` (a still repeating it, ``_ship_held_still``). None
+    (the item dropped, noted) when it cannot be made: a held video
+    without its still would not validate."""
     placed, share = run.placed, run.poster_share
-    end, near = _last_frame_end(record.item)
+    end, near = _last_frame_end(video or record.item)
     key = f"{found.digest}@last:{'file' if end is None else f'{end:.6f}'}"
     cached = share.get(key)
     if cached is None:
@@ -2501,6 +2507,38 @@ def _ship_last_frame(record: ItemRecord, found: _Input,
     src = _source(record, found.sha256, found.size)
     placed.record(cached[0], "lastFrame", src, found.steps + cached[1])
     return cached[0]
+
+
+def _ship_held_still(record: ItemRecord, run: _Pass) -> int:
+    """An image item that repeats a held video's picture (a route's
+    start, docs/plan.md Phase 60 item 9n6): its file is that video's
+    `lastFrame`, the same still from the same source, made once (its
+    video's record, earlier in item order, made or reused it). Dropped
+    with its video, or when the still cannot be made. 1 when skipped."""
+    video = record.last_frame_of
+    assert video is not None
+    meta = record.asset_meta
+    if video.skipped:
+        meta["decision"] = "skipped"
+        record.notes.append(f"its video {video.item['id']} did not ship: "
+                            "item dropped from manifest")
+        record.skipped = True
+        return 1
+    found = run.input(record)
+    if found is None:
+        meta["decision"] = "missing-source"
+        record.notes.append("source asset missing: item dropped from "
+                            "manifest")
+        record.skipped = True
+        return 1
+    last = _ship_last_frame(record, found, run, video.item)
+    if last is None:
+        return 1
+    _set_media(record.item, last)
+    meta["decision"] = "lastFrame"
+    meta["file"] = last
+    record.notes.append(f"shows the lastFrame still of {video.item['id']}")
+    return 0
 
 
 @dataclass

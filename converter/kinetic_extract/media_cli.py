@@ -15,15 +15,16 @@ Usage:
                           [--ledger FILE] [--items FILE]
                           [--first-frame FILE ...] [--first-frame-all]
                           [--decoder MODULE:FUNC ...]
-                          [--fix --remap FILE] [--out FILE]
-                          [--jobs N] [--video-jobs N]
+                          [--fix --remap FILE [--last-frame-remap FILE]]
+                          [--out FILE] [--jobs N] [--video-jobs N]
 
 ``FILE`` is a JSON array of requests; each names a source relative to
 ``<game_root>`` (a loose path, or an ``.rpa`` archive plus member) and a
 kind (``image``, ``video`` or ``audio``), optionally a video's
-``startSeconds``, whether an audio track ``loops`` and the caller's own
-``id``. An ``audio`` request of a video ships its sound, or nothing when
-that is ``silent`` or there is ``no audio``. Each audio output gets its
+``startSeconds``, its ``lastFrame`` (with any ``endSeconds``), whether
+an audio track ``loops`` and the caller's own ``id``. An ``audio``
+request of a video ships its sound, or nothing when that is ``silent``
+or there is ``no audio``. Each audio output gets its
 script beside it (``<file>.js``). Outputs land at ``<out_dir>/media/<h[:2]>/<h>.<ext>``
 by the same code as kinetic-extract; ``<out_dir>/media-ledger.json`` holds
 ``mediaTools``, ``decoders``, ``media`` and a ``requests`` list giving each
@@ -66,17 +67,23 @@ tools, tools not ready), 3 when a ledger was made on another platform
 ``<folder>/manifest.json``) has the frame at its ``startSeconds`` as its
 poster (``posters.py``): by the ledger's ``poster`` step (the folder's
 build and/or media ledger, or ``--ledger FILE``), else by comparing
-pixels within ``posters.POSTER_TOLERANCE``. It prints a ``FAIL`` line
-per wrong poster, ending with the mean luma of the start frame and of
-the poster (``dark start`` below ``posters.DARK_START_LUMA``), and a
-summary, and writes nothing. ``--items FILE`` (a JSON array of ids, or
+pixels within ``posters.POSTER_TOLERANCE``, and the ``lastFrame`` of
+each video that holds its last frame against its range's last frame
+the same way (Phase 60 item 9n6). It prints a ``FAIL`` line per wrong
+poster (``FAIL <id> lastFrame:`` per wrong last frame), ending with the
+mean luma of the start frame and of the poster (``dark start`` below
+``posters.DARK_START_LUMA``), and a summary (a second for the last
+frames), and writes nothing. ``--items FILE`` (a JSON array of ids, or
 one per line) limits the check and ``--fix`` to those items; an id that
 is no manifest item exits 2. ``--first-frame
 FILE`` and ``--first-frame-all`` skip items allowed a first-frame
 poster. ``--fix`` ships one poster per failing (video source,
 startSeconds) into ``<folder>`` through ``ship_requests``, the same code
 as ``ship``, writes item id -> new poster to ``--remap FILE`` and the
-requests to ``--out FILE``; the caller applies the remap. Exit 0 when
+requests to ``--out FILE``; a failing last frame ships one per (video
+source, startSeconds, endSeconds) and its item id -> new lastFrame goes
+to ``--last-frame-remap FILE`` (without it the last frame is not
+fixable); the caller applies the remaps. Exit 0 when
 nothing fails (with ``--fix``: everything was fixed), 1 when anything
 fails (or is not fixable), 2 when it cannot start (no manifest or
 ledger, tools not ready, bad arguments, a bad ``--items`` file or an
@@ -283,10 +290,10 @@ def posters_cmd(args: argparse.Namespace) -> int:
     if args.fix and args.remap is None:
         return _fail("--fix needs --remap FILE (it gets item id -> new "
                      "poster)", 2)
-    if not args.fix and (args.remap or args.out):
-        return _fail("--remap and --out go with --fix (the check writes "
-                     "nothing)", 2)
-    for path in (args.remap, args.out):
+    if not args.fix and (args.remap or args.last_frame_remap or args.out):
+        return _fail("--remap, --last-frame-remap and --out go with --fix "
+                     "(the check writes nothing)", 2)
+    for path in (args.remap, args.last_frame_remap, args.out):
         if path is not None and not path.parent.is_dir():
             return _fail(f"{path}: no such directory to write it in", 2)
     folder: Path = args.folder
@@ -313,13 +320,17 @@ def posters_cmd(args: argparse.Namespace) -> int:
     failures = [f for f in findings if f.status == posters.FAILED]
     for finding in failures:
         print(finding.line())
-    print(posters.summary(findings, None if items is None
-                          else len(posters.video_items(manifest))))
+    print(posters.summary(
+        findings,
+        None if items is None else len(posters.video_items(manifest)),
+        None if items is None else len(posters.held_items(manifest))))
     if not args.fix:
         return 1 if failures else 0
 
-    plan = posters.plan_fix(failures, index)
+    plan = posters.plan_fix(failures, index,
+                            last_frames=args.last_frame_remap is not None)
     remap: dict[str, str] = {}
+    lasts: dict[str, str] = {}
     unfixed = list(plan.unfixable)
     if plan.requests:
         code, entries, ledger = ship_requests(root.resolve(), folder,
@@ -327,17 +338,27 @@ def posters_cmd(args: argparse.Namespace) -> int:
                                               jobs, video_jobs)
         if code:
             return code
-        remap, missed = posters.fixed_posters(plan, entries, ledger["media"],
-                                              failures)
+        remap, lasts, missed = posters.fixed_stills(
+            plan, entries, ledger["media"], failures)
         unfixed += missed
     for finding, why in unfixed:
-        print(f"NOT FIXABLE {finding.id}: {why}")
+        print(f"NOT FIXABLE {finding.label}: {why}")
     _write_json(args.remap, remap)
+    if args.last_frame_remap is not None:
+        _write_json(args.last_frame_remap, lasts)
     if args.out is not None:
         _write_json(args.out, plan.requests)
-    print(f"fix: {len(failures)} failing items, {len(plan.requests)} "
-          f"requests shipped (one per video source and startSeconds), "
-          f"{len(remap)} items remapped in {args.remap}"
+    failing_last = sum(isinstance(f, posters.LastFrameFinding)
+                       for f in failures)
+    print(f"fix: {len(failures) - failing_last} failing items, "
+          + (f"{failing_last} failing last frames, " if failing_last
+             else "")
+          + f"{len(plan.requests)} requests shipped (one per video source "
+          "and startSeconds"
+          + (", and per held video's range end" if failing_last else "")
+          + f"), {len(remap)} items remapped in {args.remap}"
+          + (f", {len(lasts)} last frames remapped in "
+             f"{args.last_frame_remap}" if args.last_frame_remap else "")
           + (f", {len(unfixed)} not fixable" if unfixed else ""))
     return 1 if unfixed else 0
 
@@ -463,19 +484,26 @@ def main(argv: list[str] | None = None, prog: str = PROG) -> int:
                           help="a manifest video file whose items may keep "
                                "a first-frame poster: skipped; repeatable")
     postersp.add_argument("--first-frame-all", action="store_true",
-                          help="skip every video item (a folder that "
-                               "cannot decode to seek)")
+                          help="skip every video item's poster (a "
+                               "folder that cannot decode to seek)")
     postersp.add_argument("--decoder", type=decoder_option, action="append",
                           default=[], metavar="MODULE:FUNC",
                           help="the decoder hooks the media was shipped "
                                "with, in the same order; repeatable")
     postersp.add_argument("--fix", action="store_true",
                           help="ship a poster per failing (video source, "
-                               "startSeconds) into <folder>, as ship does; "
+                               "startSeconds), and a last frame per failing "
+                               "held video's, into <folder>, as ship does; "
                                "needs --remap")
     postersp.add_argument("--remap", type=Path, default=None, metavar="FILE",
                           help="with --fix: write item id -> new poster "
                                "here (JSON)")
+    postersp.add_argument("--last-frame-remap", type=Path, default=None,
+                          metavar="FILE",
+                          help="with --fix: write item id -> new "
+                               "lastFrame for the held videos fixed; "
+                               "without it a wrong lastFrame is not "
+                               "fixable")
     postersp.add_argument("--out", type=Path, default=None, metavar="FILE",
                           help="with --fix: write the requests it shipped "
                                "here (ship's --list format)")

@@ -7,7 +7,8 @@ media item in ARRAY order, so a route after the first whose first line is
 said over the visual on screen at the menu would show what the route
 before it last showed: that line's item repeats the menu's visual instead
 (an animation replayed, a video from its start, an animation that holds
-its last frame as that frame's picture). The first route needs no repeat:
+its last frame as that frame's picture, a video that holds it as its
+`lastFrame` still, item 9n6). The first route needs no repeat:
 the lead-in's visual is the nearest earlier one.
 
 Each case is a synthetic project extracted end to end and checked as
@@ -45,6 +46,7 @@ ATL = ('image glow:\n'                    # loops
        '    "f2.png"\n    pause 0.25\n'
        '    "f3.png"\n    pause 0.25\n')
 CLIP = 'image clip = Movie(play="clip.mp4")\n'
+ONCE_CLIP = 'image once = Movie(play="clip.mp4", loop=False)\n'
 
 
 def ffmpeg(out: Path, args: list[str]) -> None:
@@ -204,6 +206,40 @@ def test_a_held_animation_repeats_as_its_last_frame(tmp_path: Path) -> None:
     stay = by_text(manifest, "Still the last frame.")
     assert stay["type"] == "image"
     assert stay["file"] == once["frames"][-1]
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_held_video_repeats_as_its_last_frame(tmp_path: Path) -> None:
+    """A video that plays once (item 9n4) holds its last frame, so a
+    route's first line said over it shows its `lastFrame` still, not the
+    video played again (Phase 60 item 9n6)."""
+    assets(tmp_path, video=True)
+    out, manifest, ledger = extract(tmp_path, ONCE_CLIP + (
+        'label start:\n    scene bg\n    show once\n    "Once."\n'
+        '    menu "Which?":\n'
+        '        "Elsewhere":\n'
+        '            scene other\n'
+        '            "Somewhere else."\n'
+        '        "Stay":\n'
+        '            "Still the last frame."\n'
+        '            "Still held."\n'
+        '    "After."\n    return\n'))
+    assert menu_reports(ledger) == []
+    once = by_text(manifest, "Once.")
+    assert once["type"] == "video" and once["holdLastFrame"] is True
+    stay = by_text(manifest, "Still the last frame.")
+    assert stay["type"] == "image"
+    assert stay["file"] == once["lastFrame"]
+    assert shown(manifest, "Still held.") is stay
+    assert kinds(manifest) == [
+        ("image", None), ("video", "Once."), ("image", "Somewhere else."),
+        ("image", "Still the last frame."), ("text", "Still held."),
+        ("text", "After.")]
+    entry = ledger["items"][stay["id"]]
+    assert "(its held last frame)" in " ".join(entry["notes"])
+    # The one still, made once: the video's own `lastFrame` entry.
+    media = ledger["media"][stay["file"]]
+    assert media["kind"] == "lastFrame" and "alsoFrom" not in media
     check_folder(tmp_path, out, manifest)
 
 

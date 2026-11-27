@@ -13,6 +13,11 @@ Phase 45: ``--items FILE`` limits the check and the fix to the listed
 item ids, and each ``FAIL`` line ends with the mean Rec. 601 luma of the
 start frame and of the poster, plus ``dark start`` when the start frame
 is below ``DARK_START_LUMA``.
+
+Phase 60 item 9n6: a video that holds its last frame has its
+``lastFrame`` checked the same way, against its range's last frame, and
+``--fix`` ships the right one, its new path in ``--last-frame-remap``
+while ``--remap`` stays item id -> new poster.
 """
 
 from __future__ import annotations
@@ -593,6 +598,7 @@ def test_cannot_start_exits_2(root: Path, tmp_path: Path,
         [str(root), str(folder), "--fix"],             # no --remap
         [str(root), str(folder), "--remap", str(remap)],   # no --fix
         [str(root), str(folder), "--out", str(remap)],     # no --fix
+        [str(root), str(folder), "--last-frame-remap", str(remap)],
     ]
     before = snapshot(tmp_path)
     for case in cases:
@@ -835,3 +841,242 @@ def test_fail_lines_end_with_lumas_and_flag_a_dark_start(
     assert "difference unknown (" in found["lost"]
     assert found["lost"].endswith(
         "), start luma unknown, poster luma unknown")
+
+
+# --- 8. held videos' last frames (Phase 60 item 9n6) -------------------------
+
+HA = dict(A, lastFrame=True)   # a's last frame ships too
+
+
+def held(item_id: str, result: dict, last: str, start: float | None = None,
+         end: float | None = None) -> dict:
+    """A video item that holds its last frame, `last` its still."""
+    item = dict(video(item_id, result, start), holdLastFrame=True,
+                lastFrame=last)
+    if end is not None:
+        item["endSeconds"] = end
+    return item
+
+
+def last_summary(out: str) -> str:
+    (line,) = [ln for ln in out.splitlines()
+               if ln.startswith("last frames: ")]
+    return line
+
+
+def last_frame_pixels(video_path: Path, end: float | None, near: float,
+                      tmp: Path) -> bytes:
+    """The range's last frame as item 9n4's ship step takes it."""
+    out = tmp / f"last-{video_path.stem}-{end}.png"
+    assert assets.run_poster_step(assets.last_frame_step(end, near),
+                                  video_path, out) is None
+    return open_image(out).convert("RGB").tobytes()
+
+
+def apply_last_frames(manifest: Path, remap: dict[str, str]) -> None:
+    data = json.loads(manifest.read_text("utf-8"))
+    for item in data["items"]:
+        if item["id"] in remap:
+            item["lastFrame"] = remap[item["id"]]
+    manifest.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def held_folder(root: Path, tmp_path: Path) -> tuple[Path, Path, dict]:
+    """`held` is right (by ledger), `pixels` right with a hand-made still
+    the ledger does not hold. `both` starts at 1 s but has frame 0 as its
+    poster and as its last frame. `ranged` ends at 2 s but has the
+    file's last frame."""
+    folder = tmp_path / "folder"
+    (ha,) = ship(root, folder, [HA])
+    a = root / "clips" / "a.mp4"
+    copy = tmp_path / "copy.png"
+    open_image(folder / ha["lastFrame"]).convert("RGB").save(
+        copy, compress_level=0)
+    by_hand = place(folder, copy.read_bytes(), "png")
+    assert open_image(folder / by_hand).convert("RGB").tobytes() == \
+        last_frame_pixels(a, None, 3.0, tmp_path)
+    manifest = write_manifest(folder / "manifest.json", [
+        held("held", ha, ha["lastFrame"]),
+        held("both", ha, ha["poster"], start=1.0),
+        held("pixels", ha, by_hand),
+        held("ranged", ha, ha["lastFrame"], end=2.0)])
+    return folder, manifest, ha
+
+
+def test_held_videos_last_frames_are_checked(
+        root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        ) -> None:
+    folder, _, ha = held_folder(root, tmp_path)
+    before = snapshot(tmp_path)
+    capsys.readouterr()
+
+    assert run(root, folder) == 1
+
+    out = capsys.readouterr().out
+    found = fails(out)
+    assert sorted(found) == ["both", "both lastFrame", "ranged lastFrame"]
+    assert found["both lastFrame"].startswith(
+        f"file {ha['file']}, endSeconds file end, lastFrame "
+        f"{ha['poster']}, lastFrame endSeconds none, difference ")
+    assert "(pixels: the ledger records no lastFrame endSeconds, above " \
+        "3.0), end luma " in found["both lastFrame"]
+    assert found["ranged lastFrame"].startswith(
+        f"file {ha['file']}, endSeconds 2.0, lastFrame {ha['lastFrame']}, "
+        "lastFrame endSeconds file end, difference ")
+    assert "(ledger: last frame made at another end)" in \
+        found["ranged lastFrame"]
+    for key in ("both lastFrame", "ranged lastFrame"):
+        rest = found[key]
+        difference = float(rest.split("difference ")[1].split(" ")[0])
+        assert difference > posters.POSTER_TOLERANCE
+        assert ", lastFrame luma " in rest
+    assert summary(out) == ("posters: 4 video items: 4 checked, 3 passed "
+                            "(3 by ledger, 0 by pixels), 1 failed, "
+                            "0 skipped (first frame)")
+    assert last_summary(out) == ("last frames: 4 held video items: "
+                                 "4 checked, 2 passed (1 by ledger, 1 by "
+                                 "pixels), 2 failed")
+    assert snapshot(tmp_path) == before
+
+    # --items limits the last frames too; a folder with no held video
+    # prints no last-frame summary.
+    listed = items_file(tmp_path / "held.json", ["held"])
+    assert run(root, folder, "--items", str(listed)) == 0
+    assert last_summary(capsys.readouterr().out) == (
+        "last frames: 1 of 4 held video items selected: 1 checked, "
+        "1 passed (1 by ledger, 0 by pixels), 0 failed")
+    (tmp_path / "plain").mkdir()
+    plain, _ = frame0_folder(root, tmp_path / "plain")
+    run(root, plain)
+    assert not any(ln.startswith("last frames: ")
+                   for ln in capsys.readouterr().out.splitlines())
+
+
+def test_wrong_last_frames_are_fixed_into_their_own_remap(
+        root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """--fix ships one last frame per (video source, start, end) and
+    writes item id -> new lastFrame to --last-frame-remap; --remap keeps
+    its shape, item id -> new poster, posters only."""
+    folder, manifest, ha = held_folder(root, tmp_path)
+    remap_file = tmp_path / "remap.json"
+    last_file = tmp_path / "last-frames.json"
+    out_file = tmp_path / "requests.json"
+    capsys.readouterr()
+
+    assert run(root, folder, "--fix", "--remap", str(remap_file),
+               "--last-frame-remap", str(last_file),
+               "--out", str(out_file)) == 0
+
+    out = capsys.readouterr().out
+    assert "fix: 1 failing items, 2 failing last frames, 3 requests " \
+        "shipped (one per video source and startSeconds, and per held " \
+        "video's range end), 1 items remapped in " in out
+    assert f"2 last frames remapped in {last_file}" in out
+    assert json.loads(out_file.read_text("utf-8")) == [
+        at(A, 1.0), dict(HA, startSeconds=1.0),
+        dict(HA, endSeconds=2.0)]
+    remap = json.loads(remap_file.read_text("utf-8"))
+    assert list(remap) == ["both"]
+    lasts = json.loads(last_file.read_text("utf-8"))
+    assert list(lasts) == ["both", "ranged"]
+    assert lasts["both"] == ha["lastFrame"]   # the file's own, reused
+    a = root / "clips" / "a.mp4"
+    assert open_image(folder / lasts["ranged"]).convert("RGB").tobytes() \
+        == frame_pixels(a, 1.9, tmp_path)
+    entry = ledger_of(folder)["media"][lasts["ranged"]]
+    assert entry["kind"] == "lastFrame"
+    assert entry["steps"][0]["endSeconds"] == 2.0
+
+    # The caller applies both; the check then passes.
+    apply_remap(manifest, remap)
+    apply_last_frames(manifest, lasts)
+    capsys.readouterr()
+    assert run(root, folder) == 0
+    assert last_summary(capsys.readouterr().out).endswith(
+        "4 checked, 4 passed (3 by ledger, 1 by pixels), 0 failed")
+
+    # A second fix of the same failures changes nothing.
+    monkeypatch.setenv("KINETIC_MEDIA_CACHE", "off")
+    held_manifest = write_manifest(tmp_path / "again" / "manifest.json", [
+        held("both", ha, ha["poster"], start=1.0),
+        held("ranged", ha, ha["lastFrame"], end=2.0)])
+    after = contents(folder)
+    steps = spy_file_steps(monkeypatch)
+    last_again = tmp_path / "last-again.json"
+    assert run(root, folder, "--manifest", str(held_manifest), "--fix",
+               "--remap", str(tmp_path / "remap-again.json"),
+               "--last-frame-remap", str(last_again)) == 0
+    assert steps == []
+    assert contents(folder) == after
+    assert last_again.read_bytes() == last_file.read_bytes()
+
+
+def test_a_last_frame_fix_needs_its_remap_file(
+        root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        ) -> None:
+    folder, _, ha = held_folder(root, tmp_path)
+    remap = tmp_path / "remap.json"
+    capsys.readouterr()
+    assert run(root, folder, "--fix", "--remap", str(remap)) == 1
+    out = capsys.readouterr().out
+    unfixable = [ln for ln in out.splitlines()
+                 if ln.startswith("NOT FIXABLE ")]
+    assert [ln.split(":")[0] for ln in unfixable] == [
+        "NOT FIXABLE both lastFrame", "NOT FIXABLE ranged lastFrame"]
+    assert all("--last-frame-remap FILE" in ln for ln in unfixable)
+    # The posters are still fixed; no last frame was shipped.
+    assert list(json.loads(remap.read_text("utf-8"))) == ["both"]
+    assert not any(step.get("endSeconds") == 2.0
+                   for entry in ledger_of(folder)["media"].values()
+                   for step in entry.get("steps", []))
+
+
+def test_an_end_at_the_duration_is_the_file_s_end(
+        root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """A recorded file end (null) and an item `endSeconds` at its
+    `durationSeconds` are the same last frame, and so are a recorded end
+    at the duration and an item with no `endSeconds`: both pass by
+    ledger, decoding nothing. A recorded end short of it still fails."""
+    folder = tmp_path / "folder"
+    (ha, again) = ship(root, folder, [HA, dict(HA, startSeconds=1.0)])
+    duration = ha["durationSeconds"]
+    assert again["lastFrame"] == ha["lastFrame"]
+    # The same still recorded with its end at the duration instead (a
+    # request that gave `endSeconds`; ship makes the same bytes).
+    ledger = ledger_of(folder)
+    for step in ledger["media"][ha["lastFrame"]]["steps"]:
+        if step["step"] == "lastFrame":
+            step["endSeconds"] = duration
+    other = folder.parent / "other"
+    other.mkdir()
+    (other / LEDGER).write_text(json.dumps(ledger), encoding="utf-8")
+    write_manifest(folder / "manifest.json", [
+        held("ended", ha, ha["lastFrame"], end=duration),
+        held("short", ha, ha["lastFrame"], end=duration - 0.5)])
+    write_manifest(other / "manifest.json", [
+        held("open", ha, ha["lastFrame"])])
+    for ref in (ha["file"], ha["lastFrame"]):
+        (other / ref).parent.mkdir(parents=True, exist_ok=True)
+        (other / ref).write_bytes((folder / ref).read_bytes())
+    calls = spy_ffmpeg(monkeypatch)
+    capsys.readouterr()
+
+    assert run(root, folder) == 1
+
+    out = capsys.readouterr().out
+    assert list(fails(out)) == ["short lastFrame"]
+    assert "(ledger: last frame made at another end)" in \
+        fails(out)["short lastFrame"]
+    assert last_summary(out) == ("last frames: 2 held video items: "
+                                 "2 checked, 1 passed (1 by ledger, 0 by "
+                                 "pixels), 1 failed")
+    # Only the failing one is decoded, for its report.
+    assert len(calls) == 1
+
+    assert run(root, other) == 0
+    assert last_summary(capsys.readouterr().out) == (
+        "last frames: 1 held video items: 1 checked, 1 passed (1 by "
+        "ledger, 0 by pixels), 0 failed")
+    assert len(calls) == 1

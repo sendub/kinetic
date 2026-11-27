@@ -296,6 +296,16 @@ something more of an author.
   alpha, so over a picture it keeps its lines over that picture and on
   a `scene` blends onto black (docs/extracting.md, "Finding a script's
   files").
+- A route whose first line is said over a video that plays once now
+  shows that video's held `lastFrame` as a still, as Ren'Py does, not
+  the video played again. `kinetic media posters` checks each held
+  video's `lastFrame` against the last frame of its range (`FAIL <id>
+  lastFrame:` lines and a `last frames:` summary), and `--fix` ships
+  the right one, writing item id -> new `lastFrame` to the new
+  `--last-frame-remap FILE`; `--remap` stays item id -> new poster. A
+  `kinetic media ship` request with `"lastFrame": true` may give
+  `endSeconds`, the range's end (docs/extracting.md, "kinetic-media
+  posters").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

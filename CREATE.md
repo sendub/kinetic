@@ -912,6 +912,20 @@ Running `--fix` again before you apply the remap changes nothing. An
 item it cannot fix (`NOT FIXABLE <id>: ...`, for example a video the
 ledger has no entry for) makes it exit 1; fix that item by hand.
 
+A video that holds its last frame (`holdLastFrame`) has its `lastFrame`
+checked too: it must be the last frame of the item's range, the frame
+before `endSeconds`, or the file's last frame without one. A wrong one
+is a `FAIL <id> lastFrame: ...` line, and a second summary line,
+`last frames: N held video items: ...`, counts them. To fix those, add
+`--last-frame-remap ~/games/rainy-kinetic/last-frame-remap.json`
+beside `--remap`: it gets item id -> new `lastFrame`, while the poster
+remap keeps its shape, item id -> new poster. Set each remapped item's
+`lastFrame` as you set posters. Without it, each wrong last frame is
+`NOT FIXABLE <id> lastFrame: ...` and only the posters are fixed. A
+ship request for such a still is `"lastFrame": true` with the item's
+`startSeconds` and, when its range ends inside the file, its
+`endSeconds`.
+
 To gate a single shipment rather than the whole folder, list its item
 ids in a file (a JSON array of strings, or one id per line, with `#`
 comment lines) and add `--items ~/games/rainy-kinetic/ep3-items.txt`.
