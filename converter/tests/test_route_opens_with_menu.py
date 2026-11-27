@@ -184,31 +184,36 @@ def test_a_route_with_a_line_before_its_menu_gets_no_text(
     check_folder(tmp_path, out, manifest)
 
 
-def test_a_route_whose_lines_drop_keeps_its_menu_linear(
+def test_a_route_whose_visual_is_unresolved_keeps_its_line_and_menu(
         tmp_path: Path) -> None:
-    """Route B's visual is unresolved, so its line (and the choice text)
-    drop with it: no item of B precedes the nested menu, which stays
-    linear and reported rather than hanging outside its route."""
+    """Route B's visual is unresolved, so its line is kept over the last
+    visual (Phase 60 item 9n; it used to drop with it, keeping the
+    nested menu linear): the line is B's first item, and the nested
+    menu hangs off it as a decision of its own."""
     out, manifest, ledger = extract(tmp_path, LEAD + (
         '    menu:\n'
         '        "A":\n            "A1."\n'
         '        "B":\n'
         '            scene missing\n'
-        '            "Dropped."\n'
+        '            "Kept."\n'
         '            menu "Inner?":\n'
         '                "X":\n'
         '                    scene bg\n                    "X1."\n'
         '                "Y":\n'
         '                    scene bg\n                    "Y1."\n'
         '    "Join."\n    return\n'))
-    assert texts(manifest) == ["Lead.", "A1.", "X1.", "Y1.", "Join."]
+    assert texts(manifest) == ["Lead.", "A1.", "Kept.", "X1.", "Y1.",
+                               "Join."]
     assert shape(manifest) == [
+        {"after": "Kept.",
+         "routes": [("X", "X1.", "X1.", "continue"),
+                    ("Y", "Y1.", "Y1.", "continue")],
+         "continuing": "Y", "continueAt": "Join."},
         {"after": "Lead.",
          "routes": [("A", "A1.", "A1.", "continue"),
-                    ("B", "X1.", "Y1.", "continue")],
+                    ("B", "Kept.", "Y1.", "continue")],
          "continuing": "B", "continueAt": "Join."}]
-    assert any("no item of its enclosing route precedes the menu" in r
-               for r in menu_reports(ledger))
+    assert not menu_reports(ledger)
     check_folder(tmp_path, out, manifest)
 
 

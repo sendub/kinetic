@@ -50,6 +50,17 @@ def make_images() -> None:
               for s in (254, 255)]
     frames[0].save(HERE / "sample.gif", save_all=True,
                    append_images=frames[1:], duration=100, loop=0)
+    make_avif()
+
+
+def make_avif() -> None:
+    """An AVIF still (docs/plan.md Phase 60 item 9n), which the pinned
+    Pillow decodes; added later than the others, so it can be written
+    alone: ``python -c "import make_samples; make_samples.make_avif()"``
+    from this directory."""
+    Image.fromarray(pixels(24, 40, 3, seed=256), "RGB").save(
+        HERE / "sample.avif", quality=90, speed=6, subsampling="4:4:4",
+        max_threads=1)
 
 
 def make_video(ffmpeg: str) -> None:

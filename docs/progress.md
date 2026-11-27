@@ -6967,7 +6967,44 @@ truthful: an unchecked box means nothing was accepted.
       in test_say_forms.py (14 failed first). Orchestrator: converter/
       1401 passed, test_validate_content.py and test_translations.py
       578 passed.)
-- [ ] Pictures resolved as Ren'Py resolves them (item 9n).
+- [x] Pictures resolved as Ren'Py resolves them (item 9n).
+      (2026-11-27: `image a = "b c"` reads its string as Ren'Py reads a
+      displayable (a dot a file, `#` a solid, else an image name, 8
+      deep); `image` in `init:`/`init N:` read; `.avif` ships through
+      the pinned Pillow, as BMP/TIFF do (`IMAGE_EXTS`), with a new
+      self-test case `pillow.decode-avif`; file names match whatever
+      their case after every exact match, the ledger naming the file as
+      on disk; `ConditionSwitch`/`ShowingSwitch` and other displayables
+      show their first picture that resolves, noted; `show x:` with ATL
+      names `x` and its block is no longer read as lines; a non-frame-
+      list ATL image shows its first resolving string or leaves the
+      visual (a `Solid` flash); images-folder names join item 9m's
+      attribute choice; a visual that resolves nowhere keeps its lines
+      over the last visual, noted and reported (`unresolvedVisual`).
+      Choices: a file beside a same-named solid-colour `image` shows (no
+      solid ships; one game lost 127 items otherwise); a route starts
+      from the menu's visual state; `behind`/`onlayer`/`zorder`/`as` end
+      a show's name. Orchestrator recorded the golden with `kinetic
+      setup --repin pillow.decode-avif`:
+      6db788c83c946d0ea09d2eb4d93cc3736b48a57728946535b0b64e1f32d8cfcc
+      (sample.avif sha256
+      21c8289b5675e4b253fd8747731a470102fb68ace1510948509e7d3665fed64e);
+      shared, not cpu-dependent: Pillow 13.0.0 (libavif 1.4.2) decodes
+      it to the same pixels on arm64 and on x86_64 under Rosetta
+      (22376a59...0134). Leads: a line before any picture makes an
+      invalid first `text` item (orchestrator reproduced it), single-
+      quoted ATL frames, `pause (N)`, `show` attribute choice,
+      `renpy.image()`, `Movie()` images -> item 9n2; `[var]` image
+      names -> item 9q; the picture state after a menu -> item 9r;
+      `layeredimage` -> future.md. Corpus recount (71 games, parse-
+      only, read-only): lines dropped with an unresolved visual 34,512
+      in 44 games -> 3 in 2; lines kept 885,392 -> 918,916; 7,951 kept
+      over the last visual; unresolved visual statements 22,360 ->
+      2,828; no game lost a line. Tests: test_picture_forms.py, 25 (22
+      of the first 24 failed first). Orchestrator: converter/ 1426
+      passed, test_validate_content.py and test_setup_media_tools.py
+      569 passed, setup self-test 23 cases passed.)
+- [ ] Pictures the converter still misses (item 9n2).
 - [ ] Menus no longer kept linear (item 9o).
 - [ ] More `if` chains become decisions (item 9p).
 - [ ] Variables shown in text (item 9q).

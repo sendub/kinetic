@@ -274,7 +274,8 @@ game whose story order differs from its file order read out of order.
   or another jump is such a rejoin), a conditional choice (`"x" if cond:`), a
   `label` inside a choice block, any line between choices other
   than a caption, and a nested menu with no item of its route before
-  it (the route's lines dropped with an unresolved visual). Such a menu's blocks are skipped as for an `if`, their
+  it (the route's lines dropped with an unresolved visual and no
+  picture before it). Such a menu's blocks are skipped as for an `if`, their
   jumps and calls followed. A menu in a label the walk reaches that it
   never lays out is `skipped` with why: `not reached: no path of the
   walk reaches it` (it follows a `jump` or `return` in its label) or
@@ -844,8 +845,63 @@ loader looks it up, under each of `config.search_prefixes`, `""` then
 archives (their member with that key or a near match, then
 `images/<name>`). So `image first = "day1/first shot.jpg"` plays
 `game/images/day1/first shot.jpg` (docs/plan.md Phase 57 item 4d); the
-item's ledger `asset` names the file found. A name found nowhere drops
-its item (`droppedUnresolved`), as before.
+item's ledger `asset` names the file found.
+
+docs/plan.md Phase 60 item 9n read the rest of Ren'Py's rules:
+
+- **A string is read as Ren'Py reads a displayable.** In `image a =
+  "..."`, and in the strings of the other forms below, a string with a
+  dot is a file, one starting with `#` a solid colour (`image black =
+  "#000"` clears the picture, as `scene black` does, unless a file of
+  the image's name answers it, which then shows in its place, noted, as
+  the converter ships no solid colour), and any other an image name: `image a = "b c"` shows the image `b c`, its definition
+  or its file, through image names naming image names up to 8 deep. A
+  string with a `[` names a variable the converter does not know and
+  resolves nowhere.
+- **`image` statements inside `init:` and `init N:` blocks** are read,
+  ATL blocks included. `init python:` blocks are not (`renpy.image()`
+  calls stay unread).
+- **File names match whatever their case**, as Ren'Py's loader matches
+  them: `image hall = "Pics/Hall.PNG"` finds `pics/hall.png`, a loose
+  file or an archive member, after every exact match. The ledger names
+  the file as it is spelled on disk. A leading `/` and repeated ones are
+  dropped from a file name, as Ren'Py's loader drops them.
+- **AVIF** files (`.avif`) are pictures: an images-folder name, an
+  implicit name and a file name find them, and they ship by the image
+  rule as other non-browser formats do (Image policy, below).
+- **Another displayable shows its first picture that resolves.** An
+  `image` defined as an expression the converter cannot show,
+  `ConditionSwitch(...)`, `Composite(...)`, `Transform(...)`, `im.*`,
+  shows the first of its strings that resolves (a `ConditionSwitch`'s
+  or `ShowingSwitch`'s displayables, every second argument, skipping
+  the conditions), a picture or a frame list. The item's ledger notes
+  name the picture, and the first `scene` or `show` of the image is
+  reported. `Solid(...)` is a solid colour, as `"#000"` is. With none
+  that resolves,
+  the image's name goes to the implicit index, as before.
+- **The image name of a `scene` or `show`** ends at `at`, `with`, `as`,
+  `behind`, `onlayer` or `zorder`, or at the `:` of an ATL block: `show
+  eve calm:` with a block of transform statements shows `eve calm`, the
+  block's lines read as no statements. `scene expression "file.png"`
+  and `show expression "file.png"`, with a literal string, show the
+  string as a displayable; another expression resolves nowhere.
+- **Images from the images folder take part in image attributes.** A
+  say statement's attributes (Say statements, above) choose among the
+  images folder's names as among the `image` definitions, a definition
+  of the same name replacing the file's, as Ren'Py defines a file's
+  name only where no definition has it: with `images/eve casual
+  calm.png` and `images/eve casual happy.png`, `e happy "..."` over `eve
+  casual calm` shows `eve casual happy`.
+- **A visual that still resolves nowhere leaves the picture on screen as
+  it was**, and the lines said under it are kept over that picture: the
+  last one emitted, or one no line has shown yet, which then takes the
+  line. The statement is reported (`unresolvedVisual`, with why) and
+  each such line's ledger notes say `kept over the last visual` and name
+  the visual. A `movie` whose file is found nowhere does the same until
+  `stop movie`. A menu's routes each start under the visual at the menu.
+  Only a line with no picture before it at all drops, as before
+  (`droppedUnresolved`), since a `text` item needs one. A visual is
+  still never shipped as a missing-file placeholder.
 
 ### ATL frame lists
 
@@ -889,8 +945,8 @@ image), so the browser plays it inside its frame time. A block of one
 frame, or whose frames are all one picture, is that picture as a still
 `image` item; a one-frame block's transform properties (`zoom 1.5`,
 `xalign 0.5`) are reported as not applied. A frame that resolves
-nowhere drops the item and its lines, its `droppedUnresolved` reason
-naming the frame.
+nowhere leaves the picture on screen as it was, its lines kept over
+it, the `unresolvedVisual` report naming the frame.
 
 Any other ATL keeps the block `image without a file`, reported at its
 `image` line with the statement and its line named: ``image without a
@@ -899,7 +955,12 @@ converted``. That is motion (`linear`, `ease`, a
 warper), `block`, `parallel`, `choice`, `on`, `contains`, `time`,
 `event`, a pause before the first frame or not a number, a statement
 after `repeat`, an expression frame (`Image("x.png")`), and a transform
-property in a block of several frames.
+property in a block of several frames. A `scene` or `show` of such an
+image (docs/plan.md Phase 60 item 9n) shows the first of the block's
+quoted strings that resolves, at any depth, as a still, its ledger
+notes saying so; a block with none, a `Solid` flash, leaves the picture
+on screen as it was, reported once per image, and its lines are said
+over that picture.
 
 ## Image policy
 
@@ -916,8 +977,11 @@ and the `preserve` step's `reason` says why.
 | Animated GIF, WebP, PNG | none | - | always: the libjxl binding takes no frame durations or loop count, so an animated JXL could not be verified to keep the timing |
 | `.jxl` | shipped as is | libjxl decodes the whole file (else the item is skipped) | - |
 
-Other formats (BMP, TIFF, ...) are converted to the smallest of PNG,
-JPEG q92 and JXL of the PNG, as before. Compared with the system `cjxl`
+Other formats (BMP, TIFF, AVIF, ...) are converted to the smallest of
+PNG, JPEG q92 and JXL of the PNG, as before; AVIF since docs/plan.md
+Phase 60 item 9n, decoded by the pinned Pillow's own AVIF plugin (an
+AVIF sequence by its first frame, the picture Ren'Py shows), with the
+`pillow.decode-avif` self-test case. Compared with the system `cjxl`
 this replaced: `cjxl` read 16-bit PNGs and carried any ICC profile, so
 16-bit and non-sRGB-profile images could become JXL; now they keep their
 original bytes. (The 25.1 imagecodecs route before 25.5 fed a 16-bit RGB
@@ -1164,7 +1228,8 @@ How a cue maps:
   none of them. Two one-shots on one channel before the same item keep
   only the second, which cut the first.
 - `voice` belongs to the next item that carries a line. A line dropped
-  with its unresolved visual drops its voice.
+  with its unresolved visual (one with no picture before it) drops its
+  voice.
 - Loop defaults: `music` loops; `sound`, `voice` and `audio` do not; a
   registered channel loops unless registered with `loop=False`. An
   explicit `loop=None` loops up to Ren'Py 8.3 and not from 8.4, decided
@@ -2455,7 +2520,9 @@ machine/render tests for the empty state):
 - BUG 1 FIXED — an item whose visual resolves nowhere is dropped (the
   ledger reports `droppedUnresolved` per statement), never shipped as
   a missing-file placeholder; the lines under a dropped visual drop
-  with it, because a `text` item needs a visual. The schema now accepts
+  with it, because a `text` item needs a visual. (Since docs/plan.md
+  Phase 60 item 9n those lines are kept over the picture before them,
+  `unresolvedVisual`; only a line with none before it drops.) The schema now accepts
   an empty `items` array (`minItems: 0`, docs/content-format.md), the
   player renders a clean no-content state for an empty manifest, and
   `play-folder.mjs` reports `items: 0` with `errors: []`.

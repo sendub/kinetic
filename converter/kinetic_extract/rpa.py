@@ -392,10 +392,14 @@ class AssetArchives:
         """(ledger name ``game/<archive>!<key>``, extracted file path,
         source ref) for a script reference ``rel`` (relative to game/), or
         None when no archive has it. The pick is the first of
-        ``candidates``."""
+        ``candidates``, else the member whose key is ``rel`` but for
+        case."""
         found = self.candidates(rel, kind)
         if not found:
-            return None
+            # A member whose key differs only in case, as Ren'Py's
+            # loader matches a name (docs/plan.md Phase 60 item 9n).
+            member = self.member(rel)
+            return self.hit(*member) if member is not None else None
         arc, key = found[0]
         return self.hit(arc, key)
 

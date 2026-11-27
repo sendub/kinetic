@@ -33,7 +33,8 @@ from .media_tools import MediaToolsError
 
 SAMPLES_DIR = paths.SELFTEST_SAMPLES_DIR
 SAMPLES = ("sample.png", "sample.jpg", "sample.webp", "sample.gif",
-           "sample.mp4", "sample-odd.mp4", "sample.ogg", "sample.aiff")
+           "sample.avif", "sample.mp4", "sample-odd.mp4", "sample.ogg",
+           "sample.aiff")
 CACHE_FILE = "selftest-cache.json"
 POSTER_SECONDS = 0.5
 FAILED = "FAILED"
@@ -73,7 +74,8 @@ def run_cases(samples_dir: Path = SAMPLES_DIR) -> dict[str, str]:
 
     data = {name: (samples_dir / name).read_bytes() for name in SAMPLES}
     out: dict[str, str] = {}
-    for name in ("sample.png", "sample.jpg", "sample.webp", "sample.gif"):
+    for name in ("sample.png", "sample.jpg", "sample.webp", "sample.gif",
+                 "sample.avif"):
         out[f"pillow.decode-{name.split('.')[1]}"] = _decode_hash(data[name])
     out["pillow.encode-png"] = _sha(
         assets.run_image_step(assets.PNG_STEP, data["sample.png"]))

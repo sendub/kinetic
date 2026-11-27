@@ -69,6 +69,7 @@
       "imagecodecs.jxl-lossless-webp": "eceaf13adca629cad82e7e0a897a2ed9f326a70adc848bcddd23ab3f3ebc438f",
       "imagecodecs.jxl-recompress-jpeg": "64ad0f8e4534c25d94a8c954e5328429da067775c92a2ee6d1cc67cc39030790",
       "imagecodecs.jxl-reconstruct-jpeg": "88c12cea35e99e2b8c00a1aa59e9ad4beba82b36499bca53a8e53f8024a4aead",
+      "pillow.decode-avif": "6db788c83c946d0ea09d2eb4d93cc3736b48a57728946535b0b64e1f32d8cfcc",
       "pillow.decode-gif": "df2b72ea533001545ed851bc02a51f7b1875824543c1ccb2ca1512bd25728809",
       "pillow.decode-jpg": "bc7978b31c62bb4ff9a6152e380ec5674b00366e0799292836d638f836b8961c",
       "pillow.decode-png": "804b1be23a9bdea0d0d8550d5557c3e6339d6426019d5fbe988b068dc53935d4",

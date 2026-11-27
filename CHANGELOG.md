@@ -231,6 +231,21 @@ something more of an author.
   of a triple-quoted line takes its own `translate` block's text, where
   only the first paragraph was translated (docs/extracting.md, "Say
   statements").
+- Pictures resolve as Ren'Py resolves them: `image a = "b c"` shows the
+  image `b c` (and `"#000"` is a solid colour); `image` statements
+  inside `init:` blocks are read; `.avif` files ship, converted as other
+  non-browser stills are; file names match whatever their case; a
+  `ConditionSwitch` or another displayable the converter cannot show
+  shows its first picture that resolves, noted; `show x:` with an ATL
+  block, and `show x behind y`, `onlayer`, `zorder` and `as`, show `x`;
+  `show expression "file.png"` shows the file; an ATL image that is not
+  a frame list shows its first picture, and one with none (a `Solid`
+  flash) leaves the picture as it was; and the images folder's files
+  take part in a say statement's image attributes as `image`
+  definitions do. A line whose picture still resolves nowhere is kept
+  over the picture before it and reported (`unresolvedVisual`), where
+  it used to be dropped (docs/extracting.md, "Finding a script's
+  files").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds` and `holdLastFrame` once
   upgraded. Converting a Ren'Py game again with this release gains its

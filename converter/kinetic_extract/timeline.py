@@ -38,6 +38,14 @@ is an ``animation`` item whose frames resolve as ``show`` names do; its
 record's ``frames`` are one image record per frame, which the asset pass
 ships. One frame, or one picture throughout, is a still image item.
 
+Pictures (docs/plan.md Phase 60 item 9n): a name resolves as Ren'Py
+resolves it (``lookup``): its `image` definition, a string read as a
+displayable (a file, a colour or another image name), another
+displayable's first picture that resolves, then the implicit name
+index; file names match whatever their case. A visual that still
+resolves nowhere leaves the picture on screen as it was, its lines kept
+over that picture and reported.
+
 Transitions (docs/plan.md Phase 57 item 4): a scene/show's `with` clause
 gives its visual's item the transition; a bare `with` gives it to the
 visual still waiting to be emitted when that visual changed since the
@@ -48,8 +56,9 @@ change gives nothing. kinetic_extract.presentation reads the expression.
 
 from __future__ import annotations
 
+import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -58,18 +67,31 @@ from . import conditions
 from .audio_cues import AudioFiles, AudioTrack, CueWalker
 from .flow import follow_labels
 from .media import probe_duration_seconds
-from .parser import (Event, FileParse, Report, character_images,
-                     nameless_characters, say_key, slug as _slug)
+from .parser import (_KEYWORD_ARG_RE, Event, FileParse, Report,
+                     _call_arguments, character_images, nameless_characters,
+                     say_key, slug as _slug)
 from .presentation import (CharacterColors, Resolved, TransitionCounts,
                            character_colors, resolve_transition,
                            transition_defines)
 
 _INTERPOLATION_RE = re.compile(r"\[[^][]*\]")
+# How a line under a visual that resolves nowhere is kept (Phase 60 item
+# 9n): its ledger note and the visual's report say so.
+KEPT = "kept over the last visual"
 _INTERPOLATION_NOTE = " interpolation(s) literal in text"
 # `image X = Movie(play="f.webm", ...)` (parser stores the value verbatim
 # as an expression): the play file is the item's video (BUG 2).
 _MOVIE_PLAY_RE = re.compile(r"\bplay\s*=\s*\"((?:[^\"\\]|\\.)*)\"")
 _QUOTED_RE = re.compile(r"\"((?:[^\"\\]|\\.)*)\"")
+# Any quoted string of an image expression, either quote.
+_ANY_QUOTED_RE = re.compile(r"\"((?:[^\"\\]|\\.)*)\"|'((?:[^'\\]|\\.)*)'")
+# The call an image expression starts with: `ConditionSwitch(`, `im.Scale(`.
+_CALL_HEAD_RE = re.compile(r"\s*([A-Za-z_][\w.]*)\s*\(")
+# Displayables made of (condition, displayable) pairs: their pictures are
+# every second positional argument.
+_SWITCHES = frozenset({"ConditionSwitch", "ShowingSwitch"})
+# Deepest chain of image names naming image names followed.
+_MAX_DEPTH = 8
 
 # The folder Ren'Py's loader also looks a file name up in
 # (`config.search_prefixes` is `["", "images/"]`).
@@ -95,6 +117,35 @@ def def_value_target(defined: tuple[str, str]) -> tuple[str, str | None]:
         return "video", m.group(1)
     m = _QUOTED_RE.search(value)
     return "image", m.group(1) if m else None
+
+
+def expression_refs(expr: str) -> list[str]:
+    """The strings an image expression may show, in order (docs/plan.md
+    Phase 60 item 9n): a `ConditionSwitch`'s (or `ShowingSwitch`'s)
+    displayables, every second positional argument, skipping their
+    conditions; else every quoted string in it."""
+    m = _CALL_HEAD_RE.match(expr)
+    if m is not None and m.group(1).rsplit(".", 1)[-1] in _SWITCHES:
+        args = _call_arguments(expr, m.end()) or []
+        positional = [a for a in args if not _KEYWORD_ARG_RE.fullmatch(a)]
+        return [ref for arg in positional[1::2]
+                for ref in expression_refs(arg)]
+    return [q.group(1) if q.group(1) is not None else q.group(2)
+            for q in _ANY_QUOTED_RE.finditer(expr)]
+
+
+@dataclass
+class _Target:
+    """What an image name or a displayable string shows (docs/plan.md
+    Phase 60 item 9n): a ``picture`` (``found`` the resolved ``(kind,
+    ledger rel, file, source ref, candidates)``), an ``atl`` frame list
+    (``found`` the parser.AtlImage), a ``solid`` colour, ``unchanged``
+    (the visual stays as it was) or ``none`` (``reason`` says why)."""
+
+    kind: str
+    found: Any = None
+    reason: str | None = None
+    notes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -226,8 +277,10 @@ class _Pending:
         # cache file).
         self.from_archive = bool(source_ref and "archive" in source_ref)
         self.consumed = False    # a dialogue line already formed the item
-        # True when no file answers this visual: it and the lines under it
-        # are dropped, never shipped as a placeholder (BUG 1).
+        # True when no file answers this visual (an ATL frame list with a
+        # frame found nowhere): it is never the pending visual or shipped
+        # as a placeholder (BUG 1); its lines are kept over the last
+        # visual (item 9n).
         self.unresolved = False
         # Resolution notes carried onto the item's ledger entry (e.g. an
         # ambiguous implicit name).
@@ -246,6 +299,8 @@ class _Pending:
         # after their line (Phase 60 item 9m): dropped, too, when no line
         # takes it.
         self.quiet = False
+        # Why an unresolved visual resolves nowhere (item 9n).
+        self.reason: str | None = None
 
     @property
     def drops_bare(self) -> bool:
@@ -335,6 +390,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                    audio_files: AudioFiles | None = None,
                    also_labels: list[str] | None = None,
                    include_unreached: bool = False,
+                   automatic_names: Callable[[], Iterable[str]] | None
+                   = None,
                    ) -> TimelineResult:
     """Walk the parsed files' story as Ren'Py runs it, from `label start`
     through jumps, calls and fall-through (kinetic_extract.flow; file-name
@@ -366,6 +423,12 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     ``audio_files`` (kinetic_extract.audio_cues.AudioFiles) finds the
     audio files the cues name; by default loose files under
     ``game_dir`` only.
+
+    ``automatic_names()`` gives the names Ren'Py defines from the images
+    folder (kinetic_extract.images.ImplicitImages.automatic_names), which
+    a say statement's image attributes choose among with the `image`
+    definitions (docs/plan.md Phase 60 item 9n); called once, when the
+    first attributes are applied.
     """
     result = TimelineResult()
     cues = CueWalker(parses, audio_files or AudioFiles(game_dir))
@@ -376,14 +439,21 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     image_tags = character_images(parses)
     # The Characters with no name, whose lines are narration (item 9m2).
     nameless = nameless_characters(parses)
-    tagged: dict[str, list[tuple[str, frozenset[str]]]] = {}
-    for key in image_defs:
-        parts = key.split()
-        if parts:
-            tagged.setdefault(parts[0], []).append(
-                (key, frozenset(parts[1:])))
+    # Tag -> each image name with the tag and its attributes: the `image`
+    # definitions and the images folder's names (item 9n), built when
+    # first needed.
+    tagged: dict[str, list[tuple[str, frozenset[str]]]] | None = None
     # The parse whose statement say_picture is applying.
     parsed_now: FileParse | None = None
+    # Every loose file under game/ by its path, and by its path in
+    # lowercase, for names that match only in case (item 9n), built when
+    # first needed.
+    loose_lower: tuple[dict[str, str], dict[str, str]] | None = None
+    # The unresolved visual whose lines are kept over the picture on
+    # screen (item 9n): (name, source), else None.
+    stale: tuple[str, str] | None = None
+    # Image names whose stand-in picture was reported.
+    stand_ins: set[str] = set()
     defines = transition_defines(parses)
     # Whether the pending visual changed since the last interaction, so
     # a bare `with` applies to it.
@@ -434,92 +504,199 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             seen[3] += 1
         return got
 
+    def real_name(rel: str) -> str | None:
+        """The loose file under game/ that ``rel`` names, as spelled on
+        disk: ``rel`` itself, else the one whose path is ``rel`` but for
+        case, as Ren'Py's loader matches a name (its ``lower_map``; item
+        9n), else None. On a volume that ignores case a file found under
+        another spelling is named as it is spelled on disk, so the ledger
+        rebuilds on one that does not."""
+        nonlocal loose_lower
+        if loose_lower is None:
+            loose_lower = ({}, {})
+            for dirpath, _dirs, files in os.walk(game_dir):
+                for fname in sorted(files):
+                    found = Path(dirpath, fname).relative_to(
+                        game_dir).as_posix()
+                    loose_lower[0][found] = found
+                    loose_lower[1].setdefault(found.lower(), found)
+        exact, lower = loose_lower
+        return exact.get(rel) or lower.get(rel.lower())
+
     def asset_paths(rel: str | None, kind: str,
                     ) -> tuple[str | None, Path | None,
                                dict[str, str] | None]:
         """(ledger rel, file path, source ref) for a script reference:
         the loose file under game/, else under game/images/, else an
-        archive member. Ren'Py's loader looks a file name up under each
-        of `config.search_prefixes`, `""` then `"images/"`, so
-        `image x = "day1/x.jpg"` plays `game/images/day1/x.jpg`
-        (docs/plan.md Phase 57 item 4d)."""
+        archive member, a name that differs only in case matching
+        (item 9n). Ren'Py's loader looks a file name up under each of
+        `config.search_prefixes`, `""` then `"images/"`, so `image x =
+        "day1/x.jpg"` plays `game/images/day1/x.jpg` (docs/plan.md Phase
+        57 item 4d), and drops a leading `/` and repeated ones."""
         if rel is None:
             return None, None, None
-        target = game_dir / rel
-        ledger_rel = f"game/{Path(rel).as_posix()}"
-        if not target.exists():
-            in_images = game_dir / IMAGES_PREFIX / rel
-            if in_images.is_file():
-                images_rel = f"game/{IMAGES_PREFIX}/{Path(rel).as_posix()}"
-                return images_rel, in_images, {"path": images_rel}
-            if asset_lookup is not None:
-                hit = (asset_lookup(rel, kind)
-                       or asset_lookup(f"{IMAGES_PREFIX}/{rel}", kind))
-                if hit is not None:
-                    return hit
-        return ledger_rel, target, {"path": ledger_rel}
-
-    def resolve_name(name: str) -> tuple[str, str | None, Any]:
-        """``(kind, defined file, resolved)`` for a scene/show name, with
-        ``resolved`` ``(kind, ledger_rel, abs, src_ref, n)`` or None.
-        Resolution order (docs/extracting.md BUG 5): the explicit
-        definition first — a `Movie(play=…)` def answers as a video
-        (BUG 2) — then its file on disk or in the archives, then the
-        implicit name index."""
-        defined = image_defs.get(name)
-        kind, ref = def_value_target(defined) \
-            if defined and defined[0] != "atl" else ("image", None)
-        resolved = None
-        if ref is not None:
-            ledger_rel, abs_path, src_ref = asset_paths(ref, kind)
-            if (src_ref is not None and "archive" in src_ref) \
-                    or (abs_path is not None and abs_path.exists()):
-                resolved = (kind, ledger_rel, abs_path, src_ref, 1)
-        if resolved is None and implicit_lookup is not None:
-            hit = implicit_lookup(
-                name, "video" if kind == "video" else "image")
+        rel = re.sub(r"/+", "/", rel).lstrip("/") or rel
+        for prefix in ("", f"{IMAGES_PREFIX}/"):
+            path = game_dir / prefix / rel
+            if path.is_file() or (not prefix and path.exists()):
+                found = real_name(Path(prefix + rel).as_posix()) \
+                    or Path(prefix + rel).as_posix()
+                return (f"game/{found}", game_dir / found,
+                        {"path": f"game/{found}"})
+        if asset_lookup is not None:
+            hit = (asset_lookup(rel, kind)
+                   or asset_lookup(f"{IMAGES_PREFIX}/{rel}", kind))
             if hit is not None:
-                ledger_rel, abs_path, src_ref, n = hit
-                resolved = (kind, ledger_rel, abs_path, src_ref, n)
-        return kind, ref, resolved
+                return hit
+        for prefix in ("", f"{IMAGES_PREFIX}/"):
+            found = real_name(prefix + rel)
+            if found is not None:
+                return (f"game/{found}", game_dir / found,
+                        {"path": f"game/{found}"})
+        ledger_rel = f"game/{Path(rel).as_posix()}"
+        return ledger_rel, game_dir / rel, {"path": ledger_rel}
+
+    def file_target(rel: str, kind: str) -> _Target:
+        """The picture a file name shows, found as Ren'Py's loader finds
+        it (asset_paths), or none."""
+        ledger_rel, abs_path, src_ref = asset_paths(rel, kind)
+        if (src_ref is not None and "archive" in src_ref) \
+                or (abs_path is not None and abs_path.is_file()):
+            return _Target("picture", (kind, ledger_rel, abs_path, src_ref, 1))
+        return _Target("none", reason=f"defined source asset {rel!r} not "
+                       "found")
+
+    def implicit_target(name: str, kind: str, reason: str) -> _Target:
+        """The implicit image index's picture for ``name``, or none for
+        ``reason``."""
+        hit = (implicit_lookup(name, "video" if kind == "video" else "image")
+               if implicit_lookup is not None else None)
+        if hit is None:
+            return _Target("none", reason=reason)
+        ledger_rel, abs_path, src_ref, n = hit
+        return _Target("picture", (kind, ledger_rel, abs_path, src_ref, n))
+
+    def displayable(text: str, depth: int) -> _Target:
+        """What a string shows where Ren'Py takes a displayable (its
+        ``renpy.easy.displayable``): one starting with `#` is a solid
+        colour, one with a dot a file, any other an image name (item 9n:
+        `image a = "b c"` is the image `b c`). A string with a `[`
+        substitutes a variable when shown: none the converter knows."""
+        text = text.strip()
+        if not text or "[" in text:
+            return _Target("none", reason=(
+                f"image {text!r} names a variable the converter does not "
+                "know" if text else "an empty image name"))
+        if text.startswith("#"):
+            return _Target("solid")
+        if "." in text:
+            return file_target(text, "image")
+        if depth >= _MAX_DEPTH:
+            return _Target("none", reason=f"image {text!r} names image "
+                           f"names more than {_MAX_DEPTH} deep")
+        return lookup(" ".join(text.split()), depth + 1)
+
+    def first_picture(refs: list[str], depth: int, what: str,
+                      empty: str) -> _Target:
+        """The first of ``refs`` that shows a picture or a frame list,
+        noted as standing in for ``what``; else ``empty`` (``none`` or
+        ``unchanged``)."""
+        for ref in refs:
+            got = displayable(ref, depth)
+            if got.kind in ("picture", "atl"):
+                got.notes.append(f"{what}: shows its first picture that "
+                                 f"resolves, {ref!r}")
+                return got
+        if empty == "unchanged":
+            return _Target("unchanged", notes=[
+                f"{what} and shows no picture that resolves: the visual "
+                "stays as it was"])
+        return _Target("none", reason=f"{what} and shows no picture that "
+                       "resolves")
+
+    def lookup(name: str, depth: int = 0) -> _Target:
+        """What a scene/show name shows (docs/extracting.md, "Finding a
+        script's files"): its `image` definition first, a frame list, a
+        `Movie(play=...)` video, a string read as a displayable, another
+        displayable's first picture that resolves (item 9n); else, or
+        when the definition shows nothing, the implicit name index
+        (BUG 5), a bare `black` or `white` a solid colour."""
+        defined = image_defs.get(name)
+        if defined is None:
+            if name in _SOLID_COLORS:
+                return _Target("solid")
+            return implicit_target(name, "image", "no image definition or "
+                                   "asset answers the name")
+        tag, value = defined
+        if tag == "atl":
+            return _Target("atl", value)
+        kind = "image"
+        if tag == "atl-other":
+            # Ren'Py shows the block, never a file of the name.
+            return first_picture(
+                value.refs, depth,
+                f"ATL image {name!r} ({value.source}) is not a frame list",
+                "unchanged")
+        if tag == "file":
+            got = displayable(value, depth)
+        elif _MOVIE_PLAY_RE.search(value):
+            kind, ref = def_value_target(defined)
+            got = file_target(ref, kind)
+        elif re.match(r"\s*Solid\s*\(", value):
+            got = _Target("solid")
+        else:
+            head = _CALL_HEAD_RE.match(value)
+            got = first_picture(
+                expression_refs(value), depth,
+                f"image {name!r} is {head.group(1) if head else 'an'} "
+                "expression the converter cannot show", "none")
+        if got.kind == "solid":
+            # A file of the name (a black picture beside `image black =
+            # "#000"`) shows in its place: the converter ships no solid
+            # colour, and a solid screen would leave the last picture
+            # under the lines.
+            fallback = implicit_target(name, kind, "")
+            if fallback.kind == "picture":
+                fallback.notes.append(
+                    f"image {name!r} is a solid colour: the file of its "
+                    "name shows in its place")
+                return fallback
+        if got.kind != "none":
+            return got
+        fallback = implicit_target(name, kind, got.reason or "")
+        return fallback if fallback.kind != "none" else got
 
     def resolve_frame(ref: str, depth: int = 0) -> Any:
-        """An ATL frame's picture as ``resolve_name`` resolves one, or
-        None: a quoted file (it has a dot) on disk, under images/ or in
-        the archives; else an image name, a one-frame ATL image's frame
-        included. A video, a solid colour or an animation is no frame."""
-        if "." in ref:
-            ledger_rel, abs_path, src_ref = asset_paths(ref, "image")
-            if (src_ref is not None and "archive" in src_ref) \
-                    or (abs_path is not None and abs_path.is_file()):
-                return ("image", ledger_rel, abs_path, src_ref, 1)
-            return None
-        defined = image_defs.get(ref)
-        if defined is not None and defined[0] == "atl":
-            atl = defined[1]
+        """An ATL frame's picture, resolved as a displayable string is
+        (``displayable``), or None: a file on disk, under images/ or in
+        the archives, or an image name, a one-frame ATL image's frame
+        included. A video, a solid colour or an animation is no
+        frame."""
+        got = displayable(ref, depth)
+        if got.kind == "atl":
+            atl = got.found
             return resolve_frame(atl.frames[0].ref, depth + 1) \
-                if atl.still and depth < 8 else None
-        if ref in _SOLID_COLORS and defined is None:
-            return None
-        kind, _file, resolved = resolve_name(ref)
-        return resolved if kind == "image" else None
+                if atl.still and depth < _MAX_DEPTH else None
+        if got.kind == "picture" and got.found[0] == "image":
+            return got.found
+        return None
 
     def atl_pending(parsed: FileParse, source: str, name: str,
                     atl: Any) -> _Pending:
         """The visual an ATL frame list shows (parser.AtlImage): an
         animation of its frames; a still when it has one frame or every
-        frame is one picture; dropped with its lines, reported, when a
-        frame resolves nowhere (BUG 1)."""
+        frame is one picture; unresolved, its ``reason`` naming the
+        frame, when a frame resolves nowhere (item 9n: its lines are kept
+        over the last visual)."""
         hits = []
         for frame in atl.frames:
             hit = resolve_frame(frame.ref)
             if hit is None:
-                parsed.reports.append(Report(source, name, (
-                    f"droppedUnresolved: ATL frame {frame.ref!r} of image "
-                    f"{name!r} ({frame.source}): no image definition or "
-                    "asset answers it")))
                 pend = _Pending("image", name, None, None, source)
                 pend.unresolved = True
+                pend.reason = (f"ATL frame {frame.ref!r} of image {name!r} "
+                               f"({frame.source}): no image definition or "
+                               "asset answers it")
                 return pend
             hits.append(hit)
         if atl.still or len({hit[1] for hit in hits}) == 1:
@@ -545,14 +722,34 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     f"({chosen})")
         return pend
 
+    def target_pending(parsed: FileParse, source: str, name: str,
+                       got: _Target) -> _Pending | None:
+        """The visual a looked-up name shows (``lookup``): a picture, or a
+        frame list's animation or still (unresolved when a frame is);
+        None for a solid colour, an unchanged visual or none."""
+        if got.kind == "atl":
+            pend = atl_pending(parsed, source, name, got.found)
+        elif got.kind == "picture":
+            kind, ledger_rel, abs_path, src_ref, n = got.found
+            pend = _Pending(kind, name, ledger_rel, abs_path, source,
+                            src_ref)
+            if n > 1:
+                chosen = ledger_rel.rsplit("!", 1)[-1]
+                pend.notes.append(
+                    f"image name {name!r} is ambiguous: {n} assets answer "
+                    f"it; using the first in sorted order ({chosen})")
+        else:
+            return None
+        pend.notes[:0] = got.notes
+        return pend
+
     def flush_bare() -> None:
-        """Emit an unconsumed visual (replaced or at end of flow) bare.
-        An unresolved visual was already reported at its statement; it is
-        dropped, never emitted (BUG 1), as is a route start's repeat of
-        the menu's visual that no line took."""
+        """Emit an unconsumed visual (replaced or at end of flow) bare;
+        a route start's repeat of the menu's visual that no line took is
+        dropped."""
         nonlocal pending
         if (pending is not None and not pending.consumed
-                and not pending.unresolved and not pending.drops_bare):
+                and not pending.drops_bare):
             emit_media(pending, speaker=None, text=None)
         pending = None
 
@@ -571,24 +768,39 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     def route_needs_lead() -> bool:
         """Whether a menu opening now, nested in a route, would hang off
         an item before that route (Phase 60 item 8c): the route has no
-        item yet and no visual waiting that the `menu-open` would emit.
-        A route whose visual is unresolved drops its lines, so it gets
-        none: close_menu keeps that nested menu linear."""
+        item yet and no visual waiting that the `menu-open` would emit."""
         if not menu_stack or not menu_stack[-1]["starts"]:
             return False
         if len(result.items) > menu_stack[-1]["starts"][-1]:
             return False
-        return pending is None or pending.consumed or (
-            pending.drops_bare and not pending.unresolved)
+        return pending is None or pending.consumed or pending.drops_bare
+
+    def tags() -> dict[str, list[tuple[str, frozenset[str]]]]:
+        """Tag -> each image name with the tag and its attributes: the
+        `image` definitions, and the names Ren'Py gives the images
+        folder's files (item 9n), which a definition of the same name
+        replaces, as Ren'Py defines those only where none is."""
+        nonlocal tagged
+        if tagged is None:
+            tagged = {}
+            names = dict.fromkeys(image_defs)
+            for auto in (automatic_names() if automatic_names else ()):
+                names.setdefault(auto)
+            for key in names:
+                parts = key.split()
+                if parts:
+                    tagged.setdefault(parts[0], []).append(
+                        (key, frozenset(parts[1:])))
+        return tagged
 
     def attribute_name(tag: str, shown: list[str],
                        attrs: tuple[str, ...]) -> str:
         """The image a `show` of ``tag`` with ``attrs`` (`-x` removing x)
         picks while ``tag`` shows with the attributes ``shown``, as
-        Ren'Py's ``choose_image`` picks among the `image` definitions:
-        each of the name's attributes given or kept from the shown ones,
-        every given one among them, the most attributes winning, a tie
-        none. With no such definition, the name `show tag attrs` writes
+        Ren'Py's ``choose_image`` picks among the `image` definitions
+        and the images folder's names (``tags``): each of the name's
+        attributes given or kept from the shown ones, every given one
+        among them, the most attributes winning, a tie none. With no such definition, the name `show tag attrs` writes
         (the shown attributes, those removed aside, when none is given),
         which the files may answer."""
         remove = {a[1:] for a in attrs if a.startswith("-")}
@@ -596,7 +808,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         allowed = required | {a for a in shown if a not in remove}
         best: list[str] = []
         size = -1
-        for key, have in tagged.get(tag, ()):
+        for key, have in tags().get(tag, ()):
             if required <= have <= allowed:
                 if len(have) > size:
                     best, size = [key], len(have)
@@ -613,22 +825,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         """The picture an image name shows, resolved as a `show` of it is,
         or None when nothing answers it (nothing reported: the picture on
         screen stays)."""
-        defined = image_defs.get(name)
-        if defined is not None and defined[0] == "atl":
-            pend = atl_pending(parsed_now, source, name, defined[1])
-            return None if pend.unresolved else pend
-        if name in _SOLID_COLORS and defined is None:
+        pend = target_pending(parsed_now, source, name, lookup(name))
+        if pend is None or pend.unresolved:
             return None
-        _kind, _ref, resolved = resolve_name(name)
-        if resolved is None:
-            return None
-        kind, ledger_rel, abs_path, src_ref, n = resolved
-        pend = _Pending(kind, name, ledger_rel, abs_path, source, src_ref)
-        if n > 1:
-            chosen = ledger_rel.rsplit("!", 1)[-1]
-            pend.notes.append(
-                f"image name {name!r} is ambiguous: {n} assets answer it; "
-                f"using the first in sorted order ({chosen})")
         pend.notes.append(f"picture {name!r} from the image attributes of "
                           f"the say statement at {source}")
         return pend
@@ -1014,8 +1213,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 got = read_transition(parsed, event.source,
                                       event.name or "None")
                 if (fresh and pending is not None
-                        and not pending.consumed
-                        and not pending.unresolved):
+                        and not pending.consumed):
                     pending.transition = got.transition
                 fresh = False
                 continue
@@ -1028,73 +1226,79 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                           if event.transition is not None else None)
                 fresh = clause is None
                 name = event.name or "black"
-                if name in _SOLID_COLORS and name not in image_defs:
+                # `show expression "file"` shows the string as Ren'Py
+                # reads a displayable (item 9n).
+                got = (displayable(event.asset, 0) if event.asset is not None
+                       else lookup(name))
+                if got.kind == "solid":
                     # A solid screen carries no media; the visual is
                     # cleared.
                     flush_bare()
+                    stale = None
                     parsed.reports.append(Report(
                         event.source, f"scene {name}",
                         "solid color screen: no media item"))
                     continue
-                defined = image_defs.get(name)
-                if defined is not None and defined[0] == "atl":
-                    # An ATL frame list (docs/plan.md Phase 60 item 8).
-                    flush_bare()
-                    pending = atl_pending(parsed, event.source, name,
-                                          defined[1])
-                    if clause is not None:
-                        pending.transition = clause.transition
+                if got.kind == "unchanged":
+                    # An ATL image showing no picture (a flash): the
+                    # visual stays as it was (item 9n).
+                    fresh = False
+                    if name not in stand_ins:
+                        stand_ins.add(name)
+                        parsed.reports.append(Report(
+                            event.source, name, got.notes[0]))
                     continue
-                kind, ref, resolved = resolve_name(name)
+                pend = target_pending(parsed, event.source, name, got)
+                if pend is None or pend.unresolved:
+                    # Item 9n: a visual that resolves nowhere leaves the
+                    # picture on screen as it was, and its lines are kept
+                    # over that one, reported (BUG 1 dropped them; it is
+                    # still never shipped as a missing-file placeholder).
+                    fresh = False
+                    stale = (name, event.source, False)
+                    why = (pend.reason if pend is not None else got.reason)
+                    parsed.reports.append(Report(
+                        event.source, name,
+                        f"unresolvedVisual: {why}; its lines {KEPT}"))
+                    continue
+                if got.notes and name not in stand_ins:
+                    # A stand-in picture, reported once per image.
+                    stand_ins.add(name)
+                    parsed.reports.append(Report(event.source, name,
+                                                 got.notes[0]))
                 flush_bare()
-                if resolved is None:
-                    # BUG 1: an item whose visual never resolves is
-                    # dropped — never shipped as a missing-file
-                    # placeholder the validator and player must fail.
-                    reason = (
-                        f"droppedUnresolved: defined source asset "
-                        f"{ref!r} not found" if ref is not None else
-                        "droppedUnresolved: no image definition or "
-                        "asset answers the name")
-                    parsed.reports.append(
-                        Report(event.source, name, reason))
-                    pending = _Pending("image", name, None, None,
-                                       event.source)
-                    pending.unresolved = True
-                    continue
-                kind, ledger_rel, abs_path, src_ref, n = resolved
-                pending = _Pending(kind, name, ledger_rel, abs_path,
-                                   event.source, src_ref)
+                stale = None
+                pending = pend
                 if clause is not None:
                     pending.transition = clause.transition
-                if n > 1:
-                    chosen = ledger_rel.rsplit("!", 1)[-1]
-                    pending.notes.append(
-                        f"image name {name!r} is ambiguous: {n} assets "
-                        f"answer it; using the first in sorted order "
-                        f"({chosen})")
             elif event.kind == "video":
-                fresh = True
                 ledger_rel, abs_path, src_ref = asset_paths(
                     event.asset, "video")
+                if not (src_ref is not None and "archive" in src_ref) \
+                        and (abs_path is None or not abs_path.exists()):
+                    # Same rule as scene refs (item 9n): the visual stays
+                    # as it was, its lines kept over it.
+                    fresh = False
+                    stale = (Path(event.asset or "movie").stem,
+                             event.source, True)
+                    parsed.reports.append(Report(
+                        event.source, f"movie {event.asset}",
+                        f"unresolvedVisual: video asset {event.asset!r} "
+                        f"not found; its lines {KEPT}"))
+                    continue
+                fresh = True
                 flush_bare()
+                stale = None
                 pending = _Pending(
                     "video", Path(event.asset or "movie").stem,
                     ledger_rel, abs_path, event.source, src_ref)
-                if not pending.from_archive and (abs_path is None
-                                     or not abs_path.exists()):
-                    # Same rule as scene refs (BUG 1): the video file
-                    # must exist for the item to ship.
-                    parsed.reports.append(Report(
-                        event.source, f"movie {event.asset}",
-                        f"droppedUnresolved: video asset "
-                        f"{event.asset!r} not found"))
-                    pending.unresolved = True
             elif event.kind == "stop-movie":
                 flush_bare()
+                if stale is not None and stale[2]:
+                    # The movie that resolved nowhere ends.
+                    stale = None
             elif (event.kind == "dialogue" and is_extend(event)
-                  and last_line is not None
-                  and not (pending is not None and pending.unresolved)):
+                  and last_line is not None):
                 extend_line(last_line, event)
             elif event.kind == "dialogue":
                 speaker = event.speaker
@@ -1105,13 +1309,16 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 restore, attribute_note = None, None
                 if event.attributes or event.temporary:
                     restore, attribute_note = say_picture(parsed, event)
-                if pending is not None and pending.unresolved:
-                    # The line belongs to a dropped visual (BUG 1):
-                    # a text item needs a visual, so it drops with it.
+                if stale is not None and pending is None \
+                        and on_screen is None:
+                    # Its visual resolves nowhere and no picture came
+                    # before it to keep it over: a text item needs one,
+                    # so it drops (BUG 1).
                     parsed.reports.append(Report(
                         event.source, event.text,
-                        "droppedUnresolved: line dropped with its "
-                        "unresolved visual"))
+                        f"droppedUnresolved: line dropped with its "
+                        f"unresolved visual {stale[0]!r} ({stale[1]}): no "
+                        "picture before it to keep it over"))
                     cues.line_dropped()
                     last_line = None
                     continue
@@ -1136,6 +1343,10 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     cues.attach(record)
                     result.items.append(record)
                     check_limit()
+                if stale is not None and last_line is not None:
+                    last_line.notes.append(
+                        f"{KEPT}: visual {stale[0]!r} at {stale[1]} "
+                        "resolves nowhere")
                 if attribute_note is not None and last_line is not None:
                     last_line.notes.append(attribute_note)
                 if restore is not None:
@@ -1164,8 +1375,10 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     "after": len(result.items) - 1,
                     "starts": [],
                     # The visual on screen at the menu, which every
-                    # route's first line is said over.
+                    # route's first line is said over, and the one that
+                    # resolved nowhere after it (item 9n).
                     "screen": on_screen,
+                    "stale": stale,
                 }
                 resolve_awaiting(state)
                 follows_menu(state)
@@ -1183,12 +1396,14 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     top["starts"].append(len(result.items))
                     cues.route_start()
                     repeat_at_route_start(top)
+                    stale = top["stale"]
             elif event.kind == "shared-mark":
                 # Where the walk first read a shared span (Phase 60 item
                 # 9i): what is on screen there, and what plays.
                 span_marks[event.name or ""] = {
                     "screen": (pending if pending is not None
                                and not pending.consumed else on_screen),
+                    "stale": stale,
                     "ambience": cues.snapshot()}
             elif event.kind == "shared-open":
                 if menu_stack:
@@ -1203,9 +1418,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     mark = span_marks.get(event.name or "", {})
                     cues.span_start(mark.get("ambience"))
                     screen = mark.get("screen")
-                    if screen is not None and screen.unresolved:
-                        pending = screen   # its lines drop, as they would
-                    elif screen is not None and (
+                    stale = mark.get("stale")
+                    if screen is not None and (
                             on_screen is None
                             or (on_screen.origin or on_screen)
                             is not (screen.origin or screen)):

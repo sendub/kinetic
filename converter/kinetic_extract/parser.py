@@ -598,7 +598,8 @@ class FileParse:
     menus: list[MenuRecord] = field(default_factory=list)
     # name -> ("file", quoted path) | ("expr", verbatim non-quoted value,
     # e.g. `Movie(play="x.webm")` — kinetic_extract.timeline classifies it)
-    # | ("atl", AtlImage), an `image name:` block read as a frame list.
+    # | ("atl", AtlImage), an `image name:` block read as a frame list,
+    # | ("atl-other", AtlOther), any other `image name:` block.
     image_defs: dict[str, tuple[str, Any]] = field(default_factory=dict)
     characters: dict[str, str] = field(default_factory=dict)   # var -> display
     # var -> (source, statement) of each Character define, the call
@@ -679,15 +680,26 @@ def with_clause(rest: str) -> str | None:
     return expr or None
 
 
+# The clauses that end a scene/show statement's image name, as Ren'Py's
+# parser reads them (docs/plan.md Phase 60 item 9n: `behind`, `onlayer`,
+# `zorder` and `as` were read as part of the name).
+_SHOW_CLAUSES = frozenset({"at", "as", "behind", "onlayer", "zorder",
+                           "with"})
+
+
 def _name_tokens(rest: str) -> str:
-    """Image-name tokens of a scene/show statement, up to `at`/`with`."""
+    """Image-name tokens of a scene/show statement, up to its first clause
+    (`at`, `with`, `as`, `behind`, `onlayer`, `zorder`) or the `:` of an
+    ATL block (`show x:` names `x`)."""
     parts: list[str] = []
-    tokens = rest.split()
-    for tok in tokens:
-        if tok in {"at", "with"}:
+    for tok in rest.split():
+        if tok in _SHOW_CLAUSES or tok == ":":
+            break
+        if tok.endswith(":"):
+            parts.append(tok[:-1])
             break
         parts.append(tok)
-    return " ".join(parts)
+    return " ".join(p for p in parts if p)
 
 
 def _split_image_def(rest: str) -> tuple[str, tuple[str, str] | None]:
@@ -721,6 +733,81 @@ def _split_image_def(rest: str) -> tuple[str, tuple[str, str] | None]:
     name = rest[:quote_at]
     parsed = _parse_quoted(rest, quote_at)
     return " ".join(name.split()), ("file", parsed[0]) if parsed else None
+
+
+def _visual_event(source: str, rest: str, default: str | None) -> Event:
+    """The visual event of a scene/show statement's ``rest``: its image
+    name (``default`` when it names none), or for `expression "file"` (a
+    literal string, which Ren'Py reads as a displayable) the string as
+    the event's ``asset``; its `with` clause's expression."""
+    transition = with_clause(rest)
+    if rest.startswith("expression "):
+        tail = rest[len("expression "):].lstrip()
+        quoted = _parse_quoted(tail, 0)
+        after = tail[quoted[1]:].split() if quoted is not None else ["+"]
+        if quoted is not None and quoted[0] and (
+                not after or after[0] in _SHOW_CLAUSES
+                or after[0].startswith(":")):
+            return Event("visual", source, name=quoted[0], asset=quoted[0],
+                         transition=transition)
+    return Event("visual", source, name=_name_tokens(rest) or default,
+                 transition=transition)
+
+
+@dataclass
+class AtlOther:
+    """An `image name:` ATL block that is not a frame list (docs/plan.md
+    Phase 60 item 9n): the strings it shows, in order (each line or
+    comma-joined clause that starts with a quoted string, at any depth),
+    of which a `scene`/`show` shows the first that resolves; with none,
+    the visual stays as it was."""
+
+    source: str
+    refs: list[str]
+
+
+def _atl_refs(block: list[tuple[int, str, int]]) -> list[str]:
+    """The quoted strings an ATL block's statements start with."""
+    refs: list[str] = []
+    for _lineno, text, _depth in block:
+        for clause in _call_arguments(text + ")", 0) or [text]:
+            if clause.startswith("\""):
+                parsed = _parse_quoted(clause, 0)
+                if parsed is not None and parsed[0]:
+                    refs.append(parsed[0])
+    return refs
+
+
+def _image_statement(raw_lines: list[str], i: int, line: str, rest: str,
+                     indent: int, relname: str, source: str,
+                     result: FileParse) -> tuple[int, bool]:
+    """Read an `image` statement (``line``, ``rest`` after the keyword,
+    ``i`` the index after it) into ``result.image_defs``; the index after
+    it, past an ATL block read with it, and whether it opens a block the
+    caller skips."""
+    head, defined = _split_image_def(rest)
+    if defined is None and rest.endswith(":"):
+        # `image name:` opens an ATL block: a frame list is an
+        # animation (docs/plan.md Phase 60 item 8), other ATL is
+        # reported with the statement named, and shows its first
+        # picture (item 9n).
+        head = _name_tokens(rest[:-1])
+        block, i = _gather_block(raw_lines, i, indent)
+        image, notes = read_atl_image(block, relname, source)
+        for note in notes:
+            note.statement = note.statement or line
+        result.reports.extend(notes)
+        if image is not None:
+            result.image_defs[head] = ("atl", image)
+        elif head:
+            result.image_defs[head] = ("atl-other",
+                                       AtlOther(source, _atl_refs(block)))
+        return i, False
+    if defined is None:
+        result.reports.append(Report(source, line, "image without a file"))
+    else:
+        result.image_defs[head] = defined
+    return i, True
 
 
 @dataclass
@@ -1859,6 +1946,11 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
     local ones belong to."""
     skip_indent: int | None = None  # depth of the line that opened a block
     skip_opener = ""                # that line's keyword
+    # The skipped block is an `init:` or `init N:` block, whose `image`
+    # statements are read (docs/plan.md Phase 60 item 9n), and the depth
+    # of its first line, where they stand.
+    skip_init = False
+    init_top: int | None = None
     i = start
     while i < stop:
         raw = raw_lines[i]
@@ -1872,6 +1964,16 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
         source = f"{relname}:{lineno}"
         if skip_indent is not None:
             if indent > skip_indent:
+                if skip_init:
+                    init_top = indent if init_top is None else init_top
+                    if indent == init_top and statement_word(line) == "image":
+                        # An ATL block under it is read with it; the
+                        # init block's skip covers any other.
+                        i, _opens = _image_statement(
+                            raw_lines, i, line,
+                            line[len("image"):].strip(), indent, relname,
+                            source, result)
+                        continue
                 if mentions_audio(line):
                     result.reports.append(Report(
                         source, line, f"audio inside a skipped "
@@ -1884,10 +1986,12 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
             rest = rest[1:].strip()
 
         def open_block() -> None:
-            nonlocal skip_indent, skip_opener
+            nonlocal skip_indent, skip_opener, skip_init, init_top
             if line.endswith(":"):
                 skip_indent = indent
                 skip_opener = keyword
+                skip_init = bool(_INIT_BLOCK_RE.fullmatch(line))
+                init_top = None
 
         if _is_creator_statement(line, result.creator_statements):
             result.reports.append(Report(source, line, CREATOR_STATEMENT))
@@ -1938,34 +2042,18 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
         if keyword in _QUIET_STATEMENT_KEYWORDS:
             continue
         if keyword == "image":
-            head, defined = _split_image_def(rest)
-            if defined is None and rest.endswith(":"):
-                # `image name:` opens an ATL block: a frame list is an
-                # animation (docs/plan.md Phase 60 item 8), other ATL is
-                # reported with the statement named.
-                head = _name_tokens(rest[:-1])
-                block, i = _gather_block(raw_lines, i, indent)
-                image, notes = read_atl_image(block, relname, source)
-                for note in notes:
-                    note.statement = note.statement or line
-                result.reports.extend(notes)
-                if image is not None:
-                    result.image_defs[head] = ("atl", image)
-                continue
-            if defined is None:
-                result.reports.append(
-                    Report(source, line, "image without a file"))
-            else:
-                result.image_defs[head] = defined
-            # `image x:` opens an ATL block, whose quoted frames are not
-            # lines of dialogue.
-            open_block()
+            i, opens = _image_statement(raw_lines, i, line, rest, indent,
+                                        relname, source, result)
+            if opens:
+                # `image x:` opens an ATL block, whose quoted frames are
+                # not lines of dialogue.
+                open_block()
             continue
         if keyword == "scene":
-            name = _name_tokens(rest)
-            events.append(
-                Event("visual", source, name=name or "black",
-                      transition=with_clause(rest)))
+            events.append(_visual_event(source, rest, "black"))
+            if line.endswith(":"):
+                # `scene x:`: an ATL block, whose lines are no statements.
+                open_block()
             continue
         if keyword == "show":
             if rest.startswith("layer "):
@@ -1981,13 +2069,15 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
                 result.reports.append(Report(source, line, SHOW_SCREEN))
                 _screen_event(events, source, line)
                 continue
-            name = _name_tokens(rest)
-            if name:
-                events.append(
-                    Event("visual", source, name=name,
-                          transition=with_clause(rest)))
+            visual = _visual_event(source, rest, None)
+            if visual.name:
+                events.append(visual)
             else:
                 result.reports.append(Report(source, line, "show without an image"))
+            if line.endswith(":"):
+                # `show x:` with an ATL block names x (docs/plan.md Phase
+                # 60 item 9n); the block's lines are no statements.
+                open_block()
             continue
         if keyword == "hide":
             result.reports.append(

@@ -150,6 +150,21 @@ class ImplicitImages:
                 return ledger, path, ref, len(members)
         return None
 
+    def automatic_names(self) -> list[str]:
+        """Every name Ren'Py's "Images Directory" rule gives a file,
+        loose ones and archive members (their index only, nothing
+        extracted), sorted: the images a say statement's attributes
+        choose among with the `image` definitions (docs/plan.md Phase 60
+        item 9n)."""
+        if self._by_key is None:
+            self._index()
+        assert self._by_auto is not None
+        names = set(self._by_auto)
+        if self._archives is not None:
+            names.update(n for n in map(automatic_name, self._archives.keys())
+                         if n is not None)
+        return sorted(names)
+
 
 def automatic_name(rel: str) -> str | None:
     """The image name Ren'Py gives a file under ``images/`` (its "Images

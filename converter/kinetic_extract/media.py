@@ -16,7 +16,9 @@ from typing import Any
 
 from . import media_tools
 
-IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif", "jxl"}
+# The still formats a script's image name or file may name (AVIF since
+# docs/plan.md Phase 60 item 9n, as Ren'Py's images folder reads it).
+IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif", "jxl", "avif"}
 VIDEO_EXTS = {"mp4", "webm", "mkv", "mov", "m4v"}
 DEFAULT_SIZE = (1280, 720)
 

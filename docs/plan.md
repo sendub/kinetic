@@ -5083,6 +5083,16 @@ The orchestrator's choices, within those decisions:
     whose visual still does not resolve is kept over the last visual,
     reported, instead of dropped. Tests: one per form; the demo's
     golden unchanged where none applies.
+9n2. Pictures the converter still misses (leads from item 9n). A line
+    before any picture shows over black, as Ren'Py's empty scene does
+    (a black still at the game's size), instead of a first `text` item
+    the validator refuses. Single-quoted ATL frames and `pause (N)`
+    frame lists animate as other frame lists do. `show e happy` on a
+    shown tag applies Ren'Py's attribute choice as say lines do (item
+    9m). Literal `renpy.image("name", "file")` calls define images. An
+    `image x = Movie(play="f")` shown, or played with `play movie`, is
+    that video, as other videos ship. Tests: one per form; the demo's
+    golden unchanged where none applies.
 9o. Menus no longer kept linear (about 49,000 lines lost, 75,000 read
     in a row, in 43 games). A conditional choice (`"x" if cond:`)
     becomes a route labelled with its condition in words, as a counter
@@ -5109,7 +5119,11 @@ The orchestrator's choices, within those decisions:
     variable's value where the converter knows it: a `define` or
     `default` string, a `renpy.input` with its default; per language
     where the translation keeps `[var]`. An unknown one stays, reported
-    by `kinetic report`. Tests: substitution in lines, speakers and
+    by `kinetic report`. Image names holding `[var]` (`show
+    e_[outfit]`, a file named with one) resolve with the same known
+    values, so their lines show the right picture instead of staying
+    over the last one (item 9n's lead: about 3,800 lines in one corpus
+    game). Tests: substitution in lines, speakers, image names and
     translations.
 9r. The picture at a join follows the reader's path (the user,
     2026-11-27, moved here from docs/future.md). A `text` item shows the
@@ -5121,8 +5135,11 @@ The orchestrator's choices, within those decisions:
     longest route holding seen content. Rewind, bookmarks, thumbnails,
     the map's previews and reloads use the same path; an older player
     keeps array order. docs/content-format.md (Text items, Timing)
-    states the rule. Tests: the visual resolution at joins after routes
-    ending on different pictures, a span, a nested join, a reload and a
+    states the rule. The converter's own picture state at a join (for
+    item 9m's attribute choice and item 9n's lines kept over the last
+    visual) is the routes' common picture, or unknown where they differ,
+    not the last route's (item 9n's lead). Tests: the visual resolution
+    at joins after routes ending on different pictures, a span, a nested join, a reload and a
     bookmark; a scenario part.
 9j. Fixtures and docs for shared spans. `fixtures/renpy_demo` gains a
     failure scene reached from a choice and a nested choice;
@@ -5133,7 +5150,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

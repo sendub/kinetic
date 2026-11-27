@@ -7,7 +7,8 @@ finds: even pauses give `fps` alone, mixed pauses `frameSeconds` with
 `fps` their average; a bare `repeat` loops, `repeat N` plays N loops and
 holds, no `repeat` plays once and holds. A per-frame `with` is a cut and
 a `function` is dropped, each reported; any other ATL keeps the block
-`image without a file`, the statement named. A one-frame block is that
+`image without a file`, the statement named (a show of it shows its
+first picture, Phase 60 item 9n). A one-frame block is that
 frame as a still, its properties reported as not applied.
 """
 
@@ -164,7 +165,8 @@ def test_other_atl_stays_an_image_without_a_file_naming_it() -> None:
                 '    "b.png"\n    pause 0.5\n' + extra)
         parsed, image = atl(text)
         assert image is None, extra
-        assert "busy" not in parsed.image_defs, extra
+        # Not a frame list: a show of it shows its first picture (item 9n).
+        assert parsed.image_defs["busy"][0] == "atl-other", extra
         (reason,) = [r for r in reasons(parsed)
                      if r.startswith("image without a file")]
         assert f"`{named}`" in reason, (extra, reason)
@@ -352,8 +354,10 @@ def test_extract_ships_animations_and_keeps_their_lines(
         assert (out_dir / ref).read_bytes() == (out / ref).read_bytes()
 
 
-def test_an_unresolved_frame_drops_the_animation_naming_it(
+def test_an_unresolved_frame_leaves_the_visual_naming_it(
         tmp_path: Path) -> None:
+    """The animation is not shown; its line is kept over the picture
+    before it (Phase 60 item 9n), the report naming the frame."""
     game = tmp_path / "proj" / "game"
     (game / "images").mkdir(parents=True)
     Image.new("RGB", (32, 18), (1, 2, 3)).save(game / "images" / "bg.png")
@@ -369,9 +373,9 @@ def test_an_unresolved_frame_drops_the_animation_naming_it(
     with redirect_stdout(StringIO()):
         assert cli_main([str(game.parent), str(out)]) == 0
     manifest = json.loads((out / "manifest.json").read_text("utf-8"))
-    assert [i.get("text") for i in manifest["items"]] == ["Before.",
-                                                          "After."]
+    assert [(i["type"], i.get("text")) for i in manifest["items"]] == [
+        ("image", "Before."), ("text", "Lost."), ("image", "After.")]
     ledger = json.loads((out / "build-ledger.json").read_text("utf-8"))
     (reason,) = [r["reason"] for r in ledger["report"]
                  if r["statement"] == "ani"]
-    assert reason.startswith("droppedUnresolved") and "nowhere.png" in reason
+    assert reason.startswith("unresolvedVisual") and "nowhere.png" in reason

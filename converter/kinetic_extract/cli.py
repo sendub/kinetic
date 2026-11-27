@@ -156,12 +156,14 @@ SIMPLIFICATIONS = [
     "wrapped images drop their item, recorded in the ledger",
     "compiled-only .rpyc sources (no .rpy twin) are decompiled in memory "
     "via the vendored unrpyc; a .rpy twin always wins over a stale .rpyc",
-    "image names resolve like Ren'Py's: explicit `image` defs first, then "
-    "loose files under game/ and .rpa members by path or basename "
-    "(implicit registration; ambiguous basenames take the first match in "
-    "sorted order and are noted), and an item whose visual resolves "
-    "nowhere is dropped (ledger droppedUnresolved), never shipped as a "
-    "missing-file placeholder",
+    "image names resolve like Ren'Py's: explicit `image` defs first (a "
+    "string an image name, a file or a colour; another displayable its "
+    "first picture that resolves, noted), then loose files under game/ "
+    "and .rpa members by path or basename (implicit registration; "
+    "ambiguous basenames take the first match in sorted order and are "
+    "noted), file names in any case; a visual that resolves nowhere "
+    "leaves the picture on screen, its lines kept over it (ledger "
+    "unresolvedVisual), never shipped as a missing-file placeholder",
     "audio statements attach to the next item emitted (a dropped item's "
     "pass to the next item kept); every file a kept item's cue names "
     "ships by the audio policy, and a track that ships nothing or starts "
@@ -1170,7 +1172,8 @@ def _walk_project(project: Path, args: argparse.Namespace
                             implicit_lookup=implicit.lookup,
                             audio_files=AudioFiles(game_dir, asset_archives),
                             also_labels=args.also_label,
-                            include_unreached=args.include_unreached)
+                            include_unreached=args.include_unreached,
+                            automatic_names=implicit.automatic_names)
     if asset_archives.failed:
         sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
     translations = (read_project(game_dir, result.items, args.language_map,

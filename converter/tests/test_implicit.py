@@ -266,6 +266,9 @@ def test_symlinked_game_dir_extracts(tmp_path: Path) -> None:
 # --- BUG 1: unresolved visuals drop ------------------------------------------
 
 def test_unresolved_visual_drops_item_and_its_lines(tmp_path: Path) -> None:
+    """With no picture before it, a line under a visual that resolves
+    nowhere drops with it (after one, Phase 60 item 9n keeps it over
+    that picture: test_picture_forms)."""
     proj = make_project(tmp_path,
                         "label start:\n"
                         "    scene nowhere\n"
@@ -276,7 +279,8 @@ def test_unresolved_visual_drops_item_and_its_lines(tmp_path: Path) -> None:
     assert cli_main([str(proj), str(out), "--label", "start"]) == 0
     assert manifest_of(out)["items"] == []
     reasons = [r["reason"] for r in ledger_of(out)["report"]]
-    assert sum("droppedUnresolved" in r for r in reasons) == 3  # + 2 lines
+    assert sum("droppedUnresolved" in r for r in reasons) == 2  # its lines
+    assert sum(r.startswith("unresolvedVisual") for r in reasons) == 1
     # The empty folder is a VALID content folder, exit 0.
     assert validate_content.validate_folder(out) == []
     proc = subprocess.run(

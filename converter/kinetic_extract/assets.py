@@ -19,7 +19,8 @@ file extensions - corpus extensions lie. Policies:
 - An animation's frames (``ItemRecord.frames``, docs/plan.md Phase 60
   item 8) ship one by one by the image rule, as image items' files do;
   the item's ``frames`` are their shipped paths.
-- Other image formats (bmp, tiff, ...) are decoded with Pillow; the smallest
+- Other image formats (bmp, tiff, avif, ...) are decoded with Pillow (an
+  AVIF sequence's first frame, the picture Ren'Py shows); the smallest
   of (PNG, JPEG q92, JXL) ships, lossless-first when the image
   has alpha (PNG or JXL only).
 - Wrapped/obfuscated images (a PNG/JPEG signature inside the first 64
@@ -143,8 +144,10 @@ _IMAGE_MAGICS: list[tuple[bytes, str]] = [
 _RIFF_WEBP = b"WEBP"
 _CARVE_MAGICS = [(b"\x89PNG\r\n\x1a\n", "png"), (b"\xff\xd8\xff", "jpeg")]
 
+# AVIF decodes through the pinned Pillow's own plugin and converts as BMP
+# and TIFF do (docs/plan.md Phase 60 item 9n).
 _PIL_FORMATS = {"PNG": "png", "JPEG": "jpeg", "GIF": "gif", "WEBP": "webp",
-                "BMP": "bmp", "TIFF": "tiff"}
+                "BMP": "bmp", "TIFF": "tiff", "AVIF": "avif"}
 
 # The measured video rule (docs/plan.md Phase 26, "Video playability
 # measured, not assumed"): Safari 26.6.2 on an M2 and headless Chrome 156,
