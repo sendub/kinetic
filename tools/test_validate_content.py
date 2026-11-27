@@ -617,6 +617,88 @@ def test_animation_hold_last_frame_must_be_boolean(folder: Path) -> None:
         f"manifest.json: items[{ANIM}].holdLastFrame:")
 
 
+# Phase 60 item 9n4: a video that plays once and holds its last frame.
+
+VID = f"manifest.json: items[{VIDEO}]"
+
+
+def held_video_problems(folder: Path, **fields: Any) -> list[str]:
+    """Problems of the demo with the video item's fields set; a
+    `lastFrame` of "LAST" names a still that is in the folder."""
+    manifest = read_manifest(folder)
+    video = manifest["items"][VIDEO]
+    if fields.get("lastFrame") == "LAST":
+        shutil.copyfile(folder / video["poster"],
+                        folder / "video-chain.last.jpg")
+        fields["lastFrame"] = "video-chain.last.jpg"
+    video.update(fields)
+    write_manifest(folder, manifest)
+    return problems_of(folder)
+
+
+def test_video_hold_last_frame_with_its_still_passes(folder: Path) -> None:
+    assert held_video_problems(folder, holdLastFrame=True,
+                               lastFrame="LAST") == []
+    proc = run_cli(folder)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_video_hold_last_frame_with_a_range_passes(folder: Path) -> None:
+    """The last frame is the range's end: a range and a loop start are
+    allowed with it."""
+    assert held_video_problems(folder, holdLastFrame=True, lastFrame="LAST",
+                               startSeconds=0.5, endSeconds=1.5,
+                               loopStartSeconds=1.0, loopCount=2) == []
+
+
+def test_video_hold_last_frame_false_passes(folder: Path) -> None:
+    assert held_video_problems(folder, holdLastFrame=False) == []
+
+
+def test_video_hold_last_frame_must_be_boolean(folder: Path) -> None:
+    problems = held_video_problems(folder, holdLastFrame="yes",
+                                   lastFrame="LAST")
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{VID}.holdLastFrame:")
+
+
+def test_video_hold_last_frame_needs_its_still(folder: Path) -> None:
+    assert held_video_problems(folder, holdLastFrame=True) == [
+        f"{VID}.lastFrame: required when holdLastFrame is true"]
+
+
+def test_video_last_frame_only_with_hold_last_frame(folder: Path) -> None:
+    assert held_video_problems(folder, lastFrame="LAST") == [
+        f"{VID}.lastFrame: only with holdLastFrame true"]
+    assert held_video_problems(folder, lastFrame="LAST",
+                               holdLastFrame=False) == [
+        f"{VID}.lastFrame: only with holdLastFrame true"]
+
+
+def test_video_last_frame_must_be_in_the_folder(folder: Path) -> None:
+    problems = held_video_problems(folder, holdLastFrame=True,
+                                   lastFrame="missing.last.jpg")
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{VID}.lastFrame:")
+    assert "missing.last.jpg" in problems[0]
+
+
+def test_video_last_frame_must_be_an_image(folder: Path) -> None:
+    problems = held_video_problems(folder, holdLastFrame=True,
+                                   lastFrame="video-chain.mp4")
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{VID}.lastFrame:")
+
+
+def test_video_hold_last_frame_is_refused_with_segments(folder: Path
+                                                        ) -> None:
+    problems = segment_problems(folder, [segment(0, 5), segment(6, 10)],
+                                holdLastFrame=True)
+    assert problems == [
+        f"{VID}.holdLastFrame: not allowed with segments",
+        f"{VID}.lastFrame: required when holdLastFrame is true"]
+
+
 @pytest.mark.parametrize("field,value", [("frameSeconds", [1.0]),
                                          ("holdLastFrame", True)])
 def test_animation_timing_fields_only_on_animations(

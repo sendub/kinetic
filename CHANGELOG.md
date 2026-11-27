@@ -255,7 +255,7 @@ something more of an author.
   chooses an image by its attributes; literal `renpy.image("name",
   "file")` calls define images; and a `Movie(...)` image is its video,
   its `play` file or what `play movie` plays, the Movie arguments a
-  video item cannot hold (`loop=False`, `size`, `mask`) noted in the
+  video item cannot hold (`size`, `mask`) noted in the
   ledger (docs/extracting.md, "Finding a script's files").
 - A shown solid colour (`scene black`, `scene white`, `image flash =
   "#fff"`, `Solid((r, g, b))`) is a still of that colour at the game's
@@ -268,9 +268,20 @@ something more of an author.
   and a say statement's attributes take an image named as they are
   written (`e happy` shows `eve happy`) before Ren'Py's attribute
   choice (docs/extracting.md, "Finding a script's files").
+- A video can play once and hold its last frame: a video item's
+  optional `holdLastFrame` plays its `loopCount` passes beneath its
+  lines and then holds paused at the end instead of looping on, and its
+  `lastFrame` still (required with it) shows on its lines after a
+  reload, rewind, skip or jump and in thumbnails, as an animation's
+  held frame does; the validator refuses it with `segments`
+  (docs/content-format.md, "Text items", rule 31). A `Movie(...,
+  loop=False)` image converts to one, its last frame shipped as that
+  still and recorded in the ledger for `kinetic media rebuild`, and
+  `kinetic media ship` takes `"lastFrame": true` on a video request.
+  An older player loops the video on and never shows the still.
 - **Upgrading:** a folder you keep as converted needs nothing; its
-  player reads `follows`, `frameSeconds` and `holdLastFrame` once
-  upgraded. Converting a Ren'Py game again with this release gains its
+  player reads `follows`, `frameSeconds`, `holdLastFrame` and
+  `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its
   jump menus, conditions, one-choice lines and frame-by-frame
   animations, with the lines and sound that went with them, and its
   converted menus continue at their joins instead of being pure

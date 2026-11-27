@@ -5120,6 +5120,14 @@ The orchestrator's choices, within those decisions:
     colours (`"#000"` then `pause 1`) animate with generated frames; a
     `show black:` (or any solid) with an ATL `alpha` follows item 9n3's
     translucent rule. Tests: one per form.
+9n6. Held videos repeated and checked (leads from item 9n4). Where the
+    converter repeats a held video's picture (a route's start, as it
+    repeats a held animation as a still of its last frame), it shows the
+    video's `lastFrame` as a still instead of replaying the video.
+    `kinetic media posters` checks each held video's `lastFrame`
+    against the range's last frame too, and `--fix --remap` ships the
+    right one. Tests: a route opening after a held video, and the
+    checker finding and fixing a wrong `lastFrame`.
 9o. Menus no longer kept linear (about 49,000 lines lost, 75,000 read
     in a row, in 43 games). A conditional choice (`"x" if cond:`)
     becomes a route labelled with its condition in words, as a counter
@@ -5177,7 +5185,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n5 -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n5 -> 9n6 -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

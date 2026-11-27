@@ -817,6 +817,23 @@ export function animationStillFrame(
 }
 
 /**
+ * The picture a video shows as a still (rewind, skip, a `nav` arrival below
+ * the seen edge, a bookmark's thumbnail): its `poster` on its own item, and
+ * on a `text` item after it its `lastFrame` when it holds that
+ * (`holdLastFrame`, docs/content-format.md "Text items"), else the poster
+ * too, as it is when a held video has no `lastFrame` (a folder the
+ * validator refuses).
+ */
+export function videoStillFrame(
+  item: Pick<VideoItem, "poster" | "lastFrame" | "holdLastFrame">,
+  onText: boolean,
+): string {
+  return onText && item.holdLastFrame === true && item.lastFrame !== undefined
+    ? item.lastFrame
+    : item.poster;
+}
+
+/**
  * Auto-advance delay for an item, in ms: the time the item must be on screen
  * before it may complete. `nextIsText` marks a media item whose following
  * item is `text`: the chain advances on text holds alone, so an animation's

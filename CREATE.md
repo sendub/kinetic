@@ -1123,12 +1123,17 @@ Kinetic). Each item has a unique
   in auto mode the player waits at the end of the chain until that
   many seconds have passed since the video became current. Manual
   advance and skip transitions stay immediate, and outside a chain
-  the field does nothing.
+  the field does nothing. Set `holdLastFrame: true`, with `lastFrame`
+  a display-resolution still of the range's last frame (the file's
+  last frame without `endSeconds`), to hold the video at its end after
+  its passes, under the lines after it too, instead of looping on;
+  those lines show `lastFrame` in skip, rewind and after a reload. It
+  takes no `segments`.
 - `text`: no media fields; only `id`, `type`, and the optional
   `speaker`, `text`, and `thought`. It shows the visual of the nearest
   earlier media item, and that video or animation keeps looping
-  underneath it (an animation with `holdLastFrame` plays its loops and
-  then holds its last frame).
+  underneath it (an animation or a video with `holdLastFrame` plays its
+  loops or passes and then holds its last frame).
   A `text` chain advances on text holds alone, never gated on media
   end. The first item may not be `text`, and a `text` item needs a
   media item before it.

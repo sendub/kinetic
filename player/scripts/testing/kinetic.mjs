@@ -1058,7 +1058,8 @@ export function summary(now) {
  * The files the items `ids` of `manifest` reference, as checkMedia()'s
  * `items` checks them: `[{ path, kind }]`, each path once, in item order,
  * paths as the manifest names them. An item's picture or video (`file`),
- * a video's `poster`, every animation frame (kind "picture" or "video"),
+ * a video's `poster` and `lastFrame`, every animation frame (kind
+ * "picture" or "video"),
  * then each audio track the item names (music, ambience, one-shots,
  * voice, video sound) as the script the player reads, `<file>.js` (kind
  * "audio"). Ids the manifest lacks and undeclared tracks are skipped.
@@ -1079,6 +1080,7 @@ export function referencedFiles(manifest, ids) {
     if (it === undefined) continue;
     add(it.file, it.type === "video" ? "video" : "picture");
     add(it.poster, "picture");
+    add(it.lastFrame, "picture");
     for (const frame of Array.isArray(it.frames) ? it.frames : []) {
       add(frame, "picture");
     }

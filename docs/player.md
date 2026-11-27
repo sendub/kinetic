@@ -46,9 +46,10 @@ breaks, written with Ren'Py's own text tags (`{i}`, `{b}`, `{u}`, `{s}`,
 `{nw}`, `{fast}`, `{cps}`) are left out.
 
 Pictures, animations (a few pictures looped) and videos fill the screen
-without stretching. An animation loops under the lines said over it, or
-plays its loops and then holds its last picture under them; skipping,
-rewinding or jumping onto one of those lines shows that last picture.
+without stretching. An animation or a video loops under the lines said
+over it, or plays its loops (a video, its passes) and then holds its
+last picture under them; skipping, rewinding, reloading or jumping onto
+one of those lines shows that last picture.
 A picture can dissolve in over the one before, or fade through black.
 A transition never holds up the text: the line shows at once, any key
 ends the transition and does its own job, and skip, the wheel, jumps, a
@@ -499,7 +500,8 @@ Authors build them with `kinetic apps` (CREATE.md, "Building the apps").
   JPEG XL, which needs Chrome or Edge 117+, Safari 17+ or Firefox 133+.
 - Videos can set a loop count, a display duration, a start/end range
   (with that range's own poster), a loop restart point, a minimum play
-  time (in auto mode the dialogue over it waits for the clip), and
+  time (in auto mode the dialogue over it waits for the clip), playing
+  once and holding the last frame under its lines, and
   camera views in one file that the reader steps through after the
   lines. Several items can share one video file.
 - Sound tracks are MP3, M4A (AAC), WAV, FLAC or WebM (Vorbis or Opus).

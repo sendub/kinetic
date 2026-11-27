@@ -971,6 +971,47 @@ def poster_step(start_seconds: float) -> dict[str, Any]:
             "mode": "RGB", "png": dict(POSTER_PNG_PARAMS)}
 
 
+# How far before a last frame's range end its recipe first decodes from
+# (`last_frame_step`): frames before it are decoded and dropped, the rest
+# each written over the one before, so the file left is the last.
+LAST_FRAME_WINDOW_SECONDS = 1.0
+
+
+def last_frame_args(end_seconds: float | None,
+                    from_seconds: float | None) -> list[str]:
+    """The last frame before `end_seconds` (exact output times; None: the
+    file's last frame) as bitexact PNG: every frame from `from_seconds`
+    (None: the start) on is written over the one before (``-update 1``),
+    so the frame left is the last one with a time below the end."""
+    return [*media_tools.FFMPEG_GLOBAL, "-y",
+            *media_tools.FFMPEG_DECODE, "-i", INPUT,
+            *(["-ss", f"{from_seconds:.6f}"] if from_seconds else []),
+            *(["-to", f"{end_seconds:.6f}"] if end_seconds is not None
+              else []),
+            "-an", "-update", "1",
+            *media_tools.FFMPEG_ENCODE, OUTPUT]
+
+
+def last_frame_step(end_seconds: float | None, near: float | None
+                    ) -> dict[str, Any]:
+    """The ledger recipe of a video's last-frame still (docs/content-
+    format.md, "Text items"): the frame before ``endSeconds`` (null: the
+    file's last frame), made as a poster is (ffmpeg ``args`` writing a
+    ``frameFormat`` file, Pillow converting it to ``mode`` and saving PNG
+    with the ``png`` params), then the image rule as its own step.
+    `near`, the range's end in seconds (the file's duration when
+    `end_seconds` is None), starts the decode `LAST_FRAME_WINDOW_SECONDS`
+    before it; None decodes from the start (`extract_last_frame` falls
+    back to it when the window holds no frame). `run_poster_step` runs
+    exactly this dict."""
+    start = None if near is None else max(
+        0.0, near - LAST_FRAME_WINDOW_SECONDS)
+    return {"step": "lastFrame", "endSeconds": end_seconds,
+            "args": last_frame_args(end_seconds, start),
+            "frameFormat": "png", "mode": "RGB",
+            "png": dict(POSTER_PNG_PARAMS)}
+
+
 def jpeg_poster_step(start_seconds: float) -> dict[str, Any]:
     """The lossy JPEG poster recipe ledgers recorded before lossless
     posters. Nothing new ships with it; ``run_poster_step`` still runs it
@@ -1010,6 +1051,30 @@ class Poster:
     data: bytes = b""
     steps: list[dict[str, Any]] | None = None
     error: str | None = None
+
+
+def extract_last_frame(source: Path, end_seconds: float | None,
+                       near: float, cache: MediaCache | None = None,
+                       digest: str | None = None) -> Poster:
+    """The last-frame still of video `source`: the frame before
+    `end_seconds` (None: its last frame; `near`, that end in seconds,
+    starts the decode near it, and from the file's start when that
+    finds no frame), then the image rule, as `extract_poster` makes a
+    poster. `cache` (with `digest`) is the reuse cache."""
+    digest = digest or sha256_file(source)
+    error = None
+    for step in (last_frame_step(end_seconds, near),
+                 last_frame_step(end_seconds, None)):
+        with tempfile.TemporaryDirectory() as td:
+            png = Path(td) / "last.png"
+            error = file_step_cached(cache, step, source, digest, png)
+            if error is not None:
+                continue
+            data = png.read_bytes()
+        ext, out, _, _, image_steps = decide_image_cached(
+            cache, data, hashlib.sha256(data).hexdigest(), "png", False)
+        return Poster(ext, out, [step, *image_steps])
+    return Poster(error=error)
 
 
 def extract_poster(source: Path, start_seconds: float,
@@ -1120,7 +1185,7 @@ def file_step_ext(step: dict[str, Any]) -> str:
     """The extension of the file a file step writes: a poster's image
     format; for ffmpeg steps the ``-f`` muxer's (``ipod`` is ``.m4a``),
     and ``mp4`` for a video transcode, which names no muxer."""
-    if step.get("step") == "poster":
+    if step.get("step") in ("poster", "lastFrame"):
         return {"png": "png", "jpeg": "jpg"}[poster_format(step)]
     args = step.get("args") or []
     at = args.index("-f") + 1 if "-f" in args else len(args)
@@ -1306,7 +1371,7 @@ IMAGE_STEPS = ("carve", "preserve", "convert", "jxl")
 # A step that makes a picture from nothing: a generated source's
 # (docs/plan.md Phase 60 item 9n2).
 GENERATED_STEPS = ("solid",)
-FILE_STEPS = ("transcode", "remux", "extract", "poster")
+FILE_STEPS = ("transcode", "remux", "extract", "poster", "lastFrame")
 _PIL_SAVE = {"png": "PNG", "jpeg": "JPEG"}
 
 
@@ -1407,14 +1472,15 @@ def run_generated(steps: list[dict[str, Any]], work: Path) -> Path:
 
 def run_file_step(step: dict[str, Any], source: Path,
                   out: Path) -> str | None:
-    """One file ledger step (transcode, remux, extract, poster) from
+    """One file ledger step (transcode, remux, extract, poster,
+    lastFrame) from
     `source` to `out`: None on success, else what failed. StepError when
     unsupported."""
     name = step.get("step")
     if name in ("transcode", "remux", "extract"):
         error = ffmpeg_error(step["args"], source, out)
         return None if error is None else f"ffmpeg: {error}"
-    if name == "poster":
+    if name in ("poster", "lastFrame"):
         return run_poster_step(step, source, out)
     raise _unsupported(step)
 
@@ -1499,7 +1565,8 @@ def _step_tools(step: dict[str, Any]) -> tuple[str, ...]:
     return {"convert": ("Pillow",), "solid": ("Pillow",),
             "transcode": ("ffmpeg",),
             "remux": ("ffmpeg",), "extract": ("ffmpeg",),
-            "poster": ("ffmpeg", "Pillow")}.get(name, ())
+            "poster": ("ffmpeg", "Pillow"),
+            "lastFrame": ("ffmpeg", "Pillow")}.get(name, ())
 
 
 def steps_tools(steps: list[dict[str, Any]],
@@ -1703,14 +1770,18 @@ def _source(record: ItemRecord, digest: str, size: int) -> dict[str, Any]:
 
 
 def _set_media(item: dict[str, Any], file: str,
-               poster: str | None = None) -> None:
-    """Set ``file`` (and ``poster``) right after ``id``/``type``, so the
-    manifest's key order stays id, type, file, poster, then the rest."""
+               poster: str | None = None,
+               last_frame: str | None = None) -> None:
+    """Set ``file`` (and ``poster``, ``lastFrame``) right after
+    ``id``/``type``, so the manifest's key order stays id, type, file,
+    poster, lastFrame, then the rest."""
     rest = {k: v for k, v in item.items()
-            if k not in ("id", "type", "file", "poster")}
+            if k not in ("id", "type", "file", "poster", "lastFrame")}
     head = {"id": item["id"], "type": item["type"], "file": file}
     if poster is not None:
         head["poster"] = poster
+    if last_frame is not None:
+        head["lastFrame"] = last_frame
     item.clear()
     item.update(head | rest)
 
@@ -2049,6 +2120,30 @@ class _Ahead:
             made.data = b""
         return made, out
 
+    def last_frame(self, source: Path, end: float | None, near: float,
+                   digest: str) -> None:
+        self.workers.submit(("lastFrame", digest, end), self._last_frame,
+                            source, end, near, digest,
+                            self._file("lastFrame"))
+
+    def _last_frame(self, source: Path, end: float | None, near: float,
+                    digest: str, out: Path) -> tuple[Poster, Path]:
+        made = extract_last_frame(source, end, near, self.cache, digest)
+        if made.error is None:
+            out.write_bytes(made.data)
+            made.data = b""
+        return made, out
+
+    def take_last_frame(self, digest: str,
+                        end: float | None) -> Poster | None:
+        key = ("lastFrame", digest, end)
+        if not self.workers.has(key):
+            return None
+        made, out = self.workers.result(key)
+        if made.error is not None:
+            return made
+        return Poster(made.ext, _take_file(out), made.steps)
+
     def take_poster(self, digest: str, start: float) -> Poster | None:
         key = ("poster", digest, start)
         if not self.workers.has(key):
@@ -2099,6 +2194,7 @@ def _plan_ahead(records: list[ItemRecord], run: _Pass) -> None:
     ahead = run.ahead
     assert ahead is not None
     planned_posters: set[str] = set()
+    planned_last: set[tuple[str, float | None]] = set()
     planned_videos: set[str] = set()
     planned_audio: set[tuple[str, bool]] = set()
     for record in _media_records(records):
@@ -2128,6 +2224,16 @@ def _plan_ahead(records: list[ItemRecord], run: _Pass) -> None:
             frame = found.steps + [poster_step(start)]
             if not run.placed.recorded("poster", found.sha256, frame):
                 ahead.poster(found.path, start, digest)
+        if record.item.get("holdLastFrame") is True:
+            end, near = _last_frame_end(record.item)
+            last_key = (digest, end)
+            if last_key not in planned_last:
+                planned_last.add(last_key)
+                if not any(run.placed.recorded("lastFrame", found.sha256,
+                                               found.steps + [step])
+                           for step in (last_frame_step(end, near),
+                                        last_frame_step(end, None))):
+                    ahead.last_frame(found.path, end, near, digest)
         if digest in planned_videos:
             continue
         planned_videos.add(digest)
@@ -2308,9 +2414,69 @@ def _ship_video(record: ItemRecord, found: _Input, run: _Pass) -> int:
     else:
         poster, poster_steps = cached
     placed.record(poster, "poster", src, found.steps + poster_steps)
-    _set_media(record.item, shipped, poster)
+    last = None
+    if record.item.get("holdLastFrame") is True:
+        last = _ship_last_frame(record, found, run)
+        if last is None:
+            return 1
+    _set_media(record.item, shipped, poster, last)
     meta["poster"] = poster
+    if last is not None:
+        meta["lastFrame"] = last
     return 0
+
+
+def _last_frame_end(item: dict[str, Any]) -> tuple[float | None, float]:
+    """A held video's last-frame end: its ``endSeconds`` (None: the
+    file's end), and that end in seconds, its ``durationSeconds`` for
+    the file's."""
+    end = item.get("endSeconds")
+    end = float(end) if end is not None else None
+    return end, end if end is not None else float(item["durationSeconds"])
+
+
+def _ship_last_frame(record: ItemRecord, found: _Input,
+                     run: _Pass) -> str | None:
+    """Ship the last-frame still of a video that holds it
+    (``holdLastFrame``, docs/content-format.md "Text items"): the frame
+    before its ``endSeconds``, else its file's last frame, made once per
+    video and end, recorded in the ledger as ``lastFrame`` with its
+    recipe, as a poster is. None (the item dropped, noted) when it
+    cannot be made: a held video without its still would not validate."""
+    placed, share = run.placed, run.poster_share
+    end, near = _last_frame_end(record.item)
+    key = f"{found.digest}@last:{'file' if end is None else f'{end:.6f}'}"
+    cached = share.get(key)
+    if cached is None:
+        for step in (last_frame_step(end, near), last_frame_step(end, None)):
+            prior = placed.prior("lastFrame", found.sha256,
+                                 found.steps + [step])
+            if prior is not None:
+                cached = (prior[0], prior[1][len(found.steps):])
+                break
+        else:
+            made = (run.ahead.take_last_frame(found.digest, end)
+                    if run.ahead else None) \
+                or extract_last_frame(found.path, end, near, run.cache,
+                                      found.digest)
+            if made.error is not None:
+                cached = (None, made.error)
+            else:
+                ref, _ = placed.put_bytes(made.data, made.ext)
+                cached = (ref, made.steps or [])
+        share[key] = cached
+    if cached[0] is None:
+        note = (f"last frame failed for {record.asset}: {cached[1]}: item "
+                "dropped from manifest")
+        meta = record.asset_meta
+        meta["decision"] = "skipped"
+        meta["warning"] = note
+        record.notes.append(note)
+        record.skipped = True
+        return None
+    src = _source(record, found.sha256, found.size)
+    placed.record(cached[0], "lastFrame", src, found.steps + cached[1])
+    return cached[0]
 
 
 @dataclass

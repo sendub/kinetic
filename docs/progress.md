@@ -7063,8 +7063,39 @@ truthful: an unchecked box means nothing was accepted.
       first), test_branch_extract.py's "no items before" case now hangs
       off black. Orchestrator: converter/ 1467 passed,
       test_validate_content.py 536 passed.)
-- [ ] Videos that play once (item 9n4).
+- [x] Videos that play once (item 9n4).
+      (2026-11-27: a video item takes `holdLastFrame` with a required
+      `lastFrame` still (format rule 31; `lastFrame` only with it;
+      refused with `segments`; the range's last frame; file suffix
+      `.last`). The player plays its `loopCount` passes under its lines
+      and then holds the paused element; a line reached with no run
+      under way, rewind, skip, an `e` landing, bookmark and map
+      thumbnails (`videoStillFrame`) show `lastFrame`; an older player
+      loops. The converter writes it for `Movie(..., loop=False)`: a
+      `lastFrame` ledger step and media kind (ffmpeg from a second
+      before the end with `-update 1`, falling back to the whole file,
+      then the poster's image rule), rebuilt by `kinetic media rebuild`;
+      `kinetic media ship` takes `"lastFrame": true` on a video request.
+      Choices: the converter ships the still rather than the player
+      seeking; the live hold may sit one frame past `lastFrame` after a
+      range ending inside the file (documented). New self-test case
+      `ffmpeg.last-frame`; orchestrator recorded its golden with
+      `kinetic setup --repin ffmpeg.last-frame`:
+      8d3ccb4e2109d9758d8872fcc846de7effd39c48a688b4f9cd0e35bc4f55fcbf.
+      Open for the user before the closer: `ffmpeg.poster-frame` has
+      its own linux-x86_64 and windows-x86_64 goldens, so this case
+      likely needs `cpuDependent` too, which only the user extends.
+      Leads: a held video repeated at a route's start replays, and
+      `kinetic media posters` does not check `lastFrame` -> item 9n6.
+      Tests: 9 validator, 10 player unit, the Movie converter cases, 4
+      last-frame tests, media part `heldVideo` (failed first as noted
+      in the report). Orchestrator: npm test 1981 passed, npm run check
+      clean, smoke 6/6, media 36/36 Chrome and 36/36 WebKit, segments +
+      fileend + videosound 95/95 Chrome and 105/105 WebKit, converter/
+      1473 passed, test_validate_content.py + test_setup_media_tools.py
+      578 passed, setup self-test 24 cases passed.)
 - [ ] Solid colours in the last places (item 9n5).
+- [ ] Held videos repeated and checked (item 9n6).
 - [ ] Menus no longer kept linear (item 9o).
 - [ ] More `if` chains become decisions (item 9p).
 - [ ] Variables shown in text (item 9q).

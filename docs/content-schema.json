@@ -429,8 +429,8 @@
     },
     "path": {
       "type": "string",
-      "description": "a media file's path relative to the content folder root, forward-slash separated. Every segment is [A-Za-z0-9._-] and starts with a letter or digit, so there are no empty or dot-leading segments, no \"..\", no absolute path, no backslash, no drive letter or URL scheme, and no whitespace. Subfolders (the converter writes `media/<h[:2]>/<h>.<ext>`, `h` the sha256 of the shipped bytes) are allowed and optional; the last segment is still a flat file name — an id-shaped stem (a 64-hex digest fits), at most one derivative suffix (`.fNNN`, `.poster`, `.thumb`), then the extension. `imagePath` adds the browser image format extension list, `audioPath` the audio one; `videoPath` adds none.",
-      "pattern": "^(?!.*\\.\\.)(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*[A-Za-z0-9][A-Za-z0-9_-]{0,63}(?:\\.(?:f[0-9]{3}|poster|thumb))?\\.[A-Za-z0-9]+$"
+      "description": "a media file's path relative to the content folder root, forward-slash separated. Every segment is [A-Za-z0-9._-] and starts with a letter or digit, so there are no empty or dot-leading segments, no \"..\", no absolute path, no backslash, no drive letter or URL scheme, and no whitespace. Subfolders (the converter writes `media/<h[:2]>/<h>.<ext>`, `h` the sha256 of the shipped bytes) are allowed and optional; the last segment is still a flat file name — an id-shaped stem (a 64-hex digest fits), at most one derivative suffix (`.fNNN`, `.poster`, `.last`, `.thumb`), then the extension. `imagePath` adds the browser image format extension list, `audioPath` the audio one; `videoPath` adds none.",
+      "pattern": "^(?!.*\\.\\.)(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*[A-Za-z0-9][A-Za-z0-9_-]{0,63}(?:\\.(?:f[0-9]{3}|poster|last|thumb))?\\.[A-Za-z0-9]+$"
     },
     "imagePath": {
       "allOf": [
@@ -518,6 +518,14 @@
         "type": { "const": "video" },
         "file": { "$ref": "#/$defs/videoPath" },
         "poster": { "$ref": "#/$defs/imagePath" },
+        "lastFrame": {
+          "$ref": "#/$defs/imagePath",
+          "description": "a still of the range's last frame, which the lines after a video that holds it show where they would show the poster; required with holdLastFrame true and only with it, cross-field rules the validator enforces (docs/content-format.md, Text items)"
+        },
+        "holdLastFrame": {
+          "type": "boolean",
+          "description": "true: after loopCount passes the video holds paused at its range's end, under the text items after it too, instead of looping on; their stills show lastFrame; not with segments, a cross-field rule the validator enforces (docs/content-format.md, Text items)"
+        },
         "durationSeconds": {
           "type": "number",
           "exclusiveMinimum": 0

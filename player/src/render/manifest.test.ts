@@ -266,6 +266,30 @@ describe("media path resolution", () => {
     }
   });
 
+  it("checks a held video's lastFrame as it checks its poster (Phase 60 item 9n4)", () => {
+    const held = (lastFrame: string) => ({
+      schemaVersion: 1,
+      width: 960,
+      height: 540,
+      items: [
+        {
+          id: "once-007",
+          type: "video",
+          file: "media/cd/once-007.mp4",
+          poster: "media/cd/once-007.poster.jpg",
+          lastFrame,
+          holdLastFrame: true,
+          durationSeconds: 2,
+        },
+      ],
+    });
+    const good = held("media/cd/once-007.last.jpg");
+    expect(parseManifest(good, ROOT)).toBe(good);
+    expect(() => parseManifest(held("../once-007.last.jpg"), ROOT)).toThrow(
+      /media path /,
+    );
+  });
+
   it("resolves against the folder root when the page URL is the directory", () => {
     expect(resolveMediaPath("media/ab/window-004.jpg", FOLDER)).toBe(
       `${FOLDER}media/ab/window-004.jpg`,

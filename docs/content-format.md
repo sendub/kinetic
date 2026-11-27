@@ -235,6 +235,13 @@ Per type:
   `{startSeconds, loopStartSeconds?, endSeconds}`) lists the file's
   camera views, which Space steps through after the item's lines;
   Video segments below covers it, and no other item type takes it.
+  Optional `holdLastFrame` (boolean, default false), as an animation's,
+  when true holds the video paused at the end of its `loopCount`-th
+  pass, under the `text` items after it too, instead of looping on
+  (Text items); it needs `lastFrame` (a still image of the range's last
+  frame, the frame before `endSeconds`, or the file's last frame without
+  one), which comes only with it, and it takes no `segments`. An older
+  player loops it on there and never shows `lastFrame`.
   Measured 2026-11-02 (Safari 26.6.2 on an
   M2, headless Chrome 156; a probe page of container x codec samples
   counting decoded frames), video track only, since the player plays
@@ -310,16 +317,35 @@ shows the visual of the nearest earlier item that bears media: an image
 file, an animation, or a video. That visual keeps playing while the
 current item is `text` or the next item is `text`: a video loops, an
 animation keeps looping, and an advance within such a chain is never
-gated on media end. An animation with `holdLastFrame` is the exception:
-from its own item it plays its `loopCount` loops on beneath its lines
-and then holds its last frame there, and a line reached while no run of
-it is under way (after a still, a reload, a route entry) shows that last
-frame and plays nothing. Rewind, skip, and an `e` landing on a `text`
-item show that visual as a still: a video's `poster`, an animation's
-`frames[0]`, or the last frame of an animation with `holdLastFrame`. The
-animation's own item shows `frames[0]` as its still either way. The
-first item may not be `text`, and a `text` item only makes sense after
-some media-bearing item.
+gated on media end. An animation or a video with `holdLastFrame` is the
+exception: from its own item it plays its `loopCount` loops (a video,
+its `loopCount` passes) on beneath its lines and then holds its last
+frame there, and a line reached while no run of it is under way (after
+a still, a reload, a route entry) shows that last frame and plays
+nothing. Rewind, skip, and an `e` landing on a `text` item show that
+visual as a still: a video's `poster`, an animation's `frames[0]`, the
+last frame of an animation with `holdLastFrame`, or the `lastFrame` of a
+video with it. The item's own still is `frames[0]` or the poster either
+way. The first item may not be `text`, and a `text` item only makes
+sense after some media-bearing item.
+
+A held video's last frame comes from two places. While a run of it is
+under way the player pauses the video where its last pass ends and
+leaves it there, as it holds every counted video (Timing). Everywhere
+else it shows the item's `lastFrame` still instead, as it shows a poster:
+on such a line after a still or a reload, in rewind and skip, and in a
+bookmark's or the branch map's thumbnail. The player cannot show a
+video's last frame without seeking to it, so the converter ships that
+frame as a still: the frame before `endSeconds` (the last one whose time
+is below it), or the file's last frame when the range runs to the file's
+end. A range ending inside the file may hold, live, on the frame at
+`endSeconds`, one frame later than `lastFrame`, where its pass end is
+caught (Video playback ranges). With `loopStartSeconds` every pass after
+the first still ends at `endSeconds`, so the last frame is the same. A
+`holdSeconds` video that holds its last frame plays its `loopCount`
+passes and then holds too, its hold still the clock's. `segments` and
+`holdLastFrame` do not combine: the validator refuses the pair, and a
+player shown one plays the video as one that loops.
 
 ### Video playback ranges
 
@@ -1035,7 +1061,7 @@ content:
   shows for its `frameSeconds` entry, else `1000 / fps` ms. Auto-advance
   fires at the later of loop time and text hold time, so the loops
   complete before the item advances on its own. `holdLastFrame` changes
-  no hold.
+  no hold, an animation's or a video's.
 - A video's media gate is `holdSeconds` when present: the hold is
   time driven only, its pass ends are ignored, and the video plays as
   background. Otherwise auto-advance fires at the later of the end of
@@ -1083,7 +1109,8 @@ content:
   file's duration. With "skip plays videos" on, a video plays its
   whole gate instead and its chain's lines still take zero time.
 - Rewind and skip show `frames[0]` and the poster too (on the lines
-  after an animation with `holdLastFrame`, its last frame: Text items),
+  after an animation with `holdLastFrame`, its last frame, and after a
+  video with it, its `lastFrame`: Text items),
   with the one exception stated next. A `nav` arrival below the seen edge - a wheel
   step, a bookmark jump, an `e` landing - shows a `text` item as the
   still of the visual it displays.
@@ -1650,6 +1677,10 @@ unambiguously:
   referenced by `poster`; without a range this is the file's first
   frame. The poster doubles as the first frame shown in skip mode and
   rewind. (The converter ships the same frame, named by its hash.)
+- `<id>.last.jpg`: a video's last frame, the frame before `endSeconds`
+  or the file's last frame, referenced by `lastFrame` on a video that
+  holds it (`holdLastFrame`, Text items). (The converter ships the same
+  frame, named by its hash.)
 - `<id>.thumb.jpg`: a preview no wider than 320 pixels, derived from the
   item's first visual (image, frame 0, or poster). Bookmarks capture the
   visible surface at run time; the thumbnail is the fallback when no surface
@@ -1685,7 +1716,7 @@ Format rules:
   no leading `/`, no drive letters or scheme, no `..`, no empty segment, no
   backslash, no spaces. The last segment stays a flat file name — an
   id-shaped stem (a converter sha256 stem fits), at most one derivative suffix (`.fNNN`, `.poster`,
-  `.thumb`), then the extension.
+  `.last`, `.thumb`), then the extension.
 - Images carry the extension `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`,
   or `.jxl` (the schema pins these on image fields); a video file may
   carry any extension.
@@ -1807,8 +1838,9 @@ The validator checks the schema plus these invariants:
     enforces these. A fade's `out` or `in` is above 0, which the
     validator reports.
 25. An animation's `frameSeconds` has exactly one entry per entry of
-    `frames`. The schema keeps it and `holdLastFrame` to animation
-    items, each entry above 0; the validator reports a length that
+    `frames`. The schema keeps it to animation items, and
+    `holdLastFrame` to animation and video items (31), each entry above
+    0; the validator reports a length that
     differs (`must have one entry per frame, N (found M)`).
 26. A decision's `follows` (Branches) names a decision of `branches`
     other than itself, whose `after` item comes before this decision's
@@ -1841,6 +1873,13 @@ The validator checks the schema plus these invariants:
     the nearest with a span of that id taken. The continuing route's
     `then` names a span of its own decision whose `result` is
     `"continue"`. The schema keeps `then` an id.
+31. A video's `holdLastFrame` (Text items), a boolean the schema keeps to
+    video and animation items, comes with the video's `lastFrame` and
+    without `segments`, and `lastFrame`, an image path the schema keeps
+    to video items, comes only with `holdLastFrame` true. The validator
+    reports `holdLastFrame: not allowed with segments`, `lastFrame:
+    required when holdLastFrame is true` and `lastFrame: only with
+    holdLastFrame true`.
 
 The validator also warns about three things that are not problems: an
 Ogg track file (Audio says why), a looping track in a format that is

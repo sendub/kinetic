@@ -680,8 +680,9 @@ its name gives; not replaced (remove it, or use another output
 folder)`, exit 1, and the file is not overwritten. This applies to
 kinetic-extract, `kinetic-media ship` and `kinetic-media rebuild --out`.
 
-Manifest `file`, `poster`, and `frames` values, and the ledger's item
-`file`/`poster` and `media` keys, carry that relative subpath
+Manifest `file`, `poster`, `lastFrame` and `frames` values, and the
+ledger's item `file`/`poster`/`lastFrame` and `media` keys, carry that
+relative subpath
 (`media/4e/4e31ed53…882e.jxl`, a 64-hex stem), which the content format's
 file-name rule allows; the player resolves it from the folder root and
 never reads meaning into the name. Item ids no longer name files, so find
@@ -721,7 +722,8 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
   is not reproducible).
 - `media`: one entry per shipped file, keyed by its path
   (`media/<h[:2]>/<h>.<ext>`), posters included:
-  - `kind`: `image`, `video`, `poster` or `audio`; `sha256` and `bytes`
+  - `kind`: `image`, `video`, `poster`, `lastFrame` or `audio`;
+    `sha256` and `bytes`
     of the shipped file.
   - `source`: where the bytes come from, relative to the project root
     (the folder holding `game/`, so a ledger works against any copy of
@@ -730,7 +732,7 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
     archive member; plus `sha256` and `bytes` of the raw source, before
     any carve, and, when several projects made one game, `project` (N,
     1-based: Several episodes, one game, above). A poster's source is
-    its video. A still of one colour, the black a line before any
+    its video, and so is a last-frame still's. A still of one colour, the black a line before any
     picture shows over or a shown solid colour (Finding a script's
     files, below), comes from no game file: its source is
     `{"generated": "black"}` for black, `{"generated": "#rrggbb"}` for
@@ -798,6 +800,18 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
       have a single `poster` step with `"jpeg": {...}` save parameters
       in place of `png` (RGB JPEG q90); rebuild still runs it and gets
       the same JPEG bytes. Nothing new ships with it.
+    - `{"step": "lastFrame", "endSeconds": E, "args": [...],
+      "frameFormat": "png", "mode": "RGB", "png": {"optimize": true}}`:
+      the last-frame still of a video that holds it (`holdLastFrame`,
+      docs/content-format.md "Text items"), the item's `lastFrame`: the
+      frame before `E`, the item's `endSeconds`, or the file's last
+      frame when `E` is null. ffmpeg's `args` decode from a second
+      before the end (`-ss` after `-i`) and write every frame after it
+      over the one before (`-update 1`), up to `-to E`, so the frame
+      left is the last; when that window holds no frame (a duration
+      past the video's last frame, as a longer sound gives) the recipe
+      recorded decodes from the start. Then Pillow and the still-image
+      rule, as for a poster; rebuild runs it the same way.
   - `tools`: name to version for the tools the steps ran (from
     `mediaTools`); absent when nothing was encoded (`preserve`, `carve`).
   - `script` (audio only): `{"sha256", "bytes"}` of the script beside the
@@ -955,11 +969,17 @@ docs/plan.md Phase 60 item 9n2 read these too:
   `stop movie` ends it, and a `Movie` with no `play` shows nothing while
   its channel plays nothing: the picture on screen stays. A `play` on a
   movie channel with no such `Movie` image is still reported as not
-  converted. The Movie arguments a video item cannot hold are named in
-  the item's ledger notes, `not carried`: `loop=False` (a video item
-  loops under its lines), `size` (the player fits the video to the
-  screen), `mask`, `image` and `start_image`, and any other but
-  `play`, `channel`, `fps` and `loop=True`.
+  converted. A Movie that plays once (`loop=False`, docs/plan.md Phase
+  60 item 9n4) is a video item with `holdLastFrame`: it plays its pass
+  under its lines, then holds its last frame, which ships as the item's
+  `lastFrame` still (the ledger's `lastFrame` step, Build ledger,
+  above); a looping one (`loop=True`, or no `loop`) loops under its
+  lines as every other video item does. The Movie arguments a video
+  item cannot hold are named in the item's ledger notes, `not
+  carried`: a `loop` that is not `True` or `False` (the video loops
+  under its lines), `size` (the player fits the video to the screen),
+  `mask`, `image` and `start_image`, and any other but `play`,
+  `channel`, `fps` and `loop`.
 
 docs/plan.md Phase 60 item 9n3 read solid colours:
 
@@ -1553,6 +1573,10 @@ in POSIX form, and may not be absolute or contain `..`:
   video ships its sound (Audio policy, above).
 - `startSeconds` (videos only, a number >= 0): the poster is the frame
   at that time. The default is 0.
+- `lastFrame` (videos only, `true` or `false`, default `false`): the
+  file's last frame ships too, as the result's `lastFrame`, the still a
+  video item that holds its last frame (`holdLastFrame`) names
+  (docs/content-format.md, "Text items").
 - `loops` (audio only, `true` or `false`, default `false`): the track
   loops, as music, ambience or a video's sound do, so it ships in a
   loop-safe format (Audio policy, above). Leave it out for one-shots
@@ -1589,8 +1613,9 @@ An audio request's result, for a looping Ogg Vorbis file:
             "sniffedFormat": "ogg"}}
 ```
 
-- `file`, plus `poster` and `durationSeconds` for a video: the values
-  for the manifest item. An audio request's `file` and
+- `file`, plus `poster` and `durationSeconds` for a video (and
+  `lastFrame` for a `lastFrame` request): the values for the manifest
+  item. An audio request's `file` and
   `durationSeconds` (decoded, Audio policy above) are the values for
   its track; its script is `<file>.js`, beside it.
 - `width`/`height`: the display size, read from the shipped image or

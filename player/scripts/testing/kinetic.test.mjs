@@ -1087,6 +1087,8 @@ describe("referencedFiles (what checkMedia's items reference)", () => {
         type: "video",
         file: "clip.mp4",
         poster: "clip.poster.jpg",
+        lastFrame: "clip.last.jpg",
+        holdLastFrame: true,
         audio: { music: null, videoSound: { track: "hum" } },
       },
       {
@@ -1102,7 +1104,7 @@ describe("referencedFiles (what checkMedia's items reference)", () => {
     ],
   };
 
-  it("lists each walked item's picture, video, poster, every frame and its audio tracks' scripts, each file once, in item order", () => {
+  it("lists each walked item's picture, video, poster, last frame, every frame and its audio tracks' scripts, each file once, in item order", () => {
     const ids = manifest.items
       .map((it) => it.id)
       .filter((id) => id !== "unwalked");
@@ -1114,6 +1116,7 @@ describe("referencedFiles (what checkMedia's items reference)", () => {
       { path: "media/mei.mp3.js", kind: "audio" },
       { path: "clip.mp4", kind: "video" },
       { path: "clip.poster.jpg", kind: "picture" },
+      { path: "clip.last.jpg", kind: "picture" },
       { path: "media/hum.m4a.js", kind: "audio" },
       { path: "spin.f000.jpg", kind: "picture" },
       { path: "spin.f001.jpg", kind: "picture" },

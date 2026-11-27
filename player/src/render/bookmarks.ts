@@ -19,7 +19,11 @@
 // manifest being played, and a bookmark whose item is no longer in it is
 // simply not drawn — there is nothing left to show or restore.
 
-import { animationStillFrame, visualIndexFor } from "../machine/machine";
+import {
+  animationStillFrame,
+  videoStillFrame,
+  visualIndexFor,
+} from "../machine/machine";
 import type { Item, MachineContext } from "../machine/types";
 import type { Bookmark, BookmarkSummary, SavedContext } from "../storage/types";
 import { thumbSize } from "./capture";
@@ -140,7 +144,8 @@ export function formatTimestamp(ms: number): string {
  * What a bookmark's thumbnail shows. The `b` capture when there is one
  * (`thumbDataUrl`); otherwise the still of the content that was visible at
  * that index — image file, animation `frames[0]`, video poster, and for a
- * `text` item the nearest earlier media item's, the same visual rule as
+ * `text` item the nearest earlier media item's (the last frame of one that
+ * holds it, `holdLastFrame`), the same visual rule as
  * `machine.visualIndex()`. Null when nothing resolvable exists (an item
  * no longer in the manifest).
  */
@@ -159,7 +164,7 @@ export function entryThumbSrc(
   if (item.type === "animation") {
     return animationStillFrame(item, visual !== index) ?? null;
   }
-  if (item.type === "video") return item.poster;
+  if (item.type === "video") return videoStillFrame(item, visual !== index);
   return null;
 }
 

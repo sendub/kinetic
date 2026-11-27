@@ -169,6 +169,19 @@ export interface VideoItem extends OverlayFields {
   type: "video";
   file: string;
   poster: string;
+  /**
+   * The still of the range's last frame (docs/content-format.md, "Text
+   * items"), shown in place of the poster on the lines after a video that
+   * holds it (`holdLastFrame`). Ignored without `holdLastFrame`.
+   */
+  lastFrame?: string;
+  /**
+   * After `loopCount` passes the video holds paused at its end, under the
+   * `text` items after it too, instead of looping on; their stills show
+   * `lastFrame` (docs/content-format.md, "Text items"). Its holds are a
+   * looping video's.
+   */
+  holdLastFrame?: boolean;
   durationSeconds: number;
   audio?: VideoItemAudio;
   transition?: Transition;

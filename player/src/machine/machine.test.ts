@@ -8,6 +8,7 @@ import {
   createMachine,
   itemHoldMs,
   textHoldMs,
+  videoStillFrame,
   visualIndexFor,
 } from "./machine";
 import type {
@@ -184,6 +185,40 @@ describe("hold computation (docs/content-format.md Timing)", () => {
     expect(itemHoldMs(bad, SETTINGS)).toBe(2000);
     const zero = { ...animation(2, 1, 1), frameSeconds: [0, 3] } as Item;
     expect(itemHoldMs(zero, SETTINGS)).toBe(2000);
+  });
+
+  it("a held video's hold and chain hold are a looping one's (Phase 60 item 9n4)", () => {
+    const held = (fields: object = {}): Item =>
+      ({
+        ...video(2, undefined, { loopCount: 3 }),
+        holdLastFrame: true,
+        lastFrame: "vid.last.jpg",
+        ...fields,
+      }) as Item;
+    // Standalone: its passes, as any counted video's.
+    expect(itemHoldMs(held(), SETTINGS)).toBe(6000);
+    // Followed by a line, the passes drop out as ever.
+    expect(itemHoldMs(held(), SETTINGS, true)).toBe(1500);
+    // holdSeconds still replaces the gate.
+    expect(itemHoldMs(held({ holdSeconds: 9 }), SETTINGS)).toBe(9000);
+  });
+
+  it("a held video's still is its lastFrame on its lines, its poster on its own item (Phase 60 item 9n4)", () => {
+    const held = {
+      ...video(2),
+      holdLastFrame: true,
+      lastFrame: "vid.last.jpg",
+    } as Item & { type: "video" };
+    expect(videoStillFrame(held, false)).toBe("vid.poster.jpg");
+    expect(videoStillFrame(held, true)).toBe("vid.last.jpg");
+    // Not held, or held with no still (a folder the validator refuses):
+    // the poster everywhere.
+    expect(
+      videoStillFrame({ ...held, holdLastFrame: false } as typeof held, true),
+    ).toBe("vid.poster.jpg");
+    expect(
+      videoStillFrame({ ...held, lastFrame: undefined } as typeof held, true),
+    ).toBe("vid.poster.jpg");
   });
 
   it("standalone video hold is the later of its media gate and the text hold", () => {

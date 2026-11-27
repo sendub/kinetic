@@ -6,8 +6,9 @@
 // floor clip out; Space cuts it short and the burst goes on), and an
 // animation timed per frame that holds its last frame under its lines
 // (docs/plan.md Phase 60 item 7), played again when read forward onto over
-// seen items, at a join or a route picked again too (item 9d). Each part
-// starts from its own fresh browser.
+// seen items, at a join or a route picked again too (item 9d), and a video
+// that plays once and holds its last frame under its lines (item 9n4).
+// Each part starts from its own fresh browser.
 
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -1564,6 +1565,188 @@ async function heldRepick({ check, open }) {
 
 // Independent parts (each opens its own browsers); the runner runs them
 // side by side and prints their checks in this order.
+// A story of its own (Phase 60 item 9n4): the demo's 1 s loop clip as a
+// video that plays twice and holds its last frame (`holdLastFrame`) under
+// the three lines after it, its `lastFrame` a still of its own.
+const HV_LINES = ["Held clip one.", "Held clip two.", "Held clip three."];
+
+function heldVideoFolder() {
+  const clip = item("video-loops");
+  const dir = join(scenarioRoot, "held-video");
+  const lastFrame = "held-clip.last.jpg";
+  const story = {
+    schemaVersion: 1,
+    storyId: "held-video",
+    title: "Held video",
+    width: manifest.width,
+    height: manifest.height,
+    items: [
+      {
+        id: "hv-before",
+        type: "image",
+        file: item("text-bare").file,
+        text: "Before the clip.",
+      },
+      {
+        id: "hv-clip",
+        type: "video",
+        file: clip.file,
+        poster: clip.poster,
+        lastFrame,
+        durationSeconds: clip.durationSeconds,
+        loopCount: 2,
+        holdLastFrame: true,
+        text: "A clip that plays twice.",
+      },
+      ...HV_LINES.map((text, i) => ({
+        id: `hv-line-${i + 1}`,
+        type: "text",
+        text,
+      })),
+      {
+        id: "hv-after",
+        type: "image",
+        file: item("chain-still").file,
+        text: "After it.",
+      },
+    ],
+  };
+  storyFolder(dir, story);
+  cpSync(join(dir, item("chain-still").file), join(dir, lastFrame));
+  return { dir, clip, lastFrame };
+}
+
+// The stage's video and picture as one reading.
+const HV_READ = () => {
+  const v = document.getElementById("visual-video");
+  const img = document.getElementById("visual-image");
+  const shown = (el) =>
+    el?.isConnected === true && getComputedStyle(el).display !== "none";
+  return {
+    item: document.querySelector("[data-item]")?.getAttribute("data-item"),
+    video: shown(v)
+      ? {
+          poster: v.getAttribute("poster"),
+          paused: v.paused,
+          time: Math.round(v.currentTime * 1000) / 1000,
+          duration: v.duration,
+        }
+      : null,
+    img: shown(img) ? img.getAttribute("src") : null,
+  };
+};
+
+async function heldVideo({ check, open }) {
+  const { dir, clip, lastFrame } = heldVideoFolder();
+  const { page, cdp } = await open("held-video", {
+    closeHelp: true,
+    folder: dir,
+  });
+  await pressSpace(cdp); // onto the clip: its first pass starts
+  let played = true;
+  try {
+    await waitVideoPlaying(page);
+  } catch {
+    played = false;
+  }
+  await sleep(300);
+  await pressSpace(cdp); // a line, mid-pass: the run goes on beneath it
+  // Two 1 s passes, then well past: one that loops would wrap twice more.
+  const reads = [];
+  const until = Date.now() + 3200;
+  while (Date.now() < until) {
+    reads.push(await page.evaluate(HV_READ));
+    await sleep(40);
+  }
+  const own = reads.filter((r) => r.video?.poster === clip.poster);
+  let wraps = 0;
+  for (let i = 1; i < own.length; i += 1) {
+    if (own[i - 1].video.time - own[i].video.time > 0.5) wraps += 1;
+  }
+  const last = own.at(-1)?.video ?? null;
+  // The last second: paused at its end, the time never moving.
+  const rest = own.filter((r) => r.video.paused).slice(-20);
+  const heldAtEnd =
+    last?.paused === true &&
+    last.time >= clip.durationSeconds - 0.1 &&
+    rest.length >= 20 &&
+    rest.every((r) => r.video.time === last.time);
+  check(
+    "a play-once video plays its two passes under its line, then holds paused at its end",
+    played &&
+      own.length > 0 &&
+      own.every((r) => r.item === "hv-clip" || r.item === "hv-line-1") &&
+      reads.at(-1)?.item === "hv-line-1" &&
+      wraps === 1 &&
+      heldAtEnd,
+    { played, wraps, last, rest: rest.length, item: reads.at(-1)?.item },
+  );
+
+  await pressSpace(cdp); // the next line: still held, nothing replayed
+  await sleep(600);
+  const next = await page.evaluate(HV_READ);
+  check(
+    "the next line keeps the video held at its end",
+    next.item === "hv-line-2" &&
+      next.video?.poster === clip.poster &&
+      next.video.paused &&
+      next.video.time === last?.time,
+    { next, last },
+  );
+
+  // A reload on the later line: its last frame, no video playing.
+  await page.reload();
+  await page
+    .waitForFunction(
+      () =>
+        document.querySelector("[data-item]")?.getAttribute("data-item") ===
+        "hv-line-2",
+      { timeout: 5000 },
+    )
+    .catch(() => {});
+  await sleep(800);
+  const reloaded = await page.evaluate(HV_READ);
+  const decoded = await waitImageDecoded(page).then(
+    () => true,
+    () => false,
+  );
+  check(
+    "a reload on a later line shows the last frame and plays nothing",
+    reloaded.item === "hv-line-2" &&
+      reloaded.img === lastFrame &&
+      reloaded.video === null &&
+      decoded,
+    { reloaded, decoded },
+  );
+
+  // Rewind: a wheel step back onto the first line (below the seen edge)
+  // shows the last frame; back onto the clip's own item, its poster.
+  const back = await wheelUntil(page, cdp, true, ON_TEXT, HV_LINES[0]);
+  await sleep(300);
+  const rewound = await page.evaluate(HV_READ);
+  const toItem = await wheelUntil(
+    page,
+    cdp,
+    true,
+    ON_TEXT,
+    "A clip that plays twice.",
+  );
+  await sleep(300);
+  const ownItem = await page.evaluate(HV_READ);
+  check(
+    "rewind shows the last frame on its lines and the poster on its own item",
+    back &&
+      rewound.item === "hv-line-1" &&
+      rewound.img === lastFrame &&
+      rewound.video === null &&
+      toItem &&
+      ownItem.item === "hv-clip" &&
+      ownItem.video?.poster === clip.poster &&
+      ownItem.video.paused,
+    { back, rewound, toItem, ownItem },
+  );
+}
+
 export const parts = [
   animationAndChain,
   ranges,
@@ -1576,4 +1759,5 @@ export const parts = [
   heldReplay,
   heldJoin,
   heldRepick,
+  heldVideo,
 ];

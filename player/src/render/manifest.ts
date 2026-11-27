@@ -102,7 +102,7 @@ function declaredPaths(item: unknown): string[] {
   if (typeof item !== "object" || item === null) return [];
   const record = item as Record<string, unknown>;
   const paths: string[] = [];
-  for (const field of ["file", "poster"]) {
+  for (const field of ["file", "poster", "lastFrame"]) {
     const value = record[field];
     if (typeof value === "string") paths.push(value);
   }

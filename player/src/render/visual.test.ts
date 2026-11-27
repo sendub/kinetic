@@ -630,6 +630,173 @@ describe("an animation that holds its last frame (Phase 60 item 7)", () => {
   });
 });
 
+describe("a video that holds its last frame (Phase 60 item 9n4)", () => {
+  const held = (fields: Partial<VideoItem> = {}): VideoItem =>
+    vid({
+      id: "v-held",
+      file: "h.mp4",
+      poster: "h.poster.jpg",
+      lastFrame: "h.last.jpg",
+      durationSeconds: 2,
+      loopCount: 2,
+      holdLastFrame: true,
+      ...fields,
+    });
+  const lines: Item[] = [
+    item({ id: "t-1", type: "text", text: "First line." }),
+    item({ id: "t-2", type: "text", text: "Second line." }),
+  ];
+  const endAt = (v: LifeVideo, t: number): void => {
+    v.end(t);
+    v.fire("ended");
+  };
+  const src = (layer: { currentVisual(): unknown }): string =>
+    (layer.currentVisual() as { src?: string } | null)?.src ?? "";
+
+  it("plans its passes under a chain and in the background, and only then", () => {
+    expect(videoPlanFor(held(), "loop-forever", true)).toEqual({
+      reportEnds: 0,
+      startSeconds: 0,
+      loopStartSeconds: 0,
+      endSeconds: null,
+      boundary: "fileEnd",
+      holdAfter: 2,
+    });
+    expect(
+      videoPlanFor(held({ holdSeconds: 6 }), "loop-once", true).holdAfter,
+    ).toBe(2);
+    // Counted, it holds after its counted passes, as every such video does.
+    expect(videoPlanFor(held(), "loop-once", true)).toEqual({
+      reportEnds: 2,
+      startSeconds: 0,
+      loopStartSeconds: 0,
+      endSeconds: null,
+      boundary: "fileEnd",
+    });
+    expect(videoPlanFor(held(), "still", true).holdAfter).toBeUndefined();
+    expect(
+      videoPlanFor(held({ holdLastFrame: false }), "loop-forever", true)
+        .holdAfter,
+    ).toBeUndefined();
+  });
+
+  it("plays its loopCount passes beneath its lines, then holds at its end instead of looping on", () => {
+    const { layer, videos, show, ends } = lifecycleHarness([held(), ...lines]);
+    const heard: Array<StageVideo | null> = [];
+    layer.watchVideo((v) => heard.push(v));
+    show(0);
+    const v = videos[0];
+    expect(v.paused).toBe(false);
+    expect(heard[heard.length - 1]?.pass()).toEqual({ end: 2, restart: 0 });
+    endAt(v, 2); // pass 1 of 2: back to its start
+    v.land();
+    expect(v.currentTime).toBe(0);
+    expect(v.paused).toBe(false);
+    show(1); // a line: the run goes on beneath it, never re-sought
+    expect(v.paused).toBe(false);
+    // The pass under way is the last: its sound holds at the end too.
+    expect(heard[heard.length - 1]?.pass()).toEqual({ end: 2, restart: null });
+    const plays = v.plays;
+    endAt(v, 2); // pass 2: held
+    expect(v.seeking).toBe(false);
+    expect(v.currentTime).toBe(2);
+    expect(v.paused).toBe(true);
+    show(2);
+    expect(v.paused).toBe(true);
+    expect(v.plays).toBe(plays);
+    expect(layer.currentVisual()).toBe(v);
+    // A chain reports no ends, held or not.
+    expect(ends).toEqual([]);
+    // A menu's resume leaves it held.
+    layer.setPaused(true);
+    layer.setPaused(false);
+    expect(v.paused).toBe(true);
+    expect(v.plays).toBe(plays);
+  });
+
+  it("without holdLastFrame it loops on under its lines, as before", () => {
+    const { videos, show } = lifecycleHarness([
+      held({ holdLastFrame: false, lastFrame: undefined }),
+      ...lines,
+    ]);
+    show(0);
+    const v = videos[0];
+    endAt(v, 2);
+    v.land();
+    show(1);
+    endAt(v, 2);
+    v.land();
+    expect(v.currentTime).toBe(0);
+    expect(v.paused).toBe(false);
+  });
+
+  it("a line reached without its run under way shows lastFrame and plays nothing", () => {
+    const { layer, videos, show } = lifecycleHarness([held(), ...lines]);
+    show(2); // opened at the last line (a reload there): at the edge
+    expect(src(layer)).toBe("h.last.jpg");
+    expect(videos.every((v) => v.paused)).toBe(true);
+    // Read on from a still of its own item: the line shows the last frame.
+    show(0, "nav");
+    expect(layer.currentVisual()).toBe(videos[videos.length - 1]);
+    expect(videos[videos.length - 1]?.poster).toBe("h.poster.jpg");
+    expect(videos[videos.length - 1]?.paused).toBe(true);
+    show(1);
+    expect(src(layer)).toBe("h.last.jpg");
+    expect(videos.every((v) => v.paused)).toBe(true);
+  });
+
+  it("rewind and a landing on its lines show lastFrame, its own item its poster", () => {
+    const { layer, videos, show } = lifecycleHarness([
+      held(),
+      ...lines,
+      item({ id: "after", type: "image", file: "after.jpg" }),
+    ]);
+    show(0);
+    show(1);
+    show(2);
+    show(1, "nav"); // a wheel step back below the seen edge: a still
+    expect(src(layer)).toBe("h.last.jpg");
+    show(0, "nav");
+    expect(layer.currentVisual()).toBe(videos[videos.length - 1]);
+    expect(videos[videos.length - 1]?.poster).toBe("h.poster.jpg");
+    show(2, "nav"); // an `e` landing on a line below the edge
+    expect(src(layer)).toBe("h.last.jpg");
+    show(3);
+    expect(src(layer)).toBe("after.jpg");
+  });
+
+  it("with no lastFrame (a folder the validator refuses) its lines' still is the poster", () => {
+    const { layer, videos, show } = lifecycleHarness([
+      held({ lastFrame: undefined }),
+      ...lines,
+    ]);
+    show(2);
+    expect(layer.currentVisual()).toBe(videos[videos.length - 1]);
+    expect(videos[videos.length - 1]?.poster).toBe("h.poster.jpg");
+    expect(videos[videos.length - 1]?.paused).toBe(true);
+  });
+
+  it("a background held video plays its passes and holds, reporting nothing", () => {
+    const { videos, show, ends } = lifecycleHarness([
+      held({ holdSeconds: 6, loopCount: 1 }),
+      item({ id: "after", type: "image", file: "after.jpg" }),
+    ]);
+    show(0);
+    const v = videos[0];
+    endAt(v, 2);
+    expect(v.seeking).toBe(false);
+    expect(v.paused).toBe(true);
+    expect(ends).toEqual([]);
+  });
+
+  it("warms its lastFrame with its poster", () => {
+    expect(upcomingVisualFiles([text, held()], 0, 3)).toEqual([
+      "h.poster.jpg",
+      "h.last.jpg",
+    ]);
+  });
+});
+
 describe("empty-state notice (docs/extracting.md BUG 1)", () => {
   it("names the empty manifest as the honest empty-folder case", () => {
     // A validator-clean folder may ship zero items; the shell must then

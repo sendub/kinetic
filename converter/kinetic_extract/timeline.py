@@ -95,10 +95,11 @@ _MOVIE_PLAY_RE = re.compile(
     r"""\bplay\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
 # How a Movie's arguments the folder's video items cannot show are noted
 # (Phase 60 item 9n2): the others are shown as the item plays (`play`,
-# `channel`, `loop=True`) or change nothing the reader sees (`fps`).
+# `channel`, `loop=True`, and `loop=False` as `holdLastFrame`, item 9n4)
+# or change nothing the reader sees (`fps`).
 _MOVIE_SHOWN_ARGS = frozenset({"play", "channel", "fps"})
 _MOVIE_ARG_NOTES = {
-    "loop": "the video loops under its lines, as every video item does",
+    "loop": "not True or False: the video loops under its lines",
     "size": "the player fits the video to the screen",
     "mask": "the video shows without its mask",
     "image": "the picture Ren'Py shows once the movie ends",
@@ -270,6 +271,9 @@ class _Target:
     # Notes for the item's ledger entry only, never reported (a Movie's
     # arguments not carried, item 9n2).
     extra: list[str] = field(default_factory=list)
+    # A video item's fields from its Movie (`holdLastFrame` for
+    # `loop=False`, item 9n4).
+    timing: dict[str, Any] = field(default_factory=dict)
 
 
 def movie_call(value: str) -> dict[str, str] | None:
@@ -289,11 +293,19 @@ def movie_call(value: str) -> dict[str, str] | None:
     return keywords
 
 
+def movie_timing(keywords: dict[str, str]) -> dict[str, Any]:
+    """A Movie's video item fields: `holdLastFrame` for one that plays
+    once (`loop=False`, docs/plan.md Phase 60 item 9n4)."""
+    return {"holdLastFrame": True} if keywords.get("loop") == "False" \
+        else {}
+
+
 def movie_notes(keywords: dict[str, str]) -> list[str]:
     """One note per Movie argument the video item does not carry."""
     notes = []
     for key, value in keywords.items():
-        if key in _MOVIE_SHOWN_ARGS or (key == "loop" and value == "True"):
+        if key in _MOVIE_SHOWN_ARGS or (key == "loop"
+                                        and value in ("True", "False")):
             continue
         why = _MOVIE_ARG_NOTES.get(key, "no video item field holds it")
         notes.append(f"Movie argument `{key}={value}` not carried: {why}")
@@ -843,6 +855,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 channel = string_literal(movie.get("channel", '"movie"'))
                 got = _Target("movie", found=channel or "movie")
             got.extra = movie_notes(movie)
+            got.timing = movie_timing(movie)
         elif _MOVIE_PLAY_RE.search(value):
             kind, ref = def_value_target(defined)
             got = file_target(ref, kind)
@@ -949,6 +962,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         else:
             return None
         pend.notes[:0] = got.notes + got.extra
+        if pend.kind == "video":
+            pend.timing = dict(got.timing)
         return pend
 
     def solid_pending(source: str, name: str,
@@ -1209,6 +1224,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         else:
             record.notes.append("no source asset resolved")
         if pend.kind == "video":
+            item.update(pend.timing)  # a Movie's `holdLastFrame`
             set_video_duration(record)
         apply_line(item, record, speaker, text, named)
         if pend.transition is not None:
@@ -1543,6 +1559,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         fresh = False
                         movie_shown = (got.found, chosen)
                         continue
+                    pend.timing = dict(got.timing)
                     pend.notes[:0] = got.extra + [
                         f"Movie image {chosen!r} shows the {got.found!r} "
                         f"channel's video ({playing})"]

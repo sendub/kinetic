@@ -56,7 +56,7 @@ from PIL import Image
 from contextlib import redirect_stdout
 from io import StringIO
 
-from kinetic_extract import rpa as rpa_mod
+from kinetic_extract import media_tools, rpa as rpa_mod
 from kinetic_extract.cli import main as cli_main
 from kinetic_extract.media_cli import main as media_main
 from kinetic_extract.parser import parse_file
@@ -745,9 +745,70 @@ def test_a_movie_image_with_a_play_file_is_that_video(tmp_path: Path
         ("image", "Before."), ("video", "Playing.")]
     assert assets(manifest, ledger) == ["bg", "intro"]
     notes = notes_of(manifest, ledger, "Playing.")
-    for arg in ("loop=False", "size", "mask"):
+    for arg in ("size", "mask"):
         assert any(arg in n and "not carried" in n for n in notes), notes
+    # It plays once (item 9n4): carried as holdLastFrame, so not noted.
+    assert not any("loop=False" in n for n in notes), notes
     check_folder(tmp_path, out, manifest)
+
+
+def frame_png(video: Path, at: float, out: Path) -> bytes:
+    """The pixels of `video`'s frame at `at` seconds, decoded apart from
+    the converter."""
+    ffmpeg(out, ["-i", str(video), "-ss", f"{at}", "-frames:v", "1"])
+    with Image.open(out) as img:
+        return img.convert("RGB").tobytes()
+
+
+def pixels(path: Path) -> bytes:
+    """A shipped still's RGB pixels, a lossless JPEG XL one included."""
+    if path.suffix == ".jxl":
+        return Image.fromarray(media_tools.jxl_decode(path.read_bytes())
+                               ).convert("RGB").tobytes()
+    with Image.open(path) as img:
+        return img.convert("RGB").tobytes()
+
+
+def test_a_movie_that_plays_once_holds_its_last_frame(tmp_path: Path
+                                                     ) -> None:
+    """`Movie(..., loop=False)` (item 9n4): the video item holds its last
+    frame (`holdLastFrame`) and ships that frame as its `lastFrame`
+    still, recorded in the ledger as posters are; a looping Movie is as
+    before."""
+    clip(tmp_path, "movies/once.mp4")
+    clip(tmp_path, "movies/loops.mp4")
+    out, manifest, ledger = run(tmp_path, (
+        "image once = Movie(play='movies/once.mp4', loop=False)\n"
+        "image loops = Movie(play='movies/loops.mp4', loop=True)\n"
+        'label start:\n'
+        '    scene bg\n    "Before."\n'
+        '    show once\n    "Once."\n    "Still once."\n'
+        '    show loops\n    "Loops."\n'
+        '    return\n'))
+    once, loops = [i for i in manifest["items"] if i["type"] == "video"]
+    assert once["holdLastFrame"] is True
+    assert "holdLastFrame" not in loops and "lastFrame" not in loops
+    last = out / once["lastFrame"]
+    assert last.is_file() and once["lastFrame"] != once["poster"]
+    # The clip is 1 s at 10 fps: its last frame is the one at 0.9 s.
+    source = tmp_path / "proj" / "game" / "movies" / "once.mp4"
+    assert pixels(last) == frame_png(source, 0.9, tmp_path / "f9.png")
+    assert pixels(last) != pixels(out / once["poster"])
+    entry = ledger["media"][once["lastFrame"]]
+    assert entry["kind"] == "lastFrame"
+    assert entry["steps"][0]["step"] == "lastFrame"
+    assert ledger["items"][once["id"]]["lastFrame"] == once["lastFrame"]
+    check_folder(tmp_path, out, manifest)
+    # Posters still check, and the ledger makes the still again.
+    with redirect_stdout(StringIO()):
+        assert media_main(["posters", str(tmp_path / "proj"),
+                           str(out)]) == 0
+    rebuilt = tmp_path / "rebuilt"
+    with redirect_stdout(StringIO()) as said:
+        assert media_main(["rebuild", str(tmp_path / "proj"), str(out),
+                           "--out", str(rebuilt)]) == 0
+    assert f"{len(ledger['media'])} matched, 0 failed" in said.getvalue()
+    assert (rebuilt / once["lastFrame"]).read_bytes() == last.read_bytes()
 
 
 @pytest.mark.parametrize("order", ["play first", "show first"])

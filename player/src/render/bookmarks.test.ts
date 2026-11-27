@@ -121,6 +121,41 @@ describe("entryThumbSrc (data URL, else the manifest still)", () => {
     );
   });
 
+  it("a text item after a held video shows its lastFrame (Phase 60 item 9n4)", () => {
+    const held: readonly Item[] = [
+      {
+        id: "v-001",
+        type: "video",
+        file: "v.mp4",
+        poster: "v.poster.jpg",
+        lastFrame: "v.last.jpg",
+        durationSeconds: 2,
+        holdLastFrame: true,
+      },
+      { id: "t-002", type: "text", text: "Under it." },
+      {
+        id: "w-003",
+        type: "video",
+        file: "w.mp4",
+        poster: "w.poster.jpg",
+        durationSeconds: 2,
+        holdLastFrame: true,
+      },
+      { id: "t-004", type: "text", text: "No still to hold." },
+    ];
+    // The video's own item keeps its poster; its lines, the last frame.
+    expect(entryThumbSrc(bookmark({ itemId: "v-001" }), held)).toBe(
+      "v.poster.jpg",
+    );
+    expect(entryThumbSrc(bookmark({ itemId: "t-002" }), held)).toBe(
+      "v.last.jpg",
+    );
+    // Without its lastFrame (a folder the validator refuses): the poster.
+    expect(entryThumbSrc(bookmark({ itemId: "t-004" }), held)).toBe(
+      "w.poster.jpg",
+    );
+  });
+
   it("a text item shows the nearest earlier media item's still", () => {
     // The same visual rule as machine.visualIndex(): line-004 (index 3)
     // played over the video, so its thumbnail is the video's poster.

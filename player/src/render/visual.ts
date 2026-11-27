@@ -8,7 +8,8 @@
 //   was a forward advance). Skip and a NAV arrival below the seen edge — the
 //   wheel scrub, a bookmark, an `e` landing, a branch-map jump — show stills
 //   (animation `frames[0]`, or its last frame on the lines after an
-//   animation that holds it, `holdLastFrame`; video poster); an ADVANCE
+//   animation that holds it, `holdLastFrame`; video poster, or its
+//   `lastFrame` on the lines after a video that holds it); an ADVANCE
 //   (space or the auto timer) replays its media wherever the cursor sits,
 //   so content read once plays again when the reader advances back over
 //   it. The `skipPlaysVideos`
@@ -16,8 +17,8 @@
 //   its chain) plays as an advance would (docs/plan.md Phase 18).
 //   In a chain — the cursor item is `text`, or the next manifest item is
 //   `text` — the visual loops continuously and media end gates nothing,
-//   except an animation that holds its last frame: it plays its loops from
-//   its own item on beneath its lines and stops there.
+//   except an animation or a video that holds its last frame: it plays its
+//   loops or passes from its own item on beneath its lines and stops there.
 //   A standalone animation cycles its frames, each for its `frameSeconds`
 //   or evenly at `fps`, for `loopCount` loops and stops on the final frame.
 //   A standalone video plays its passes
@@ -71,7 +72,11 @@
 // width/height are used for nothing at render time (docs/plan.md Phase 7b).
 
 import { t } from "../i18n/catalogue.ts";
-import { animationFrameSeconds, animationStillFrame } from "../machine/machine";
+import {
+  animationFrameSeconds,
+  animationStillFrame,
+  videoStillFrame,
+} from "../machine/machine";
 import type {
   AnimationItem,
   Arrival,
@@ -149,6 +154,14 @@ export interface VideoPlan {
    * whatever its boundary: a range ending past the last frame ends there.
    */
   boundary: "fileEnd" | "rvfc" | "timeupdate";
+  /**
+   * Present only on a video that holds its last frame (`holdLastFrame`)
+   * and reports nothing (under a chain, or a `holdSeconds` background):
+   * the passes it plays, `loopCount`, before it holds paused at the end
+   * of the last instead of looping on (docs/content-format.md, "Text
+   * items"). A counted video holds after its `reportEnds` passes anyway.
+   */
+  holdAfter?: number;
 }
 
 /**
@@ -203,13 +216,29 @@ export function videoPlanFor(
   // A chain or a background video loops, reporting nothing; a still plays
   // nothing; any other video counts its passes.
   const counted = mode === "loop-once" && item.holdSeconds === undefined;
-  return {
+  const plan: VideoPlan = {
     reportEnds: counted ? (item.loopCount ?? 1) : 0,
     startSeconds,
     loopStartSeconds,
     endSeconds,
     boundary,
   };
+  // One that holds its last frame plays its passes and stops there, chain
+  // or background; with segments (which the validator refuses with it) it
+  // loops as any other.
+  if (mode !== "still" && !counted && holdsLastFrame(item)) {
+    plan.holdAfter = item.loopCount ?? 1;
+  }
+  return plan;
+}
+
+/**
+ * The video holds its last frame (`holdLastFrame`, docs/content-format.md
+ * "Text items"): an item with `segments`, which the validator refuses
+ * with it, plays as one that loops.
+ */
+function holdsLastFrame(item: VideoItem): boolean {
+  return item.holdLastFrame === true && item.segments === undefined;
 }
 
 /**
@@ -311,6 +340,10 @@ export function upcomingVisualFiles(
       case "video":
         media += 1;
         files.push(item.poster);
+        // The still its lines show once it holds its last frame.
+        if (item.holdLastFrame === true && item.lastFrame !== undefined) {
+          files.push(item.lastFrame);
+        }
         break;
       case "text":
         break; // no new visual of its own
@@ -466,6 +499,8 @@ export function createVisualLayer(
   let videoSegment: number | null = null;
   let videoPlan: VideoPlan | null = null;
   let videoEndedCount = 0;
+  // Passes played by a plan that holds after them (`VideoPlan.holdAfter`).
+  let videoPasses = 0;
   let videoGeneration = 0;
   let rangeFallbackNoted = false;
   // `setPaused(true)`: the menus' timeline pause (docs/plan.md Phase 18).
@@ -926,11 +961,13 @@ export function createVisualLayer(
   ): void {
     if (plan.reportEnds > 0) {
       if (!reportEnd(plan)) return;
-      if (passesDone(plan)) {
-        stopRangeWatch();
-        element.pause(); // last pass: hold at the end
-        return;
-      }
+    } else if (plan.holdAfter !== undefined) {
+      videoPasses += 1;
+    }
+    if (passesDone(plan)) {
+      stopRangeWatch();
+      element.pause(); // last pass: hold at the end
+      return;
     }
     playOnFrom(element, plan, to);
   }
@@ -986,14 +1023,16 @@ export function createVisualLayer(
   }
 
   /**
-   * Every counted pass of `plan` reported: the video holds where its last
+   * Every counted pass of `plan` reported, or every pass of one that holds
+   * its last frame played (`holdAfter`): the video holds where its last
    * pass left it, paused at the file's end (`ended`, or a hair short of
    * it when the last frame's signal came first) or at its range's end,
    * until a new plan (a step, a new item) counts afresh. A menu's resume
    * leaves it there (docs/plan.md Phase 50 item 5).
    */
   function passesDone(plan: VideoPlan): boolean {
-    return plan.reportEnds > 0 && videoEndedCount >= plan.reportEnds;
+    if (plan.reportEnds > 0) return videoEndedCount >= plan.reportEnds;
+    return plan.holdAfter !== undefined && videoPasses >= plan.holdAfter;
   }
 
   /**
@@ -1108,6 +1147,7 @@ export function createVisualLayer(
       segment === null ? undefined : item.segments?.[segment],
     );
     videoEndedCount = 0; // every (re)start counts its passes afresh
+    videoPasses = 0;
     fileEndDone = false;
     element.style.display = "";
     if (mode === "still") {
@@ -1148,7 +1188,9 @@ export function createVisualLayer(
     const plan = videoPlan;
     if (plan === null || videoMode === "still") return null;
     const wraps =
-      plan.reportEnds === 0 || videoEndedCount + 1 < plan.reportEnds;
+      plan.reportEnds > 0
+        ? videoEndedCount + 1 < plan.reportEnds
+        : plan.holdAfter === undefined || videoPasses + 1 < plan.holdAfter;
     return {
       end: Math.min(
         plan.endSeconds ?? item.durationSeconds,
@@ -1167,11 +1209,36 @@ export function createVisualLayer(
     passBoundary(element, plan, pass.restart);
   }
 
+  /**
+   * `onText`: the cursor is on a `text` item after the video. A video that
+   * holds its last frame (`holdLastFrame`) plays its passes from its own
+   * item on beneath its lines and holds at the end (`VideoPlan.holdAfter`);
+   * a line reached with no run of it under way (a still before, a reload,
+   * a route entry), and every still of its lines, shows its `lastFrame`
+   * and plays nothing, as the passes have long played out
+   * (docs/content-format.md, "Text items"); without a `lastFrame` (a
+   * folder the validator refuses) its poster.
+   */
   function showVideo(
     item: VideoItem,
     mode: PlaybackMode,
     activeSegment: number | null,
+    onText: boolean,
   ): void {
+    if (onText && holdsLastFrame(item)) {
+      const live =
+        mode !== "still" &&
+        drawnVideoItem === item.id &&
+        drawnVideoSrc === item.file &&
+        videoMode !== null &&
+        videoMode !== "still";
+      if (!live && item.lastFrame !== undefined) {
+        showImage(videoStillFrame(item, true));
+        return;
+      }
+      // No `lastFrame` (a folder the validator refuses): its poster.
+      if (!live) mode = "still";
+    }
     stopAnimation();
     dropNotice();
     hideImage();
@@ -1437,7 +1504,12 @@ export function createVisualLayer(
         );
         return;
       case "video":
-        showVideo(item, mode, state.segment?.index ?? null);
+        showVideo(
+          item,
+          mode,
+          state.segment?.index ?? null,
+          manifest.items[state.cursor]?.type === "text",
+        );
         return;
       case "text":
         // Unreachable for a valid manifest: visualIndex() resolves a `text`

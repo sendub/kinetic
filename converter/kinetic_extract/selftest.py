@@ -37,6 +37,9 @@ SAMPLES = ("sample.png", "sample.jpg", "sample.webp", "sample.gif",
            "sample.aiff")
 CACHE_FILE = "selftest-cache.json"
 POSTER_SECONDS = 0.5
+# The last-frame case's range end, in seconds: past the 1 s sample's
+# end, so its window (from 0.5 s) holds the sample's last five frames.
+LAST_FRAME_NEAR = 1.5
 FAILED = "FAILED"
 # Sources whose code decides the outputs: a change re-runs the self-test.
 _RECIPE_SOURCES = ("assets.py", "audio_format.py", "media.py",
@@ -106,6 +109,12 @@ def run_cases(samples_dir: Path = SAMPLES_DIR) -> dict[str, str]:
         frame = tmp / "frame.png"
         ok = assets.extract_frame_png(video, frame, POSTER_SECONDS)
         out["ffmpeg.poster-frame"] = _file_hash(frame) if ok else FAILED
+        last = tmp / "last.png"
+        error = assets.ffmpeg_error(
+            assets.last_frame_step(None, LAST_FRAME_NEAR)["args"], video,
+            last)
+        out["ffmpeg.last-frame"] = (_file_hash(last) if error is None
+                                    else FAILED)
         poster = tmp / "poster.jpg"
         ok = ok and assets.poster_jpeg(frame, poster)
         out["pillow.poster-jpeg"] = _file_hash(poster) if ok else FAILED

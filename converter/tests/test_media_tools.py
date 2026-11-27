@@ -456,6 +456,23 @@ def test_audio_cases_run_the_converter_recipes(tmp_path: Path) -> None:
     assert {"ffmpeg.audio-duration", "ffmpeg.audio-loudness"} <= set(cases)
 
 
+def test_last_frame_case_runs_the_converter_recipe(tmp_path: Path) -> None:
+    """Phase 60 item 9n4: a video's last-frame still is a self-test case,
+    hashing what the converter's recipe makes from a window near the end
+    (its `-ss` and `-update` both in play): the sample's last frame."""
+    cases = selftest.run_cases()
+    video = selftest.SAMPLES_DIR / "sample.mp4"
+    step = assets.last_frame_step(None, selftest.LAST_FRAME_NEAR)
+    assert "-ss" in step["args"] and "-update" in step["args"]
+    made = tmp_path / "last.png"
+    assert assets.ffmpeg_error(step["args"], video, made) is None
+    assert cases["ffmpeg.last-frame"] == selftest._sha(made.read_bytes())
+    end = tmp_path / "end.png"
+    assert assets.ffmpeg_error(assets.frame_args(0.9), video, end) is None
+    assert made.read_bytes() == end.read_bytes()
+    assert cases["ffmpeg.last-frame"] != cases["ffmpeg.poster-frame"]
+
+
 def test_pin_file_lists_every_case() -> None:
     """Every case the self-test runs has a golden entry (null until
     pinned), so a new case cannot pass unnoticed."""

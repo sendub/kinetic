@@ -26,7 +26,7 @@ from .timeline import ItemRecord, set_video_duration
 
 LEDGER_NAME = "media-ledger.json"
 KINDS = ("image", "video", "audio")
-_KEYS = {"source", "kind", "startSeconds", "loops", "id"}
+_KEYS = {"source", "kind", "startSeconds", "lastFrame", "loops", "id"}
 _SOURCE_SHAPE = 'either {"path"} or {"archive", "member"}'
 
 
@@ -68,7 +68,7 @@ def _check_request(entry: Any) -> dict[str, Any]:
     unknown = sorted(set(entry) - _KEYS)
     if unknown:
         raise ListError(f"unknown key {unknown[0]!r} (allowed: id, kind, "
-                        "loops, source, startSeconds)")
+                        "lastFrame, loops, source, startSeconds)")
     if "source" not in entry:
         raise ListError("source is required")
     request: dict[str, Any] = {"source": _check_source(entry["source"])}
@@ -86,6 +86,13 @@ def _check_request(entry: Any) -> dict[str, Any]:
             raise ListError(f"startSeconds must be a number >= 0, got "
                             f"{start!r}")
         request["startSeconds"] = start
+    if "lastFrame" in entry:
+        if kind != "video":
+            raise ListError("lastFrame is for videos only")
+        if not isinstance(entry["lastFrame"], bool):
+            raise ListError(f"lastFrame must be true or false, got "
+                            f"{entry['lastFrame']!r}")
+        request["lastFrame"] = entry["lastFrame"]
     if "loops" in entry:
         if kind != "audio":
             raise ListError("loops is for audio only")
@@ -162,7 +169,8 @@ def _member_file(root: Path, archive: str, member: str,
 def request_records(requests: list[dict[str, Any]], root: Path,
                     jobs: int = 1) -> list[ItemRecord]:
     """One asset-pass record per request: a bare item (a video with its
-    ``startSeconds`` and probed ``durationSeconds``, a looping audio
+    ``startSeconds``, probed ``durationSeconds`` and, for ``lastFrame``,
+    ``holdLastFrame``, a looping audio
     track with ``loops``), its source identity and the file holding the
     source bytes. Each video file is probed once however many requests
     name it, on `jobs` threads."""
@@ -174,6 +182,9 @@ def request_records(requests: list[dict[str, Any]], root: Path,
             item["startSeconds"] = request["startSeconds"]
         if request.get("loops"):
             item["loops"] = True
+        if request.get("lastFrame"):
+            # Its file's last frame ships as its `lastFrame` (item 9n4).
+            item["holdLastFrame"] = True
         source = request["source"]
         notes: list[str] = []
         if "path" in source:
@@ -198,7 +209,8 @@ def request_records(requests: list[dict[str, Any]], root: Path,
     return records
 
 
-_META_KEYS = ("sniffedFormat", "codec", "file", "poster", "warning")
+_META_KEYS = ("sniffedFormat", "codec", "file", "poster", "lastFrame",
+              "warning")
 
 
 def request_result(record: ItemRecord, out_dir: Path) -> dict[str, Any]:
@@ -295,7 +307,7 @@ def _manifest_refs(out_dir: Path) -> set[str]:
     try:
         manifest = json.loads((out_dir / "manifest.json").read_text("utf-8"))
         for item in manifest.get("items", []):
-            refs.update(v for k in ("file", "poster")
+            refs.update(v for k in ("file", "poster", "lastFrame")
                         if isinstance(v := item.get(k), str))
             refs.update(f for f in item.get("frames") or []
                         if isinstance(f, str))
@@ -318,7 +330,7 @@ def unreferenced_posters(media: dict[str, dict[str, Any]],
     used = _manifest_refs(out_dir)
     for entry in requests:
         result = entry.get("result") or {}
-        used.update(v for k in ("file", "poster")
+        used.update(v for k in ("file", "poster", "lastFrame")
                     if isinstance(v := result.get(k), str))
     return sorted(ref for ref, entry in media.items()
                   if entry.get("kind") == "poster" and ref not in used)

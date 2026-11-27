@@ -288,3 +288,78 @@ def test_delete_keeps_posters_other_requests_still_name(
     assert ledger["requests"][0]["result"]["poster"].rsplit(".", 1)[1] \
         in ("png", "jxl")
     assert media_main(["rebuild", str(root), str(out)]) == 0
+
+
+# --- last-frame stills (docs/plan.md Phase 60 item 9n4) ---------------------
+
+def last_pixels(made: assets.Poster) -> bytes:
+    if made.ext == "jxl":
+        return numpy.asarray(media_tools.jxl_decode(made.data)).tobytes()
+    from io import BytesIO
+
+    from PIL import Image
+    with Image.open(BytesIO(made.data)) as img:
+        return img.convert("RGB").tobytes()
+
+
+def test_last_frame_is_the_frame_before_the_range_end(
+        root: Path, tmp_path: Path) -> None:
+    """The file's last frame (2 s at 10 fps: the one at 1.9 s), decoded
+    from a second before the end; a range's end takes the frame before
+    it."""
+    video = root / "clips" / "h264.mp4"
+    made = assets.extract_last_frame(video, None, 2.0)
+    assert made.error is None and made.steps is not None
+    step = made.steps[0]
+    assert step == assets.last_frame_step(None, 2.0)
+    assert step["step"] == "lastFrame" and step["endSeconds"] is None
+    assert step["args"][step["args"].index("-ss") + 1] == "1.000000"
+    assert last_pixels(made) == frame_pixels(video, 1.9, tmp_path)
+    ranged = assets.extract_last_frame(video, 1.0, 1.0)
+    assert ranged.steps[0]["endSeconds"] == 1.0
+    assert last_pixels(ranged) == frame_pixels(video, 0.9, tmp_path)
+    assert last_pixels(ranged) != frame_pixels(video, 1.0, tmp_path)
+
+
+def test_last_frame_decodes_from_the_start_when_its_window_is_empty(
+        root: Path, tmp_path: Path) -> None:
+    """A duration past the video's frames (a longer sound track, say)
+    leaves the window empty: the recipe recorded decodes the whole file."""
+    video = root / "clips" / "h264.mp4"
+    made = assets.extract_last_frame(video, None, 10.0)
+    assert made.error is None and made.steps is not None
+    assert made.steps[0] == assets.last_frame_step(None, None)
+    assert "-ss" not in made.steps[0]["args"]
+    assert last_pixels(made) == frame_pixels(video, 1.9, tmp_path)
+
+
+def test_a_last_frame_request_ships_and_rebuilds(root: Path,
+                                                 tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    request = {**COPY, "lastFrame": True}
+    assert ship(root, out, [request, TRANSCODE]) == 0
+    ledger = ledger_of(out)
+    held, plain = ledger["requests"]
+    last = held["result"]["lastFrame"]
+    assert "lastFrame" not in plain["result"]
+    assert last != held["result"]["poster"]
+    entry = ledger["media"][last]
+    assert entry["kind"] == "lastFrame"
+    assert entry["steps"][0]["step"] == "lastFrame"
+    video = root / "clips" / "h264.mp4"
+    assert open_image(out / last).convert("RGB").tobytes() == \
+        frame_pixels(video, 1.9, tmp_path)
+    assert media_main(["rebuild", str(root), str(out)]) == 0
+    # Shipped again, nothing new is made: the ledger's still is reused.
+    before = sorted(p.name for p in out.rglob("*") if p.is_file())
+    assert ship(root, out, [request, TRANSCODE]) == 0
+    assert sorted(p.name for p in out.rglob("*") if p.is_file()) == before
+    assert ledger_of(out)["requests"][0]["result"]["lastFrame"] == last
+
+
+def test_last_frame_is_for_videos_only(root: Path, tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    bad = {"source": {"path": "clips/h264.mp4"}, "kind": "image",
+           "lastFrame": True}
+    assert ship(root, out, [bad]) == 2
+    assert ship(root, out, [{**COPY, "lastFrame": "yes"}]) == 2

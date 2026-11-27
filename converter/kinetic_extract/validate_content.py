@@ -114,7 +114,9 @@ invariants:
    item ids are unique; the first item is not `text` and every `text` item
    has a media-bearing item (image, animation, or video) before it; an item
    that sets `thought` true has a non-empty `text`; an animation's
-   `frameSeconds` has one entry per frame; a video item's playback
+   `frameSeconds` has one entry per frame; a video that holds its last
+   frame has its `lastFrame` and no `segments`, and `lastFrame` comes
+   only with `holdLastFrame`; a video item's playback
    range is sound (`startSeconds` not negative, `endSeconds` greater than
    `startSeconds` and no greater than `durationSeconds`); its optional
    `segments` are sound (each inside the file, with length and a loop
@@ -184,7 +186,7 @@ _SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 COLOR_PATTERN = "^#[0-9A-Fa-f]{6}$"
 _BASENAME = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}"
-    r"(?:\.(?:f[0-9]{3}|poster|thumb))?\.[A-Za-z0-9]+",
+    r"(?:\.(?:f[0-9]{3}|poster|last|thumb))?\.[A-Za-z0-9]+",
 )
 
 
@@ -235,7 +237,7 @@ def _path_rule(value: str) -> str | None:
     dot-leading segment, no `..`, no absolute path, no backslash, no drive
     letter or scheme, no whitespace — whose LAST segment is still a flat media
     file name: an id-shaped stem, at most one derivative suffix (`.fNNN`,
-    `.poster`, `.thumb`), then an extension. Image extensions are limited
+    `.poster`, `.last`, `.thumb`), then an extension. Image extensions are limited
     to browser image formats in the schema (`imagePath`); a video file
     takes any extension (`videoPath`, docs/plan.md Phase 26). See
     docs/content-format.md, "Naming conventions".
@@ -256,7 +258,7 @@ def _path_rule(value: str) -> str | None:
                 "or digit")
     if _BASENAME.fullmatch(segments[-1]) is None:
         return ("file name must be an id-shaped name plus an extension "
-                "(at most one derivative suffix: .fNNN, .poster, .thumb)")
+                "(at most one derivative suffix: .fNNN, .poster, .last, .thumb)")
     return None
 
 
@@ -1128,6 +1130,35 @@ def animation_timing_problems(manifest: Any) -> list[str]:
             problems.append(_line(f"items[{i}].frameSeconds",
                                   f"must have one entry per frame, "
                                   f"{len(frames)} (found {len(seconds)})"))
+    return problems
+
+
+def video_hold_problems(manifest: Any) -> list[str]:
+    """A video that holds its last frame (docs/content-format.md § Text
+    items): `holdLastFrame` true takes no `segments` and needs its
+    `lastFrame` still, and `lastFrame` comes only with `holdLastFrame`
+    true. `holdLastFrame` a boolean and `lastFrame` an image path are the
+    schema's; a non-boolean `holdLastFrame` is passed over here.
+    """
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    if not isinstance(items, list):
+        return []
+    problems: list[str] = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict) or item.get("type") != "video":
+            continue
+        hold = item.get("holdLastFrame", False)
+        if not isinstance(hold, bool):
+            continue
+        if hold and "segments" in item:
+            problems.append(_line(f"items[{i}].holdLastFrame",
+                                  "not allowed with segments"))
+        if hold and "lastFrame" not in item:
+            problems.append(_line(f"items[{i}].lastFrame",
+                                  "required when holdLastFrame is true"))
+        if not hold and "lastFrame" in item:
+            problems.append(_line(f"items[{i}].lastFrame",
+                                  "only with holdLastFrame true"))
     return problems
 
 
@@ -2390,6 +2421,7 @@ def _validate(content_dir: Path, schema_path: Path,
         problems += text_item_problems(manifest)
         problems += thought_problems(manifest)
         problems += animation_timing_problems(manifest)
+        problems += video_hold_problems(manifest)
         problems += video_range_problems(manifest, schema_locs)
         problems += video_segment_problems(manifest, schema_locs)
         problems += transition_problems(manifest)

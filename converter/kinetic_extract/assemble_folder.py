@@ -210,6 +210,7 @@ def leave_out_audio_files(out: Path) -> int:
     shown = {value for item in (items if isinstance(items, list) else [])
              if isinstance(item, dict)
              for value in [item.get("file"), item.get("poster"),
+                           item.get("lastFrame"),
                            *(item.get("frames") or [])]
              if isinstance(value, str)}
     removed = 0

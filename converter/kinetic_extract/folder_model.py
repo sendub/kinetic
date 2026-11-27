@@ -74,7 +74,7 @@ def item_media_paths(items: list[Any]) -> Iterator[tuple[str, Any]]:
                 yield f"{base}.frames", frames
             continue
         if item_type == "video":
-            for field in ("file", "poster"):
+            for field in ("file", "poster", "lastFrame"):
                 if field in item:
                     yield f"{base}.{field}", item[field]
             continue

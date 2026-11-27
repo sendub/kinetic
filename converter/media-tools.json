@@ -60,6 +60,7 @@
       "ffmpeg.audio-loudness": "11a68be99e8c26aabc0b8f35727cf647aac798a6f3beccde0350b0b7d8a344f8",
       "ffmpeg.audio-remux-webm": "69e0b40f72ac9cc279e460d7f4d1b45f0f552e56ebfda075b0560dfb4e071a04",
       "ffmpeg.audio-transcode-opus": "6d4cf83d0c83b1a60c6cf14dfcf3c628a5047f231e67e179057d32c899041de0",
+      "ffmpeg.last-frame": "8d3ccb4e2109d9758d8872fcc846de7effd39c48a688b4f9cd0e35bc4f55fcbf",
       "ffmpeg.poster-frame": "301bbb348d0f775e8bb569e30b3fa2aec76d3362d64d52e2e072f4edd5ed10e8",
       "ffmpeg.transcode-mp4": "ea67152ecb98746b73136111917e5435063e0ba1fde2fe471f411cb40d1f4a41",
       "ffmpeg.transcode-odd-mp4": "34d81edd1c62d0a9a34df909e09a4dcdb1e1676596e6c59eb18942d504da441a",
