@@ -6777,6 +6777,8 @@ truthful: an unchecked box means nothing was accepted.
       files current, npm test 1952 passed, check clean.)
 - [ ] Shared spans on the branch map and in the tools (item 9h).
 - [ ] The converter lays a shared tail out once (item 9i).
+- [ ] Conditions only on story state (item 9k).
+- [ ] Joins through calls and returns (item 9l).
 - [ ] Fixtures and docs for shared spans (item 9j).
 - [ ] Phase-closer (Phase 60): full suites; VERSION 1.15.0, the
       CHANGELOG dated, tag v1.15.0, `main` fast-forwarded, the wheel

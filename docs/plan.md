@@ -5009,6 +5009,23 @@ The orchestrator's choices, within those decisions:
     `"return"`). Shapes that still do not fit stay linear, reported.
     Tests: synthetic projects for each shape; the reporting game's
     linear-menu count checked read-only.
+9k. Conditions only on story state (a lead from the corpus survey,
+    2026-11-27: 5,739 condition decisions in 45 games, many on runtime
+    state, and 1,311 lines dropped as arms "never taken"). A chain on a
+    label parameter, a loop index, a random roll, `_return`,
+    `_in_replay`, `persistent`, or a variable set in Python the
+    converter does not read is not a decision the reader can make: it
+    stays as today's unconverted chain, reported, and no arm is dropped
+    as never taken unless every place that sets the variable is a
+    statement the converter reads. Tests: synthetic chains for each kind.
+9l. Joins through calls and returns (a lead from the corpus survey:
+    4,228 mid-story decisions in 54 games came out pure choices, and 579
+    routes end the story early). A join whose first statement is a
+    `call` or an `if` with no item of its own, or that the walk reaches
+    through a called label's `return`, is still the menu's join; a
+    choice's `return` inside a called label returns to the caller, not
+    the story's end. Tests: synthetic projects for each shape; the
+    survey's counts rechecked read-only.
 9j. Fixtures and docs for shared spans. `fixtures/renpy_demo` gains a
     failure scene reached from a choice and a nested choice;
     package-proof's counts; CREATE.md, docs/extracting.md,
@@ -5018,7 +5035,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9k -> 9l -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 
