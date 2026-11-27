@@ -530,6 +530,11 @@ msgctxt "pill.skipOff"
 msgid "Skip off"
 msgstr "Hoppa över: av"
 
+#. Pill: Play all routes skips through a scene several routes share, read already on an earlier route of this pass.
+msgctxt "pill.readAgain"
+msgid "Read already: skipping"
+msgstr "Redan läst: hoppar över"
+
 #. Pill: auto-forward turned on.
 msgctxt "pill.autoForwardOn"
 msgid "Auto-forward on"

@@ -544,6 +544,11 @@ msgctxt "pill.skipOff"
 msgid "Skip off"
 msgstr "Saut désactivé"
 
+#. Pill: Play all routes skips through a scene several routes share, read already on an earlier route of this pass.
+msgctxt "pill.readAgain"
+msgid "Read already: skipping"
+msgstr "Déjà lu : saut en cours"
+
 #. Pill: auto-forward turned on.
 msgctxt "pill.autoForwardOn"
 msgid "Auto-forward on"

@@ -530,6 +530,11 @@ msgctxt "pill.skipOff"
 msgid "Skip off"
 msgstr "Kuruka kumezimwa"
 
+#. Pill: Play all routes skips through a scene several routes share, read already on an earlier route of this pass.
+msgctxt "pill.readAgain"
+msgid "Read already: skipping"
+msgstr "Tayari imesomwa: inarukwa"
+
 #. Pill: auto-forward turned on.
 msgctxt "pill.autoForwardOn"
 msgid "Auto-forward on"

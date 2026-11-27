@@ -558,6 +558,11 @@ msgctxt "pill.skipOff"
 msgid "Skip off"
 msgstr "Preskakovanie vyp."
 
+#. Pill: Play all routes skips through a scene several routes share, read already on an earlier route of this pass.
+msgctxt "pill.readAgain"
+msgid "Read already: skipping"
+msgstr "Už prečítané: preskakovanie"
+
 #. Pill: auto-forward turned on.
 msgctxt "pill.autoForwardOn"
 msgid "Auto-forward on"

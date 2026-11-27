@@ -6767,7 +6767,14 @@ truthful: an unchecked box means nothing was accepted.
       shared, branches, follows and media 130/130 on Chrome; shared and
       branches 89/89 on WebKit; the validator, spans, malformed, scale,
       routes and report tests 645 passed.)
-- [ ] The read-already pill in every interface language (item 9g).
+- [x] The read-already pill in every interface language (item 9g).
+      (2026-11-27: `pill.readAgain` translated in all 38 PO files, each
+      with the language's own skip word from its "Skip on" pill and
+      `keys.skip` and its read word from `keys.end`, its colon spacing
+      (fr's no-break space, ja/zh full-width); he uses the plural so no
+      gender is chosen. The audit exemption in i18n.mjs is gone; no key
+      is exempted. Orchestrator: `npm run i18n` leaves the generated
+      files current, npm test 1952 passed, check clean.)
 - [ ] Shared spans on the branch map and in the tools (item 9h).
 - [ ] The converter lays a shared tail out once (item 9i).
 - [ ] Fixtures and docs for shared spans (item 9j).
