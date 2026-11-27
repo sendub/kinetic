@@ -1008,7 +1008,8 @@ def reach_warnings(manifest: Any) -> list[str]:
     An item inside a decision's region (after its `after` item and before
     its `continueAt`, or for a pure choice up to its last route or shared
     span end) that lies in none of its routes says so, naming the
-    innermost such decision; any other says no reading reaches it (a decision that never
+    innermost such decision, or the shared span of it holding the item
+    (which no route's `then` enters); any other says no reading reaches it (a decision that never
     fires, or what lies past a route end the walk reaches with no
     decision open, where the story ends). Warnings never change the exit
     status. A manifest whose decisions break the span rules
@@ -1041,9 +1042,14 @@ def reach_warnings(manifest: Any) -> list[str]:
                      f"to its last "
                      f"{'route' if decision.menu_end == decision.region_end else 'span'}"
                      f" end {items[decision.menu_end]['id']!r}")
+            span = next((span for span in decision.shared
+                         if span.start <= i <= span.end), None)
             why = (f"inside decision {decision.id!r} (after "
                    f"{items[decision.after]['id']!r}, {bound}) in none "
-                   f"of its routes")
+                   f"of its routes" if span is None else
+                   f"inside shared span {span.id!r} of decision "
+                   f"{decision.id!r} (after {items[decision.after]['id']!r}"
+                   f", {bound}), which no reading enters")
         warnings.append(WARNING_PREFIX + _line(
             f"items[{i}]", f"item {item_id!r} is never shown: {why}"))
     return warnings

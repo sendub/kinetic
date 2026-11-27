@@ -3462,8 +3462,8 @@ def test_a_shared_span_no_route_reads_warns() -> None:
     lines = validate_content.reach_warnings(manifest)
     assert lines == [
         f"warning: manifest.json: items[{n}]: item 'i{n}' is never shown: "
-        f"inside decision 'd' (after 'i0', before 'i10') in none of its "
-        f"routes" for n in (8, 9)]
+        f"inside shared span 'fall' of decision 'd' (after 'i0', before "
+        f"'i10'), which no reading enters" for n in (8, 9)]
 
 
 def test_a_pure_choices_region_runs_to_its_last_span_end() -> None:

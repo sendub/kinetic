@@ -161,6 +161,19 @@ something more of an author.
   does, so a form feed, U+2028 or another such character inside a line
   no longer splits it and shifts the line numbers that sources and
   translation identifiers come from.
+- The converter lays out once a scene that two or more choices of one
+  menu go on to before the paths meet (a failure scene two choices
+  jump to, say), where it used to keep the menu linear (`choice N
+  rejoins content read at ...`): the scene becomes a shared span of the
+  decision after its routes, each route reaching it names it in `then`,
+  and the span goes on where the scene does: back to the story at the
+  join, to the story's end, or back to the choice. A nested menu whose
+  choices meet at the scene joins at it, the route holding that menu
+  going on to it. A scene a nested menu's route reaches while its
+  sibling routes go elsewhere, and one holding a menu of its own, still
+  keep the menu linear, reported as before. The validator's never-shown
+  warning for an item in a shared span no route reaches says so
+  (docs/extracting.md, "The walk follows labels").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds` and `holdLastFrame` once
   upgraded. Converting a Ren'Py game again with this release gains its

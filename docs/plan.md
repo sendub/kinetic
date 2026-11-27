@@ -5013,6 +5013,22 @@ The orchestrator's choices, within those decisions:
     `"return"`). Shapes that still do not fit stay linear, reported.
     Tests: synthetic projects for each shape; the reporting game's
     linear-menu count checked read-only.
+9i2. Nested routes into an enclosing span (a lead from item 9i). A
+    route of a nested decision whose `then` names an enclosing
+    decision's span leaves its decision at the span, so Play all routes,
+    which enters each route once a pass, never reads its siblings: on
+    the reporting game the converter would leave 309 items never shown,
+    so item 9i keeps such menus linear (all 29 of its rejoining menus).
+    Under Play all routes, at the end of a span entered from a nested
+    route, the player re-offers that route's decision, then each
+    decision enclosing it up to the span's decision, while it has a
+    route unplayed this pass (the innermost first), before the span's
+    `result` acts at its own decision; with Play all routes off the
+    span's `result` acts as now. docs/content-format.md says so; the
+    validator's reach walk mirrors it; then the converter's gate goes.
+    Tests: machine tests (one and two levels of nesting, chains of
+    menus), the reach walk, the converter's nested shapes, the
+    reporting game's counts read-only with no never-shown items.
 9k. Conditions only on story state (a lead from the corpus survey,
     2026-11-27: 5,739 condition decisions in 45 games, many on runtime
     state, and 1,311 lines dropped as arms "never taken"). A chain on a
@@ -5092,7 +5108,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9k -> 9l -> 9m -> 9n -> 9o -> 9p -> 9q -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9n -> 9o -> 9p -> 9q -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

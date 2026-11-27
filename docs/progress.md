@@ -6803,7 +6803,41 @@ truthful: an unchecked box means nothing was accepted.
       branchmap, bookmarkmap, branches and shared 184/184 Chrome;
       branchmap and shared 72/72 WebKit; routes, export, report,
       malformed, jump-menu and build-apps tests 294 passed.)
-- [ ] The converter lays a shared tail out once (item 9i).
+- [x] The converter lays a shared tail out once (item 9i).
+      (2026-11-27: flow.py records each label's first visit and path
+      ends, cuts a label two or more routes reach out of the first route
+      that read it (a `shared-mark`) and lays it out once before the
+      owner's `menu-close` behind a `shared-open` marker
+      (`plan_span`, `lay_out_spans`); timeline.py ends spans, gives
+      candidates `shared`/`then` and joins at a span; cli.py names spans
+      `shared-<label slug>` (unique across the manifest) and sets
+      `then`; audio cues move with the span and play on from the cut;
+      the span's first line repeats the visual at the cut when another
+      came between. Subagent's calls: the owner is the innermost
+      decision enclosing every route reaching the label, fixed when the
+      outermost open menu closes; a nested menu whose choices meet at
+      the label makes the outer route's `then` and the nested
+      decision's `continueAt` the span's first item; a run fits when it
+      holds no menu, ends at the join, the story's end or back to the
+      menu, and every route reaching it ends only there, else every
+      menu holding a rejoining route stays linear as before; a route's
+      own `result` is the span's (what an older player acts on); with
+      no join left, `continue` spans become `ending`; a shared label
+      with no lines needs no span; a span whose items were all dropped
+      is withdrawn with its `then`s. Gate: every route with `then` is a
+      route of the span's own decision, because Play all routes cannot
+      yet read a nested route's siblings once it leaves through an
+      enclosing span (lead: item 9i2). The validator's never-shown text
+      names the shared span. On the reporting game (read-only walk) the
+      gate keeps all 29 rejoining menus linear (65 decisions, 0 spans);
+      lifted, 77 decisions, 4 spans, 16 `then`s, 17 left, but 309 items
+      never shown under Play all. Tests: test_shared_tails.py 10 (7
+      failed first), the validator's span warning. Orchestrator: the
+      shared-tails, jump-menu, route, conditions, spans, validator,
+      branch-extract, flow, audio and episodes tests 740 passed; the
+      renpy_demo golden unchanged, 12 passed.)
+- [ ] Play all routes reads a nested route's siblings after an
+      enclosing span, and the converter's gate lifted (item 9i2).
 - [ ] Conditions only on story state (item 9k).
 - [ ] Joins through calls and returns (item 9l).
 - [ ] Say statements as Ren'Py reads them (item 9m).

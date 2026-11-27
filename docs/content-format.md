@@ -1846,9 +1846,12 @@ reading by choices shows, so these are items only a bookmark or `u`
 could land on. An item inside a decision's region, after its `after`
 item and before its `continueAt` (for a pure choice, up to its last
 route end), that lies in none of its routes reads `inside decision
-'<id>' (after '<after>', before '<continueAt>') in none of its routes`;
-a nested decision's region lies inside its enclosing route, so the
-check holds at every level. Any other reads `no reading from the
+'<id>' (after '<after>', before '<continueAt>') in none of its routes`,
+or, inside one of the decision's shared spans, `inside shared span
+'<span>' of decision '<id>' (after '<after>', before '<continueAt>'),
+which no reading enters` (no route's `then` reaches it); a nested
+decision's region lies inside its enclosing route, so the check holds
+at every level. Any other reads `no reading from the
 opening reaches it`: the routes of a decision whose `after` item the
 flow never settles on, or what lies past a route end the flow reaches
 with no decision of it open (a join that lands inside another

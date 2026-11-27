@@ -32,7 +32,8 @@ Menus: a cue read before a menu reaches the first item of every route,
 each route starts from the state before the menu, and a cue after a
 route's last item stays on that item. After the menu the last route's
 state goes on; when the routes left different ambience sets, the next
-ambience change says so.
+ambience change says so. A shared span laid out after the routes plays on
+from what played where the walk first read it.
 """
 
 from __future__ import annotations
@@ -586,8 +587,11 @@ class CueWalker:
             self._group = self._lead[0].copy()
             self._ambience = dict(self._lead[1])
 
-    def route_end(self, last: ItemRecord | None) -> None:
-        """A route's block ended; ``last`` is its last item, if any."""
+    def route_end(self, last: ItemRecord | None,
+                  keep_state: bool = True) -> None:
+        """A route's block ended; ``last`` is its last item, if any. A
+        shared span's end (``keep_state`` False) leaves the routes'
+        states as they were."""
         if self._lead is None:
             return
         trailing = self._group.render(self._ambience)
@@ -598,8 +602,24 @@ class CueWalker:
                 self._report(parsed, source, statement, EMPTY_ROUTE)
         if self._voice is not None:
             self._report_voice(VOICE_NO_LINE)
-        self._route_states.append(dict(self._ambience))
+        if keep_state:
+            self._route_states.append(dict(self._ambience))
         self._group = _Group()
+
+    def snapshot(self) -> dict[str, str]:
+        """What plays now: where the walk first read a shared span."""
+        return dict(self._ambience)
+
+    def span_start(self, ambience: dict[str, str] | None) -> None:
+        """A shared span starts (docs/plan.md Phase 60 item 9i): it plays
+        on from what played where the walk first read it (``ambience``),
+        with no cue waiting; a cue before it stayed on its route's last
+        item."""
+        if self._lead is None:
+            return
+        self._group = _Group()
+        if ambience is not None:
+            self._ambience = dict(ambience)
 
     def menu_close(self) -> None:
         """After the menu the last route's state goes on, inside the

@@ -409,9 +409,16 @@ def finalize_branches(result: TimelineResult,
                     if not record.skipped}
     branches: list[dict[str, Any]] = []
     decision_of: dict[int, tuple[dict[str, Any], list[str]]] = {}
+    # A shared span's key -> its decision and id; each route's `then`
+    # key, set once every decision is made (a nested decision is made
+    # before the one whose span it names).
+    span_ids: dict[str, tuple[dict[str, Any], str]] = {}
+    pending_then: list[tuple[dict[str, Any], dict[str, Any], str]] = []
+    span_notes: dict[int, list[str]] = {}
 
     def dropped(cand: dict[str, Any]) -> bool:
-        top = max(end for _label, _start, end in cand["route_spans"])
+        top = max([end for _label, _start, end in cand["route_spans"]]
+                  + [span["end"] for span in cand.get("shared", [])])
         return any(result.items[i].skipped
                    for i in range(cand["after_idx"], top + 1))
 
@@ -473,6 +480,7 @@ def finalize_branches(result: TimelineResult,
         while at is not None and at < len(result.items) \
                 and result.items[at].skipped:
             at += 1
+        spans = [dict(span) for span in cand.get("shared", [])]
         if continuing is not None and (at is None
                                        or at >= len(result.items)):
             continuing = None
@@ -480,6 +488,10 @@ def finalize_branches(result: TimelineResult,
                 if got == "continue":
                     results[k] = "ending"
                     how[k] += lost
+            for span in spans:
+                if span["result"] == "continue":
+                    span["result"] = "ending"
+                    span["how"] += lost
         routes = [{
             "id": f"{slug(label, 'route')}-{k + 1}"[:ID_MAX],
             "label": label,
@@ -493,6 +505,29 @@ def finalize_branches(result: TimelineResult,
             "prompt": rec.prompt,
             "routes": routes,
         }
+        if spans:
+            # Shared spans (Phase 60 item 9i), ids from the label's name,
+            # unique manifest-wide so a nested route's `then` finds its
+            # own (rule 30 takes the nearest of that id).
+            taken = used | {decision_id} | {r["id"] for r in routes} | {
+                made for _decision, made in span_ids.values()}
+            decision["shared"] = []
+            for k, span in enumerate(spans):
+                base = f"shared-{slug(span.get('label'), str(k + 1))}"
+                span_id, n = base[:ID_MAX], 2
+                while span_id in taken:
+                    span_id = f"{base}-{n}"[:ID_MAX]
+                    n += 1
+                taken.add(span_id)
+                span_ids[span["key"]] = (decision, span_id)
+                decision["shared"].append({
+                    "id": span_id,
+                    "start": result.items[span["start"]].item["id"],
+                    "end": result.items[span["end"]].item["id"],
+                    "result": span["result"]})
+        for route, key in zip(routes, cand.get("then") or []):
+            if key is not None:
+                pending_then.append((decision, route, key))
         if continuing is not None:
             decision["continuingRoute"] = routes[continuing]["id"]
             decision["continueAt"] = result.items[at].item["id"]
@@ -514,6 +549,15 @@ def finalize_branches(result: TimelineResult,
         # The decision the candidate became, for its translations.
         cand["branch"] = branches[-1]
         decision_of[id(rec)] = (decision, how)
+        span_notes[id(decision)] = [
+            f"shared span {made['id']} ({span['how']}; the content at "
+            f"{span['source']}, laid out once)"
+            for made, span in zip(decision.get("shared", []), spans)]
+    for decision, route, key in pending_then:
+        # A span withdrawn, or dropped with its items, is none: the
+        # route acts on its own result, as an older player does.
+        if key in span_ids:
+            route["then"] = span_ids[key][1]
     notes: list[dict[str, str]] = []
     for _rel, parsed in parses:
         for rec in getattr(parsed, "menus", []):
@@ -529,6 +573,12 @@ def finalize_branches(result: TimelineResult,
                             f"({proof})" if proof else
                             f"{route['label']!r} {route['result']}"
                             for route, proof in zip(decision["routes"], how)))
+                thens = [f"{route['id']} then {route['then']}"
+                         for route in decision["routes"] if "then" in route]
+                if thens:
+                    note += "; " + ", ".join(thens)
+                for said in span_notes.get(id(decision), []):
+                    note += "; " + said
                 if "continuingRoute" in decision:
                     note += (f"; continuingRoute {decision['continuingRoute']}"
                              f", continueAt {decision['continueAt']}")
@@ -1217,6 +1267,9 @@ def _join_results(results: list[TimelineResult]) -> TimelineResult:
                                  else cand["continue_idx"] + offset),
                 "route_spans": [(label, start + offset, end + offset)
                                 for label, start, end in cand["route_spans"]],
+                "shared": [{**span, "start": span["start"] + offset,
+                            "end": span["end"] + offset}
+                           for span in cand.get("shared", [])],
             }
             joined.branch_candidates.append(copies[id(cand)])
     for cand in joined.branch_candidates:

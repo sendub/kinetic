@@ -241,10 +241,11 @@ class _Pending:
         # 60 item 8b), else None. A repeat no line takes is dropped.
         self.origin: _Pending | None = None
 
-    def repeat(self, menu_source: str) -> _Pending:
-        """This emitted visual again, for a route's first line: no
-        transition (no new entrance); an animation that holds its last
-        frame is that frame's picture, as Ren'Py shows it by then."""
+    def repeat(self, menu_source: str, note: str | None = None) -> _Pending:
+        """This emitted visual again, for a route's first line (or, with
+        ``note``, a shared span's): no transition (no new entrance); an
+        animation that holds its last frame is that frame's picture, as
+        Ren'Py shows it by then."""
         held = self.kind == "animation" and bool(
             self.timing.get("holdLastFrame"))
         if held:
@@ -254,10 +255,10 @@ class _Pending:
             again = _Pending(self.kind, self.name, self.asset_rel,
                              self.asset_abs, self.source, self.source_ref)
             again.frames, again.timing = self.frames, self.timing
-        again.notes = list(self.notes) + [
+        again.notes = list(self.notes) + [note or (
             f"repeats the visual on screen at the menu at {menu_source}"
             f"{' (its held last frame)' if held else ''}: a route's first "
-            "line, which would otherwise show an earlier route's visual"]
+            "line, which would otherwise show an earlier route's visual")]
         again.origin = self.origin or self
         return again
 
@@ -286,14 +287,25 @@ def finish_candidates(candidates: list[dict[str, Any]]) -> None:
             cand["joins_with"] = state["cand"]
         joining = [k for k, r in enumerate(cand["results"])
                    if r == "continue"]
-        if cand["continue_idx"] is None or not joining:
+        # The continuing route's `then` may name only a span of its own
+        # decision that continues (docs/content-format.md, rule 30).
+        own = {span["key"]: span for span in cand.get("shared", [])}
+        then = cand.get("then") or [None] * len(cand["results"])
+        eligible = [k for k in joining if then[k] is None or (
+            then[k] in own and own[then[k]]["result"] == "continue")]
+        if cand["continue_idx"] is None or not eligible:
             cand["continue_idx"] = None
             for k in joining:
                 cand["results"][k] = "ending"
                 cand["how"][k] += (", which has no item of its own: a "
                                    "pure choice")
+            for span in own.values():
+                if span["result"] == "continue":
+                    span["result"] = "ending"
+                    span["how"] += (", which has no item of its own: a "
+                                    "pure choice")
         else:
-            cand["continuing"] = joining[-1]
+            cand["continuing"] = eligible[-1]
 
 
 class _SliceDone(Exception):
@@ -371,6 +383,11 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     # The visual of the last media item emitted: the one a `text` item
     # emitted now would show (array order).
     on_screen: _Pending | None = None
+    # Each shared span's key -> the visual and ambience where the walk
+    # first read it (its `shared-mark`), restored at its `shared-open`.
+    span_marks: dict[str, dict[str, Any]] = {}
+    # Each shared span's key -> the decisions whose choices meet at it.
+    span_joins: dict[str, list[dict[str, Any]]] = {}
 
     def check_limit() -> None:
         if max_items is not None and len(result.items) >= max_items:
@@ -667,7 +684,10 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         unsupported; it is never fatal."""
         record = ms["record"]
         starts = ms["starts"]
-        ends = starts[1:] + [len(result.items)]
+        # Shared spans follow the last route (Phase 60 item 9i).
+        span_starts = ms.get("spans", [])
+        region_end = span_starts[0][1] if span_starts else len(result.items)
+        ends = starts[1:] + [region_end]
         dropped = ms.get("drop", set())
         outcome = outcome or {}
         reason = ms.get("reject") or outcome.get("linear")
@@ -695,6 +715,22 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         results = list(outcome.get("results")
                        or ["ending"] * len(starts))
         how = list(outcome.get("how") or [""] * len(starts))
+        shared = []
+        bounds = [start for _key, start in span_starts[1:]] + [
+            len(result.items)]
+        laid = {span["key"]: span for span in outcome.get("shared", [])}
+        for (key, start), stop in zip(span_starts, bounds):
+            if key in laid and start < stop:
+                # A span whose items were all dropped is none: its
+                # routes act on their own result, and a decision joining
+                # at it has no join item.
+                shared.append({**laid[key], "start": start, "end": stop - 1})
+            else:
+                for joined in span_joins.get(key, []):
+                    joined["continue_idx"] = None
+        gone = set(laid) - {span["key"] for span in shared}
+        then_of = {k: key for k, key in (outcome.get("then") or {}).items()
+                   if key not in gone}
         cand = {
             "record": record,
             "after_idx": ms["after"],
@@ -705,6 +741,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             "continuing": None,
             "continue_idx": None,
             "join": outcome.get("join"),
+            "shared": shared,
+            "then": [then_of.get(k) for k in kept],
         }
         if record.condition is not None:
             # Decision made from a condition (Phase 60 item 6): its arms
@@ -715,8 +753,16 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             cand["dropped"] = bool(dropped)
         result.branch_candidates.append(cand)
         ms["cand"] = cand
+        for span in shared:
+            for joined in span_joins.get(span["key"], []):
+                # The CLI drops that join too if it withdraws this one.
+                joined["joins_with"] = cand
         link = outcome.get("link")
-        if link is not None:
+        if outcome.get("join_span") is not None:
+            # Its choices meet at a shared tail (Phase 60 item 9i): its
+            # `continueAt` is the span's first item.
+            span_joins.setdefault(outcome["join_span"], []).append(cand)
+        elif link is not None:
             # The choices meet where an enclosing menu's do: its
             # `continueAt`, past the enclosing route's end, is theirs.
             cand["link"] = next(
@@ -745,8 +791,13 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                       if drop}
 
     def end_route(ms: dict[str, Any]) -> None:
-        """Close the route block before the boundary just reached."""
-        if ms["starts"]:
+        """Close the route block (or shared span) before the boundary
+        just reached."""
+        if ms.get("spans"):
+            has_item = len(result.items) > ms["spans"][-1][1]
+            cues.route_end(result.items[-1] if has_item else None,
+                           keep_state=False)
+        elif ms["starts"]:
             has_item = len(result.items) > ms["starts"][-1]
             cues.route_end(result.items[-1] if has_item else None)
 
@@ -777,7 +828,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                               arm=event.arm)
             if event.kind in ("dialogue", "interact", "menu-open",
                               "choice-open", "menu-close",
-                              "stop-movie", "path-end"):
+                              "stop-movie", "path-end", "shared-open"):
                 fresh = False
             if event.kind == "with":
                 got = read_transition(parsed, event.source,
@@ -941,6 +992,38 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     top["starts"].append(len(result.items))
                     cues.route_start()
                     repeat_at_route_start(top)
+            elif event.kind == "shared-mark":
+                # Where the walk first read a shared span (Phase 60 item
+                # 9i): what is on screen there, and what plays.
+                span_marks[event.name or ""] = {
+                    "screen": (pending if pending is not None
+                               and not pending.consumed else on_screen),
+                    "ambience": cues.snapshot()}
+            elif event.kind == "shared-open":
+                if menu_stack:
+                    flush_bare()
+                    last_line = None
+                    resolve_awaiting()
+                    end_route(menu_stack[-1])
+                    menu_stack[-1].setdefault("spans", []).append(
+                        (event.name or "", len(result.items)))
+                    for joined in span_joins.get(event.name or "", []):
+                        joined["continue_idx"] = len(result.items)
+                    mark = span_marks.get(event.name or "", {})
+                    cues.span_start(mark.get("ambience"))
+                    screen = mark.get("screen")
+                    if screen is not None and screen.unresolved:
+                        pending = screen   # its lines drop, as they would
+                    elif screen is not None and (
+                            on_screen is None
+                            or (on_screen.origin or on_screen)
+                            is not (screen.origin or screen)):
+                        pending = screen.repeat(
+                            event.source,
+                            f"repeats the visual on screen where the walk "
+                            f"first read the shared span at {event.source}: "
+                            "the span's first line, which would otherwise "
+                            "show its decision's last route's visual")
             elif event.kind == "menu-close":
                 if menu_stack:
                     flush_bare()

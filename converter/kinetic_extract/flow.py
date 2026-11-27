@@ -35,8 +35,16 @@ story events in that order, each statement once:
   join, back at the menu, at the story's end) or why the menu stays
   linear. Back at the menu includes a jump to content already read from
   which straight-line code reaches the menu (item 4b): it re-reads only
-  the decision's lead-in, which is not laid out again. The menu stays
-  linear (a path rejoining content read elsewhere, every choice empty); a
+  the decision's lead-in, which is not laid out again. A label two or
+  more of a decision's routes go on to before the join is a shared tail
+  (docs/plan.md Phase 60 item 9i): its run, read in the first route
+  reaching it, is moved after the decision's last route behind a
+  `shared-open` marker (lay_out_spans), leaving a `shared-mark`, and the
+  `menu-close` outcomes say which routes go on to it (``then``) and
+  where it leads (``shared``), filled in once the outermost menu open
+  closes (resolve_region), when every route reaching it is known. The
+  menu stays linear (a path rejoining content read elsewhere that is no
+  shared tail, every choice empty); a
   choice with nothing of its own gets its text as a line
   (kinetic_extract.timeline makes the decision). A menu nested in a
   choice's path is preceded by that choice's text as a `route-lead`
@@ -66,6 +74,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import itertools
 import re
 
 from .parser import Event, FileParse, FlowStep, Report, code_literals
@@ -74,6 +83,16 @@ _FLOW_KINDS = frozenset({"jump", "call", "return", "fork", "screen"})
 # Story events whose file counts as reached or not.
 _STORY_KINDS = frozenset({"dialogue", "visual", "video"})
 NOT_REACHED = "not reached from label {start}"
+# Markers a shared tail's run may not hold (docs/plan.md Phase 60 item
+# 9i): a span holds no decision.
+_MARKER_KINDS = frozenset({"menu-open", "choice-open", "menu-close",
+                           "choice-text", "route-lead", "path-end",
+                           "shared-mark", "shared-open"})
+# How a shared tail's path ends -> the span's `result`.
+_SPAN_RESULT = {"join": "continue", "exit": "ending", "menu": "return"}
+# Keys of shared tails, unique in a run of the converter: a route's
+# `then` and its span meet by key (kinetic_extract.cli gives the ids).
+_SPAN_KEYS = itertools.count(1)
 
 
 @dataclass
@@ -251,6 +270,35 @@ def _menu_join(ops: list[_Op], n: int, ipdom: list[int]) -> int:
             if count[m] == best:
                 return m
     return -1
+
+
+def lay_out_spans(events: list[tuple[FileParse, Event]],
+                  moves: list[dict[str, Any]]) -> None:
+    """Lay each shared tail out once (docs/plan.md Phase 60 item 9i): its
+    run, ``events[e0:e1]``, is cut from where the walk first read it,
+    leaving its ``marks`` (a `shared-mark`, after the route's choice text
+    when the run was all that route read), and laid out again before the
+    `menu-close` of the decision it belongs to (``at``), behind its
+    `shared-open` marker, after the decision's last route. Runs never
+    overlap and hold no menu marker, so no cut holds another's place."""
+    cuts = {move["e0"]: move for move in moves}
+    inserts: dict[int, list[dict[str, Any]]] = {}
+    for move in sorted(moves, key=lambda m: m["e0"]):
+        inserts.setdefault(move["at"], []).append(move)
+    out: list[tuple[FileParse, Event]] = []
+    i = 0
+    while i < len(events):
+        for move in inserts.pop(i, ()):
+            out.append(move["open"])
+            out.extend(events[move["e0"]:move["e1"]])
+        move = cuts.get(i)
+        if move is not None:
+            out.extend(move["marks"])
+            i = move["e1"]
+            continue
+        out.append(events[i])
+        i += 1
+    events[:] = out
 
 
 def _successors(ops: list[_Op], labels: dict[str, int],
@@ -514,6 +562,15 @@ def follow_labels(parses: list[tuple[str, FileParse]],
     literals: set[str] = set().union(*(p.literals for p in parsed_of))
     dynamic_ops = [n for n, op in enumerate(ops)
                    if op.kind in ("jump", "call") and op.target is None]
+    # The ops a path can stop at as already walked (a label, where a
+    # block's end goes): where the walk first read them is kept for
+    # shared tails (Phase 60 item 9i).
+    targetable = bytearray(exit_)
+    for n, op in enumerate(ops):
+        if op.kind == "label":
+            targetable[n] = 1
+        elif op.kind == "goto" and 0 <= op.to < exit_:
+            targetable[op.to] = 1
 
     def way_to_menu(n: int, menu: int) -> str | None:
         """How the walk from op ``n`` reaches the menu fork ``menu``, None
@@ -571,6 +628,18 @@ def follow_labels(parses: list[tuple[str, FileParse]],
         # a story event, opens a menu or ends (a `path-end` marker).
         awaiting = [False]
         Ctx = tuple[tuple[int, int, frozenset[int]], ...]
+        # Shared tails (docs/plan.md Phase 60 item 9i), final walk only:
+        # every path end (``n``, ``kind``, ``ctx``, ``floor`` and ``got``,
+        # depth -> how the choice there ended); each op that can be a
+        # rejoin's target -> (events, ends, tasks, pops, ctx, awaiting)
+        # when first walked; each task popped -> (events, ends, tasks
+        # left); the menus closed since the outermost one open opened,
+        # resolved at its close; the runs laid out again as spans.
+        ends_log: list[dict[str, Any]] = []
+        visit_at: dict[int, tuple[Any, ...]] = {}
+        pops: list[tuple[int, int, int]] = []
+        region: list[int] = []
+        moves: list[dict[str, Any]] = []
 
         def report(op: _Op, reason: str) -> None:
             if final:
@@ -605,6 +674,9 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 # goes is where this path ends (a menu at the end of a
                 # choice's block meets the enclosing menu's join).
                 n, steps = ops[n].to, steps + 1
+            record: dict[str, Any] = {"n": n, "kind": kind, "ctx": ctx,
+                                      "floor": floor, "got": {}}
+            ends_log.append(record)
             for depth in range(len(ctx) - 1, floor - 1, -1):
                 fork, k, frame_stops = ctx[depth]
                 info = menus[fork]
@@ -623,6 +695,8 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                         continue   # a fork inside the choice goes on there
                     else:
                         got = "rejoin"
+                record["got"][depth] = got
+                info["ends"][k].append(len(ends_log) - 1)
                 info["endings"][k].add(got)
                 if got in ("rejoin", "unfollowed") \
                         and info["where"][k] is None:
@@ -674,36 +748,268 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             events.append((parsed_of[ops[outer].file], marker))
             return marker
 
-        def close_menu(fork: int, ctx: Ctx) -> None:
+        def menu_reason(fork: int, bad: set[int],
+                        endings: list[set[str]]) -> str | None:
+            """Why the menu stays linear, or None: in choice order, a
+            choice leading where the walk does not follow or one in
+            ``bad`` (rejoining content read elsewhere that no shared span
+            lays out); then every choice empty; then an arm whose
+            ``endings`` (its effective ones) lead back to its condition."""
             info = menus[fork]
-            op = ops[fork]
-            record = parsed_of[op.file].menus[op.menu]
-            linear = None
+            record = parsed_of[ops[fork].file].menus[ops[fork].menu]
             for k, label in enumerate(record.choices):
                 where = info["where"][k]
                 if "unfollowed" in info["endings"][k]:
-                    linear = (f"choice {k + 1} ({label}) leads where the "
-                              f"walk does not follow, at {where}")
-                    break
-                if "rejoin" in info["endings"][k]:
-                    linear = (f"choice {k + 1} ({label}) rejoins content "
-                              f"read at {where}")
-                    break
-            if linear is None and not any(info["story"]):
-                linear = ("every choice is empty: none reads anything "
-                          "before where the choices meet")
-            if linear is None and record.condition is not None:
-                back = next((k for k, ends in enumerate(info["endings"])
+                    return (f"choice {k + 1} ({label}) leads where the "
+                            f"walk does not follow, at {where}")
+                if k in bad:
+                    return (f"choice {k + 1} ({label}) rejoins content "
+                            f"read at {where}")
+            if not any(info["story"]):
+                return ("every choice is empty: none reads anything "
+                        "before where the choices meet")
+            if record.condition is not None:
+                back = next((k for k, ends in enumerate(endings)
                              if "menu" in ends and "join" not in ends),
                             None)
                 if back is not None:
                     head = record.condition.heads[back] or "the absent else"
-                    linear = (f"arm {back + 1} ({head}) leads back to the "
-                              "condition")
+                    return (f"arm {back + 1} ({head}) leads back to the "
+                            "condition")
+            return None
+
+        def close_menu(fork: int, ctx: Ctx) -> None:
+            """Every choice of the menu is walked: its `menu-close` marker
+            goes out now, its outcome filled in when the outermost menu
+            open closes (resolve_region), once every route reaching a
+            label two of them share is known (Phase 60 item 9i)."""
+            info = menus[fork]
+            op = ops[fork]
+            info["close_at"] = len(events)
+            info["outcome"] = {}
+            if menu_reason(fork, set(), info["endings"]) is None:
+                # A nested decision is content of its enclosing routes.
+                for outer, k, _s in ctx:
+                    menus[outer]["story"][k] = True
+            events.append((parsed_of[op.file],
+                           Event("menu-close", op.source,
+                                 name=str(op.menu), outcome=info["outcome"])))
+            if info["walk_join"] and not visited[info["join"]]:
+                awaiting[0] = True
+            region.append(fork)
+            if not ctx:
+                resolve_region()
+
+        def classify(n: int, kind: str, fork: int) -> str:
+            """How a path ending at op ``n`` ends a choice of menu
+            ``fork``, as path_end judges it; ``other`` for none of the
+            join, the menu and the story's end."""
+            if kind != "stop":
+                return kind
+            if n == menus[fork]["join"]:
+                return "join"
+            if way_to_menu(n, fork) is not None:
+                return "menu"
+            return "other"
+
+        def plan_span(x: int, rs: list[int], deepest: dict[int, int],
+                      menus_in: list[int]) -> dict[str, Any] | None:
+            """The run from op ``x`` (up to where its path ends: a join,
+            the story's end, a way back to a menu) that the rejoins ``rs``
+            reach, as a shared tail of the innermost decision enclosing
+            every route reaching it (docs/plan.md Phase 60 item 9i), or
+            None where the shape does not fit: the run holds a menu, ends
+            in more than one way or elsewhere, a route reaching it also
+            ends elsewhere, or one reaching it is a route of a decision
+            nested in that one. Such a route would leave its decision
+            and the routes holding it at the span, and Play all routes,
+            entering each route once a pass, would never read that
+            decision's other routes. A nested decision whose choices
+            meet at the label (its join) joins at the span instead:
+            the route holding it is the one reaching the label."""
+            v = visit_at.get(x)
+            if v is None:
+                return None
+            e0, r0, left, p0, c0, waiting = v
+            if not c0 or e0 < menus[menus_in[-1]]["open_at"]:
+                return None
+            joining = [f for f in menus_in if menus[f]["join"] == x]
+            if waiting and not joining:
+                return None
+            run_end = None
+            for p in range(p0, len(pops)):
+                if pops[p][2] < left:
+                    run_end = pops[p]
+                    break
+            if run_end is None:
+                return None
+            e1, r1, _left = run_end
+            chains = [c0] + [ends_log[r]["ctx"][:deepest[r] + 1]
+                             for r in rs]
+            depth = 0
+            while all(len(c) > depth for c in chains) \
+                    and len({c[depth][0] for c in chains}) == 1:
+                depth += 1
+            if depth == 0:
+                return None
+            d_o = depth - 1
+            owner = c0[d_o][0]
+            if any(len(c) != depth for c in chains) \
+                    or any(ends_log[r]["floor"] > d_o for r in rs):
+                return None   # a route of a nested decision reaches it
+            story = 0
+            for _parsed, event in events[e0:e1]:
+                if event.kind in _MARKER_KINDS:
+                    return None
+                story += event.kind in _STORY_KINDS
+            gots: set[str] = set()
+            end: tuple[int, str] | None = None
+            for r in range(r0, r1):
+                rec = ends_log[r]
+                got = rec["got"].get(d_o)
+                if got is None or rec["ctx"][d_o][0] != owner:
+                    continue
+                gots.add(got)
+                end = (rec["n"], rec["kind"])
+            if len(gots) != 1 or not gots <= {"join", "exit", "menu"} \
+                    or end is None:
+                return None
+            got = gots.pop()
+            first = (c0[-1][0], c0[-1][1])
+            routes = {first: ""}
+            for r in rs:
+                f, k, _s = ends_log[r]["ctx"][deepest[r]]
+                routes[(f, k)] = ""
+            allowed = set(range(r0, r1)) | set(rs)
+            for f, k in routes:
+                if any(r not in allowed for r in menus[f]["ends"][k]):
+                    return None
+                cls = classify(end[0], end[1], f)
+                record = parsed_of[ops[f].file].menus[ops[f].menu]
+                if record.condition is not None and cls == "menu":
+                    return None
+                routes[(f, k)] = cls
+            involved = {f for c in chains for f, _k, _s in c[d_o:]}
+            return {"x": x, "e0": e0, "e1": e1, "owner": owner,
+                    "got": got, "end": end, "routes": routes,
+                    "first": first, "involved": involved, "story": story,
+                    "joining": joining}
+
+        def effective_endings(fork: int, plans: dict[int, dict[str, Any]],
+                              classes: dict[tuple[int, int], str]
+                              ) -> list[set[str]]:
+            """Each choice's endings with its rejoins into planned shared
+            tails taken out and, for a route reaching one, how that tail
+            ends for it."""
+            info = menus[fork]
+            d = info["depth"]
+            out = []
+            for k, endings in enumerate(info["endings"]):
+                got = set(endings)
+                rejoins = [r for r in info["ends"][k]
+                           if ends_log[r]["got"].get(d) == "rejoin"]
+                if rejoins and all(ends_log[r]["n"] in plans
+                                   for r in rejoins):
+                    got.discard("rejoin")
+                if (fork, k) in classes:
+                    got.add(classes[(fork, k)])
+                out.append(got)
+            return out
+
+        def resolve_region() -> None:
+            """The outermost menu open closed: every rejoin of the menus
+            closed since it opened is known. A label reached by two or
+            more routes before their decision's join becomes a shared
+            tail where its shape fits (plan_span); a menu with a rejoin
+            no tail takes, or holding a route of a tail one of whose
+            menus stays linear, stays linear (to a fixed point). Then
+            each menu's outcome is filled in and the tails' runs are
+            set to move (lay_out_spans)."""
+            menus_in = list(region)
+            region.clear()
+            deepest: dict[int, int] = {}
+            for f in menus_in:
+                d = menus[f]["depth"]
+                for ends in menus[f]["ends"]:
+                    for r in ends:
+                        got = ends_log[r]["got"]
+                        if got.get(d) == "rejoin" and r not in deepest:
+                            deepest[r] = max(dd for dd, g in got.items()
+                                             if g == "rejoin")
+            groups: dict[int, list[int]] = {}
+            for r in sorted(deepest):
+                groups.setdefault(ends_log[r]["n"], []).append(r)
+            plans: dict[int, dict[str, Any]] = {}
+            for x, rs in groups.items():
+                plan = plan_span(x, rs, deepest, menus_in)
+                if plan is not None:
+                    plans[x] = plan
+            last = -1
+            for x in sorted(plans, key=lambda x: plans[x]["e0"]):
+                if not plans[x]["story"]:
+                    continue
+                if plans[x]["e0"] < last:
+                    del plans[x]   # inside another tail's run
+                else:
+                    last = plans[x]["e1"]
+            while True:
+                bad: dict[int, set[int]] = {f: set() for f in menus_in}
+                for x, rs in groups.items():
+                    if x in plans:
+                        continue
+                    for r in rs:
+                        rec = ends_log[r]
+                        for dep, got in rec["got"].items():
+                            if got == "rejoin" and rec["ctx"][dep][0] in bad:
+                                bad[rec["ctx"][dep][0]].add(rec["ctx"][dep][1])
+                classes = {fk: cls for plan in plans.values()
+                           for fk, cls in plan["routes"].items()}
+                eff = {f: effective_endings(f, plans, classes)
+                       for f in menus_in}
+                linear = {f for f in menus_in
+                          if bad[f] or menu_reason(f, set(), eff[f])}
+                gone = [x for x, plan in plans.items()
+                        if plan["involved"] & linear]
+                if not gone:
+                    break
+                for x in gone:
+                    del plans[x]
+            then_of: dict[tuple[int, int], tuple[str, str]] = {}
+            owned: dict[int, list[dict[str, Any]]] = {}
+            # A nested decision whose choices meet at a shared tail joins
+            # at its span's first item.
+            join_span: dict[int, str] = {}
+            for plan in sorted(plans.values(), key=lambda p: p["e0"]):
+                if not plan["story"]:
+                    continue
+                plan["key"] = f"shared{next(_SPAN_KEYS)}"
+                for fk in plan["routes"]:
+                    then_of[fk] = (plan["key"], ops[plan["x"]].source)
+                owned.setdefault(plan["owner"], []).append(plan)
+                for f in plan["joining"]:
+                    join_span[f] = plan["key"]
+            for f in menus_in:
+                finish_menu(f, menu_reason(f, bad[f], eff[f]), eff[f],
+                            then_of, owned.get(f, []))
+                if f in join_span:
+                    menus[f]["outcome"]["join_span"] = join_span[f]
+            for plan in sorted(plans.values(), key=lambda p: p["e0"]):
+                if plan["story"]:
+                    move_span(plan)
+
+        def finish_menu(fork: int, linear: str | None,
+                        endings: list[set[str]],
+                        then_of: dict[tuple[int, int], tuple[str, str]],
+                        spans: list[dict[str, Any]]) -> None:
+            """Fill in the menu's `menu-close` outcome: how each path
+            ended (its effective ``endings``), each route's shared tail
+            (``then``), the tails it lays out (``shared``) or why it stays
+            linear."""
+            info = menus[fork]
             join = info["join"]
             join_source = ops[join].source if 0 <= join < exit_ else None
             results, how = [], []
-            for ends, lead in zip(info["endings"], info["lead"]):
+            for k, (ends, lead) in enumerate(zip(endings, info["lead"])):
                 if "join" in ends:
                     results.append("continue")
                     how.append(f"reaches the join at {join_source}")
@@ -716,24 +1022,66 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                     how.append("reaches the story's end"
                                if "exit" in ends else
                                "its paths end in other routes")
+                if linear is None and (fork, k) in then_of:
+                    how[-1] = (f"goes on to the shared span at "
+                               f"{then_of[(fork, k)][1]}, which for this "
+                               f"decision {how[-1]}")
+            shared = []
             if linear is None:
                 for marker in info["texts"]:
                     marker.kind = "dialogue"
                 if info["route_lead"] is not None:
                     info["route_lead"].kind = "route-lead"
-                for outer, k, _s in ctx:
-                    menus[outer]["story"][k] = True
+                for plan in spans:
+                    x = plan["x"]
+                    if plan["got"] == "join":
+                        said = f"reaches the join at {join_source}"
+                    elif plan["got"] == "menu":
+                        way = way_to_menu(plan["end"][0], fork)
+                        said = "jumps back to the menu" + (
+                            f" through its lead-in at {way}" if way else "")
+                    else:
+                        said = "reaches the story's end"
+                    shared.append({
+                        "key": plan["key"],
+                        "result": _SPAN_RESULT[plan["got"]],
+                        "how": said, "source": ops[x].source,
+                        "label": (ops[x].event.name if ops[x].kind == "label"
+                                  and ops[x].event is not None else None)})
             link = info["link"]
-            outcome = {
+            info["outcome"].update({
                 "linear": linear, "results": results, "how": how,
                 "join": join_source,
                 "link": None if link is None else
-                (parsed_of[ops[link].file], ops[link].menu)}
-            events.append((parsed_of[op.file],
-                           Event("menu-close", op.source,
-                                 name=str(op.menu), outcome=outcome)))
-            if info["walk_join"] and not visited[join]:
-                awaiting[0] = True
+                (parsed_of[ops[link].file], ops[link].menu),
+                "shared": shared,
+                "then": {} if linear is not None else {
+                    k: key for (f, k), (key, _src) in then_of.items()
+                    if f == fork},
+            })
+
+        def move_span(plan: dict[str, Any]) -> None:
+            """Cut the tail's run from where the walk first read it,
+            leaving a `shared-mark` (and the route's choice text when the
+            run was all it read), to lay it out at its decision's
+            `menu-close` behind a `shared-open` marker."""
+            x = plan["x"]
+            parsed = parsed_of[ops[x].file]
+            marks = []
+            f0, k0 = plan["first"]
+            if menus[f0]["story_n"][k0] <= plan["story"]:
+                record = parsed_of[ops[f0].file].menus[ops[f0].menu]
+                marker = choice_marker(record, k0)
+                marker.kind = "dialogue"
+                menus[f0]["texts"].append(marker)
+                marks.append((parsed_of[ops[f0].file], marker))
+            marks.append((parsed, Event("shared-mark", ops[x].source,
+                                        name=plan["key"])))
+            moves.append({
+                "e0": plan["e0"], "e1": plan["e1"], "marks": marks,
+                "at": menus[plan["owner"]]["close_at"],
+                "open": (parsed, Event("shared-open", ops[x].source,
+                                       name=plan["key"]))})
 
         for entry in entries:
             tasks: list[tuple[int, frozenset[int], int, Ctx, int,
@@ -741,6 +1089,8 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 (*entry, (), 0, None)]
             while tasks:
                 n, stops, site, ctx, floor, mark = tasks.pop()
+                if final:
+                    pops.append((len(events), len(ends_log), len(tasks)))
                 if mark is not None:
                     if final and mark[0] == "open":
                         _kind, fork, k = mark
@@ -770,6 +1120,10 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                         ended = "stop"
                         break
                     visited[n] = 1
+                    if final and targetable[n]:
+                        visit_at[n] = (len(events), len(ends_log),
+                                       len(tasks), len(pops), ctx,
+                                       awaiting[0])
                     op = ops[n]
                     jumped = False
                     if op.kind in ("emit", "label"):
@@ -779,6 +1133,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 awaiting[0] = False
                                 for fork, k, _s in ctx:
                                     menus[fork]["story"][k] = True
+                                    menus[fork]["story_n"][k] += 1
                         n += 1
                     elif op.kind in ("jump", "call") and op.target is None:
                         # Computed: each candidate in turn, a call
@@ -844,7 +1199,11 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 "endings": [set() for _ in range(count)],
                                 "where": [None] * count,
                                 "lead": [None] * count,
-                                "story": [False] * count, "texts": []}
+                                "story": [False] * count, "texts": [],
+                                "story_n": [0] * count,
+                                "ends": [[] for _ in range(count)],
+                                "open_at": len(events), "depth": len(ctx),
+                                "ctx": ctx}
                             awaiting[0] = False
                             menus[n]["route_lead"] = route_lead(ctx)
                             events.append((parsed_of[op.file], Event(
@@ -875,6 +1234,10 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                         break
                 if ended:
                     path_end(ended, n, stops, ctx, floor)
+        if region:
+            resolve_region()
+        if moves:
+            lay_out_spans(events, moves)
         return out
 
     # 1. Literal flow alone: which labels it reaches.

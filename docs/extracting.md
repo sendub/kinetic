@@ -206,10 +206,47 @@ game whose story order differs from its file order read out of order.
   lead-in at game/script.rpy:40`, `reaches the story's end`), and its
   `continuingRoute` and `continueAt` or that it is a pure choice. A
   `return` in a choice is read as the story's end, even in a label
-  reached by `call`. Linear and reported (`menu unsupported (...)`,
+  reached by `call`.
+
+  **Shared tails** (Phase 60 item 9i): content that two or more choices
+  of one menu go on to before the join (a failure scene two choices
+  jump to, say) is laid out once, as a `shared` span of the decision
+  (docs/content-format.md, "Branches"), after its last route and before
+  its `continueAt`. The span is the run from the label the choices
+  reach up to where it goes next, and its `result` says where:
+  `"continue"` at the join, `"ending"` at the story's end, `"return"`
+  back to the menu (through its lead-in, as a refusal). Each route
+  reaching it names it in `then`, and its own `result` is the span's,
+  what a player older than 1.15.0, which ignores `then`, acts on. The
+  span's id is `shared-` and the label's name (`shared-lose`), made
+  unique in the manifest. The walk reads the label in the first route
+  reaching it; the converter moves that run after the routes, so the
+  first route ends where it reached the label (a route left with
+  nothing of its own gets its choice text as its line), and the span's
+  first line is said over the visual on screen there, repeated as a
+  route's first line is when another visual came between (its ledger
+  note says `repeats the visual on screen where the walk first read the
+  shared span`). Its audio cues are read with it, and it plays on from
+  what played there. A menu nested in a route whose choices meet at
+  such a label (its join) joins at the span's first item, and the route
+  holding it names the span. The `branchDetection` note lists each
+  route's `then` and each span (`shared span shared-lose (reaches the
+  join at game/script.rpy:40; the content at game/script.rpy:31, laid
+  out once)`), and a route reaching one says `goes on to the shared
+  span at game/script.rpy:31`. A label that only a route of a nested
+  menu reaches beside the outer menu's routes (its sibling routes going
+  elsewhere) is no shared tail: that route would leave both menus at
+  the span, and Play all routes, which enters each route once a pass,
+  would never read its siblings. It stays a rejoin, as does a label
+  whose run holds a menu of its own (a span holds no decision), ends in
+  more than one way, or goes on to content read elsewhere, and a route
+  that reaches it on some paths only.
+
+  Linear and reported (`menu unsupported (...)`,
   `skipped` in `branchDetection`): a menu every choice of which is
   empty, one where a choice's path rejoins content read somewhere other
-  than the join or the menu (a jump back to a label whose way to the
+  than the join or the menu and that is no shared tail (above; a jump
+  back to a label whose way to the
   menu, after a line, passes an `if` with a jump, another menu, a call
   or another jump is such a rejoin), a conditional choice (`"x" if cond:`), a
   `label` inside a choice block, any line between choices other
