@@ -820,13 +820,13 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             every route reaching it (docs/plan.md Phase 60 item 9i), or
             None where the shape does not fit: the run holds a menu, ends
             in more than one way or elsewhere, a route reaching it also
-            ends elsewhere, or one reaching it is a route of a decision
-            nested in that one. Such a route would leave its decision
-            and the routes holding it at the span, and Play all routes,
-            entering each route once a pass, would never read that
-            decision's other routes. A nested decision whose choices
-            meet at the label (its join) joins at the span instead:
-            the route holding it is the one reaching the label."""
+            ends elsewhere, or a call cuts the decision off a route
+            reaching it. A route of a decision nested in that one leaves
+            its decision and the routes holding it at the span; Play all
+            routes offers that decision again at the span's end (item
+            9i2). A nested decision whose choices meet at the label (its
+            join) joins at the span instead: the route holding it is the
+            one reaching the label."""
             v = visit_at.get(x)
             if v is None:
                 return None
@@ -854,9 +854,8 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 return None
             d_o = depth - 1
             owner = c0[d_o][0]
-            if any(len(c) != depth for c in chains) \
-                    or any(ends_log[r]["floor"] > d_o for r in rs):
-                return None   # a route of a nested decision reaches it
+            if any(ends_log[r]["floor"] > d_o for r in rs):
+                return None   # a call cuts the decision off a route
             story = 0
             for _parsed, event in events[e0:e1]:
                 if event.kind in _MARKER_KINDS:

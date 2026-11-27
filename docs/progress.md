@@ -6836,8 +6836,37 @@ truthful: an unchecked box means nothing was accepted.
       shared-tails, jump-menu, route, conditions, spans, validator,
       branch-extract, flow, audio and episodes tests 740 passed; the
       renpy_demo golden unchanged, 12 passed.)
-- [ ] Play all routes reads a nested route's siblings after an
+- [x] Play all routes reads a nested route's siblings after an
       enclosing span, and the converter's gate lifted (item 9i2).
+      (2026-11-27: machine.ts's `endSpan`, under Play all routes, at
+      the end of a span entered from a route of another decision, walks
+      from that route's decision outwards, short of the span's
+      decision, and re-offers the first with a route unplayed this pass
+      (`spanReturn`; the frames of the routes holding it pushed back;
+      "Back in time" names the leading route); only when none qualifies
+      does the span's `result` act at its own decision. Subagent's
+      calls: a nested pure choice met on that walk with every route
+      played closes there when its close lies inside its holding route
+      (`closesInside`), so the enclosing route reads on; an enclosing
+      route a re-offer carries to its end completes there, the others
+      stay left, not completed; the re-offer sits over the span's last
+      item (`PendingChoice.over`, read by `anchorOf`, `screenKey`,
+      `reopenChoice`; no save-format change), so the wheel steps back
+      onto that item and a reload reopens it; `endStep` is -1 there, so
+      `u` and skip predict no join. Play all routes off and the wheel's
+      story-order walk unchanged. folder_model.py's reach walk mirrors
+      it (`span_return`, `holder_route`, `reopen_around`); flow.py's
+      gate is gone. On the reporting game (read-only walk): 77
+      decisions (65 before), 4 spans, 16 `then`s (13 nested), 17
+      rejoining menus left linear (29 before), 0 validator problems, 0
+      never-shown items (309 with the old walk). Tests: 10 machine tests
+      (9 failed first), reach.test.ts's generator with deep `then`s,
+      Python reach-walk tests (4 failed first), converter nested and
+      chain cases (3 failed first), scenario parts playall and nested.
+      Orchestrator: npm test 1969 passed, check clean, smoke 6/6;
+      shared, branches, follows and branchmap 166/166 Chrome; shared
+      and branches 91/91 WebKit; converter and validator tests 688
+      passed.)
 - [ ] Conditions only on story state (item 9k).
 - [ ] Joins through calls and returns (item 9l).
 - [ ] Say statements as Ren'Py reads them (item 9m).

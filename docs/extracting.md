@@ -233,14 +233,16 @@ game whose story order differs from its file order read out of order.
   route's `then` and each span (`shared span shared-lose (reaches the
   join at game/script.rpy:40; the content at game/script.rpy:31, laid
   out once)`), and a route reaching one says `goes on to the shared
-  span at game/script.rpy:31`. A label that only a route of a nested
-  menu reaches beside the outer menu's routes (its sibling routes going
-  elsewhere) is no shared tail: that route would leave both menus at
-  the span, and Play all routes, which enters each route once a pass,
-  would never read its siblings. It stays a rejoin, as does a label
-  whose run holds a menu of its own (a span holds no decision), ends in
-  more than one way, or goes on to content read elsewhere, and a route
-  that reaches it on some paths only.
+  span at game/script.rpy:31`. A route of a nested menu may reach the
+  label too while its sibling routes go elsewhere, at any depth: the
+  span is the innermost decision's enclosing every route reaching it,
+  and that route names it, leaving its own menu and the routes holding
+  it at the span (Play all routes then offers that menu again at the
+  span's end, docs/content-format.md, "Branches"). A label stays a
+  rejoin when its run holds a menu of its own (a span holds no
+  decision), ends in more than one way, or goes on to content read
+  elsewhere, when a route reaches it on some paths only, or when a call
+  cuts a route reaching it off the menu.
 
   Linear and reported (`menu unsupported (...)`,
   `skipped` in `branchDetection`): a menu every choice of which is

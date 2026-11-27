@@ -18,7 +18,8 @@ import { DEFAULT_SETTINGS } from "./types";
 // `reach_warnings`; docs/plan.md Phase 48 item 6) held to the machine: on
 // seeded generated manifests (decisions, nested decisions, every route
 // result, continuing routes and pure choices, gaps, joins that land far
-// on, shared spans read by routes of their decision and of nested ones),
+// on, shared spans read by routes of their decision and of nested ones,
+// two or more levels in too, whose ends offer those decisions again),
 // the items the validator warns on are exactly the items the machine's
 // play-all walk from the opening never shows. One Python process takes the
 // whole batch; the CLI's wiring of the warning is tools/
@@ -53,13 +54,18 @@ interface Coverage {
   results: Record<string, number>;
   spans: number;
   nestedThens: number;
+  /** Nested `then`s naming a span two or more decisions out (item 9i2). */
+  deepThens: number;
 }
 
 function generate(rand: () => number, coverage: Coverage): Manifest {
   const ids: string[] = [];
   const branches: Branch[] = [];
-  /** Every route made so far, with whether it is its decision's continuing one. */
-  const made: { route: Route; continuing: boolean }[] = [];
+  /**
+   * Every route made so far, with whether it is its decision's continuing
+   * one and its decision's depth.
+   */
+  const made: { route: Route; continuing: boolean; depth: number }[] = [];
   const fixups: (() => void)[] = [];
   const int = (low: number, high: number) =>
     low + Math.floor(rand() * (high - low + 1));
@@ -103,7 +109,7 @@ function generate(rand: () => number, coverage: Coverage): Manifest {
     }
     const nested = made.slice(nestedFrom);
     routes.forEach((route, r) => {
-      made.push({ route, continuing: r === continuing });
+      made.push({ route, continuing: r === continuing, depth });
     });
     const branch: Branch = {
       id: `d${branches.length}`,
@@ -137,10 +143,11 @@ function generate(rand: () => number, coverage: Coverage): Manifest {
         if (r === continuing && span.result !== "continue") return;
         route.then = span.id;
       });
-      for (const { route, continuing: joins } of nested) {
+      for (const { route, continuing: joins, depth: inner } of nested) {
         if (joins || route.then !== undefined || rand() >= 0.3) continue;
         route.then = shared[int(0, shared.length - 1)].id;
         coverage.nestedThens += 1;
+        if (inner >= depth + 2) coverage.deepThens += 1;
       }
     }
     if (continuing < 0) {
@@ -260,6 +267,7 @@ describe("the validator's unreachable items match the machine", () => {
       results: { default: 0, ending: 0, return: 0, continue: 0 },
       spans: 0,
       nestedThens: 0,
+      deepThens: 0,
     };
     const manifests = Array.from({ length: MANIFESTS }, () =>
       generate(rand, coverage),
@@ -284,5 +292,8 @@ describe("the validator's unreachable items match the machine", () => {
       expect(count).toBeGreaterThan(MANIFESTS / 4);
     expect(coverage.spans).toBeGreaterThan(MANIFESTS / 4);
     expect(coverage.nestedThens).toBeGreaterThan(MANIFESTS / 20);
+    expect(coverage.deepThens, JSON.stringify(coverage)).toBeGreaterThan(
+      MANIFESTS / 100,
+    );
   });
 });

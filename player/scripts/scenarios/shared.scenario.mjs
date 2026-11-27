@@ -14,7 +14,12 @@
 // - playall: with Play all routes on, the bridge reads the fall; the left
 //   door then reaches it read already, so a skip runs through it on its
 //   own under the pill "Read already: skipping" (no "Skip off" after it),
-//   and the choice comes back by itself with the road next.
+//   and the doors come back by themselves with the right door next.
+// - nested (item 9i2): with Play all routes on, the fall's end after the
+//   left door offers the doors again ("Back in time: “The left door” is
+//   done."), the tunnel still open: the right door reads on through the
+//   rest of the tunnel, whose end brings the outer choice back with the
+//   road next, and the road reaches home: every line read once.
 // - reload: in the fall by the left door, a reload resumes there, and the
 //   fall's end still offers the outer choice (the route that led in kept).
 
@@ -35,7 +40,7 @@ import {
 } from "./harness.mjs";
 
 export const title =
-  "shared spans: a route's end reads its span, Play all routes skips a span read already, a reload in a span keeps its route";
+  "shared spans: a route's end reads its span, Play all routes skips a span read already and offers a nested route's choice again after it, a reload in a span keeps its route";
 
 const TEXT = {
   lead: "Dusk on the mountain path.",
@@ -259,11 +264,11 @@ async function playall({ check, open }) {
   const onX1 = await spaceOnto(page, cdp, TEXT.x1);
   await page.evaluate(INSTALL_PILL_LOG);
   await pressSpace(cdp); // into the fall, read already: it skips itself
-  const third = await nextRow(); // the fall's end brings the choice back
+  const third = await nextRow(); // the fall's end brings the doors back
   await sleep(300);
   const pills = await readPills(page);
   check(
-    "play all routes on: the bridge reads the fall; the left door reaches it read already, a skip runs through it on its own under its pill (no skip off after it), and the choice comes back with the road next",
+    "play all routes on: the bridge reads the fall; the left door reaches it read already, a skip runs through it on its own under its pill (no skip off after it), and the doors come back with the right door next",
     onDecide &&
       first === "The bridge" &&
       onA1 &&
@@ -274,7 +279,7 @@ async function playall({ check, open }) {
       onCave &&
       door === "The left door" &&
       onX1 &&
-      third === "The road" &&
+      third === "The right door" &&
       pills.includes("Read already: skipping") &&
       !pills.includes("Skip off") &&
       !pills.includes("Skip on"),
@@ -287,6 +292,60 @@ async function playall({ check, open }) {
       third,
       pills,
     },
+  );
+}
+
+async function nested({ check, open }) {
+  const folder = buildFolder("nested");
+  const { page, cdp } = await open("nested", { closeHelp: true, folder });
+  /** The open choice: its prompt, the row play-all takes, its status. */
+  const offer = async () => {
+    const opened = await waitFor(page, CHOICE_OPEN);
+    await sleep(150);
+    const choice = await page.evaluate(READ_CHOICE);
+    const status = await page.evaluate(
+      () =>
+        document.querySelector(".choice-auto:not([hidden]) .choice-auto-text")
+          ?.textContent ?? "",
+    );
+    return opened
+      ? {
+          prompt: choice.prompt,
+          next: choice.rows?.find((row) => row.next)?.label ?? null,
+          status,
+        }
+      : null;
+  };
+  const read = [];
+  /** Space onto each text in turn, noting the ones reached. */
+  const through = async (...texts) => {
+    for (const text of texts) {
+      if (await spaceOnto(page, cdp, text)) read.push(text);
+    }
+  };
+  await through(TEXT.decide);
+  await pressSpace(cdp); // the ways count down: the bridge
+  await through(TEXT.a1, TEXT.f1, TEXT.f2);
+  await pressSpace(cdp); // the fall returns: the tunnel next
+  await through(TEXT.b1, TEXT.cave);
+  await pressSpace(cdp); // the doors count down: the left door
+  await through(TEXT.x1);
+  await pressSpace(cdp); // into the fall, read already: it skips itself
+  const doors = await offer(); // the doors again, for the right door
+  await through(TEXT.y1, TEXT.b2);
+  await pressSpace(cdp); // the tunnel's end: the ways again
+  const ways = await offer();
+  await through(TEXT.c1, TEXT.home, TEXT.night);
+  check(
+    "play all routes on: the fall's end after the left door offers the doors again for the right door, which reads on through the tunnel; the tunnel's end offers the ways for the road, and every line is read",
+    doors?.prompt === DOORS &&
+      doors.next === "The right door" &&
+      doors.status.includes("“The left door” is done.") &&
+      ways?.prompt === WAYS &&
+      ways.next === "The road" &&
+      ways.status.includes("“The tunnel” is done.") &&
+      read.length === 12,
+    { doors, ways, read },
   );
 }
 
@@ -322,4 +381,4 @@ async function reload({ check, open }) {
 }
 
 // Independent parts (each opens its own browser and folder).
-export const parts = [read, playall, reload];
+export const parts = [read, playall, nested, reload];

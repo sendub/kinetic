@@ -133,11 +133,84 @@ def test_the_tools_run_on_shared_spans(tmp_path: Path,
 
 def test_the_reach_walk_follows_a_then_into_its_span() -> None:
     """Play-all from the opening (`shown_by_play_all`): o1 first, its
-    nested i1 reads `fall`, the enclosing decision's span, which leaves
-    o1 there (e, i2, and f, its join, unread), and the span's "continue"
-    re-offers `outer` while o2 is unplayed; o2 then joins at j."""
+    nested i1 reads `fall`, the enclosing decision's span; the span's end
+    offers `inner` again while i2 is unplayed (docs/plan.md Phase 60 item
+    9i2), o1 open again, so i2 joins at f, o1's end; then `outer` again
+    for o2, which joins at j."""
     shown = folder_model.shown_by_play_all(ITEMS, decisions_of(NESTED))
-    assert sorted(shown) == [0, 1, 2, 3, 6, 7, 8, 9, 10]
+    assert sorted(shown) == list(range(11))
+
+
+def two_levels(p_end: str) -> tuple[list[Any], list[Any]]:
+    """`d` off b: a (c..j, holding `m`), b2 at k (continuing, joining at
+    m); the span `fail` at l ("return"). `m` off d inside a: p (e..p_end,
+    holding `q`), t at i (continuing, joining at j). `q` off f inside p, a
+    pure choice: r at g and s at h, both `then` `fail`, two levels out.
+    With ``p_end`` "h" p ends with `q`'s region; "x" adds one more item to
+    p after it, which shifts every later item on by one."""
+    names = list("abcdefgh") + (["x"] if p_end == "x" else []) + list(
+        "ijklmn")
+    items = [text(n) for n in names]
+    branches = [
+        {"id": "d", "prompt": "?", "after": "b", "continuingRoute": "b2",
+         "continueAt": "m",
+         "routes": [route("a", "c", "j"), route("b2", "k", "k")],
+         "shared": [{"id": "fail", "start": "l", "end": "l",
+                     "result": "return"}]},
+        {"id": "m", "prompt": "?", "after": "d", "continuingRoute": "t",
+         "continueAt": "j",
+         "routes": [route("p", "e", p_end), route("t", "i", "i")]},
+        {"id": "q", "prompt": "?", "after": "f",
+         "routes": [route("r", "g", "g", then="fail"),
+                    route("s", "h", "h", then="fail")]},
+    ]
+    return items, branches
+
+
+def test_the_reach_walk_offers_each_nested_decision_again_outwards() -> None:
+    """r's span end offers `q` again for s; s's offers `m` (its pure
+    `q` played through, its close past p's end), a open again, for t,
+    which joins at j, a's end; then `d` for b2. Every item is shown."""
+    items, branches = two_levels("h")
+    shown = folder_model.shown_by_play_all(
+        items, folder_model.resolve_decisions(items, branches))
+    assert sorted(shown) == list(range(len(items)))
+
+
+def test_the_reach_walk_closes_a_nested_pure_choice_inside_its_route() -> None:
+    """With p going on past `q`'s region, s's span end closes `q` there
+    (every route played), reading p's last item."""
+    items, branches = two_levels("x")
+    shown = folder_model.shown_by_play_all(
+        items, folder_model.resolve_decisions(items, branches))
+    assert sorted(shown) == list(range(len(items)))
+
+
+def test_the_reach_walk_through_a_chain_of_menus() -> None:
+    """`A` off b: a1 (c..k, holding `B`), a2 at l (then `S`), a3 at m
+    (continuing, joining at p); the span `S` at n..o ("return"). `B` off
+    d in a1: b1 (e..i, holding `C`; continuing, joining at k), b2 at j
+    (then `S`). `C` off f in b1: c1 at g (then `S`), c2 at h (continuing,
+    joining at i). Each nested decision is offered again, innermost
+    first, so every item is shown."""
+    items = [text(n) for n in "abcdefghijklmnopq"]
+    branches = [
+        {"id": "A", "prompt": "?", "after": "b", "continuingRoute": "a3",
+         "continueAt": "p",
+         "routes": [route("a1", "c", "k"), route("a2", "l", "l", then="S"),
+                    route("a3", "m", "m")],
+         "shared": [{"id": "S", "start": "n", "end": "o",
+                     "result": "return"}]},
+        {"id": "B", "prompt": "?", "after": "d", "continuingRoute": "b1",
+         "continueAt": "k",
+         "routes": [route("b1", "e", "i"), route("b2", "j", "j", then="S")]},
+        {"id": "C", "prompt": "?", "after": "f", "continuingRoute": "c2",
+         "continueAt": "i",
+         "routes": [route("c1", "g", "g", then="S"), route("c2", "h", "h")]},
+    ]
+    shown = folder_model.shown_by_play_all(
+        items, folder_model.resolve_decisions(items, branches))
+    assert sorted(shown) == list(range(len(items)))
 
 
 def test_the_reach_walk_closes_a_pure_choice_past_its_span() -> None:

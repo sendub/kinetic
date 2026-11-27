@@ -57,6 +57,7 @@ const A = 0;
 const B = 1;
 const C = 2;
 const X = 0;
+const Y = 1;
 const F1 = 9;
 const F2 = 10;
 const T1 = 11;
@@ -387,14 +388,19 @@ describe("Play all routes on: a span read already this pass is skipped", () => {
     expect(m.getState().cursor).toBe(F2);
     vi.advanceTimersByTime(DEFAULT_SETTINGS.skipDwellMs); // the span's end
     // The burst ends with the span, with no "off" flip of its own, and
-    // the span's "return" re-offers `d` under play-all: C next.
+    // X's own decision, with Y unplayed this pass, is offered again
+    // before the span's "return" acts at `d` (item 9i2).
     expect(m.getState().skipping).toBe(false);
     expect(m.getState().readAgain).toBeUndefined();
     expect(flips).toEqual([true]);
-    expect(m.getState().choice?.decisionId).toBe("d");
-    expect(m.getState().choice?.autoPick?.routeIdx).toBe(C);
+    expect(m.getState().choice?.decisionId).toBe("n");
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(Y);
     expect(m.getState().choice?.autoPick?.backFromLabel).toBe("X");
     expect(completedAt(m, N)).toEqual([X]);
+    m.advance(); // y-1
+    m.advance(); // joins at b-2, B's last item
+    m.advance(); // B's end re-offers `d`: C next
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(C);
     m.advance(); // c-1
     m.advance(); // joins: every route played
     expect(m.getState().cursor).toBe(JOIN);
@@ -416,8 +422,8 @@ describe("Play all routes on: a span read already this pass is skipped", () => {
     vi.advanceTimersByTime(10_000);
     expect(m.getState().cursor).toBe(F1); // manual: nothing moves
     m.advance(); // f-2
-    m.advance(); // the result acts
-    expect(m.getState().choice?.decisionId).toBe("d");
+    m.advance(); // the span's end: `n` again for Y (item 9i2)
+    expect(m.getState().choice?.decisionId).toBe("n");
     m.destroy();
   });
 
@@ -427,6 +433,11 @@ describe("Play all routes on: a span read already this pass is skipped", () => {
     readAThenToX(m);
     m.advance(); // the span, skipped
     vi.advanceTimersByTime(DEFAULT_SETTINGS.skipDwellMs * 2);
+    // `n` first, Y unplayed; then B's end, and C.
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(Y);
+    m.advance(); // y-1
+    m.advance(); // b-2
+    m.advance(); // B's end
     expect(m.getState().choice?.autoPick?.routeIdx).toBe(C);
     m.advance(); // c-1
     m.advance(); // joins
@@ -554,6 +565,393 @@ describe("the wheel and a reload inside a span", () => {
     m.advance();
     m.advance();
     expect(m.getState().choice?.decisionId).toBe("d");
+    m.destroy();
+  });
+});
+
+// Item 9i2: under Play all routes, the end of a span entered from a nested
+// route offers again the innermost decision between that route and the
+// span's decision with a route unplayed this pass, its enclosing routes
+// open again, before the span's `result` acts at its own decision.
+
+/**
+ * Space through play-all to the story's end, the clock running each skip
+ * burst through a span read already: each choice offered, as
+ * "decision:picked route", with "<label" for the route a re-offer came
+ * back from.
+ */
+function playAll(m: M): string[] {
+  const offers: string[] = [];
+  for (let n = 0; n < 300; n += 1) {
+    const state = m.getState();
+    if (state.skipping) {
+      vi.advanceTimersByTime(DEFAULT_SETTINGS.skipDwellMs);
+      continue;
+    }
+    const auto = state.choice?.autoPick;
+    if (state.choice !== undefined && auto !== undefined) {
+      const back =
+        auto.backFromLabel === undefined ? "" : `<${auto.backFromLabel}`;
+      offers.push(
+        `${state.choice.decisionId}:${state.choice.routes[auto.routeIdx].label}${back}`,
+      );
+    }
+    m.advance();
+    const after = m.getState();
+    if (
+      after.cursor === state.cursor &&
+      after.choice === undefined &&
+      state.choice === undefined &&
+      !after.skipping
+    )
+      break;
+  }
+  return offers;
+}
+
+/** Every item index of a manifest of `count` items not yet shown. */
+function unshown(m: M, count: number): number[] {
+  const seen = new Set(m.visitedList());
+  return Array.from({ length: count }, (_, i) => i).filter((i) => !seen.has(i));
+}
+
+describe("Play all routes on: a nested route's span offers its own decision again (item 9i2)", () => {
+  it("one level: X's span end offers `n` again for Y, whose join continues B", () => {
+    vi.useFakeTimers();
+    const m = machine({ settings: ALL });
+    expect(playAll(m)).toEqual(["d:A", "d:B<A", "n:X", "n:Y<X", "d:C<B"]);
+    // Only `tail`, which no route names, is left unread.
+    expect(unshown(m, ITEMS.length)).toEqual([T1]);
+    expect(completedAt(m, D)).toEqual([A, B, C]);
+    expect(completedAt(m, N)).toEqual([X, Y]);
+    m.destroy();
+  });
+
+  it("the re-offer has B's frame open again, and Y's join reads on in B", () => {
+    vi.useFakeTimers();
+    const m = machine({ settings: ALL });
+    toChoice(m);
+    m.advance(); // A
+    m.advance(); // f-1
+    m.advance(); // f-2
+    m.advance(); // d again: B
+    m.advance(); // b-1
+    m.advance(); // n
+    m.advance(); // fires n: X
+    m.advance(); // x-1
+    m.advance(); // the span, read already: skipping
+    vi.advanceTimersByTime(DEFAULT_SETTINGS.skipDwellMs * 2);
+    expect(m.getState().cursor).toBe(F2);
+    expect(m.getState().choice?.decisionId).toBe("n");
+    expect(m.exportContext().stack).toEqual([{ decision: D, route: B }]);
+    // B is left at the span, not completed, until its own end.
+    expect(completedAt(m, D)).toEqual([A]);
+    m.advance(); // y-1
+    expect(top(m)).toEqual({ decision: N, route: Y });
+    m.advance(); // b-2, Y's join
+    expect(m.getState().cursor).toBe(7);
+    expect(top(m)).toEqual({ decision: D, route: B });
+    m.advance(); // B's end
+    expect(completedAt(m, D)).toEqual([A, B]);
+    expect(m.getState().choice?.decisionId).toBe("d");
+    m.destroy();
+  });
+
+  it("the nested route that reads the span first: its end offers `n` again too", () => {
+    vi.useFakeTimers();
+    // A without `then`: X is the first route of the pass to reach `fail`.
+    const table = branches().map((branch) => ({ ...branch }));
+    table[0] = {
+      ...table[0],
+      routes: [
+        { id: "a", label: "A", start: "a-1", end: "a-1" },
+        ...table[0].routes.slice(1),
+      ],
+    };
+    const m = machine({ settings: ALL, branches: table });
+    toChoice(m);
+    m.advance(); // A
+    m.advance(); // A's end: d again, B
+    m.advance(); // b-1
+    m.advance(); // n
+    m.advance(); // fires n: X
+    m.advance(); // x-1
+    m.advance(); // f-1, read
+    expect(m.getState().skipping).toBe(false);
+    m.advance(); // f-2
+    m.advance(); // the span's end
+    expect(m.getState().choice?.decisionId).toBe("n");
+    expect(m.getState().choice?.autoPick?.backFromLabel).toBe("X");
+    m.destroy();
+  });
+
+  it("with Play all routes off the span's result acts at its own decision, as before", () => {
+    const m = machine();
+    toChoice(m);
+    toX(m);
+    m.advance(); // f-1
+    m.advance(); // f-2
+    m.advance(); // the span's end
+    expect(m.getState().choice?.decisionId).toBe("d");
+    expect(m.exportContext().stack).toEqual([]);
+    m.destroy();
+  });
+
+  it("the wheel steps back from the re-offer onto the span's end", () => {
+    vi.useFakeTimers();
+    const m = machine({ settings: ALL });
+    toChoice(m);
+    for (let n = 0; n < 8; n += 1) m.advance(); // to x-1
+    m.advance(); // the span, skipping
+    vi.advanceTimersByTime(DEFAULT_SETTINGS.skipDwellMs * 2);
+    expect(m.getState().choice?.decisionId).toBe("n");
+    m.wheelBack();
+    expect(m.getState().choice).toBeUndefined();
+    expect(m.getState().cursor).toBe(F2);
+    expect(top(m)).toEqual({ decision: N, route: X });
+    // Reading on from there comes back to the same re-offer.
+    m.advance();
+    expect(m.getState().choice?.decisionId).toBe("n");
+    expect(m.getState().choice?.autoPick?.routeIdx).toBe(Y);
+    m.destroy();
+  });
+
+  it("a reload with the re-offer open reopens it, B's frame kept, and play-all goes on", () => {
+    vi.useFakeTimers();
+    const m = machine({ settings: ALL });
+    toChoice(m);
+    for (let n = 0; n < 8; n += 1) m.advance(); // to x-1
+    m.advance(); // the span, skipping
+    vi.advanceTimersByTime(DEFAULT_SETTINGS.skipDwellMs * 2);
+    const saved = m.exportContext();
+    expect(saved.choice).toBe(N);
+    m.destroy();
+    const again = machine({ settings: ALL, resumeContext: saved });
+    expect(again.getState().cursor).toBe(F2);
+    expect(again.getState().choice?.decisionId).toBe("n");
+    expect(again.getState().choice?.autoPick?.routeIdx).toBe(Y);
+    again.wheelBack();
+    expect(again.getState().cursor).toBe(F2);
+    again.advance(); // the same re-offer
+    expect(again.getState().choice?.decisionId).toBe("n");
+    again.advance(); // y-1
+    again.advance(); // b-2
+    expect(again.getState().cursor).toBe(7);
+    again.advance(); // B's end
+    expect(again.getState().choice?.autoPick?.routeIdx).toBe(C);
+    again.destroy();
+  });
+
+  // intro d | a-1 m | p-1 q | r-1 | s-1 | t-1 | a-2 | b-1 | f-1 | join end
+  //  0    1 | 2   3 | 4   5 | 6   | 7   | 8   | 9   | 10  | 11  | 12   13
+  // `d`: a (a-1..a-2, holding `m`), b (continuing, joining at `join`);
+  // span `fail` (f-1, "return"). `m` in a: p (p-1..s-1, holding `q`), t
+  // (continuing, joining at a-2). `q` in p, a pure choice: r and s, both
+  // `then` `fail`, two levels out; p ends with `q`'s region.
+  const TWO = [
+    "intro",
+    "d",
+    "a-1",
+    "m",
+    "p-1",
+    "q",
+    "r-1",
+    "s-1",
+    "t-1",
+    "a-2",
+    "b-1",
+    "f-1",
+    "join",
+    "end",
+  ];
+  function twoLevels(pEnd = "s-1"): Branch[] {
+    return [
+      {
+        id: "d",
+        after: "d",
+        prompt: "?",
+        routes: [
+          { id: "a", label: "a", start: "a-1", end: "a-2" },
+          { id: "b", label: "b", start: "b-1", end: "b-1" },
+        ],
+        continuingRoute: "b",
+        continueAt: "join",
+        shared: [{ id: "fail", start: "f-1", end: "f-1", result: "return" }],
+      },
+      {
+        id: "m",
+        after: "m",
+        prompt: "?",
+        routes: [
+          { id: "p", label: "p", start: "p-1", end: pEnd },
+          { id: "t", label: "t", start: "t-1", end: "t-1" },
+        ],
+        continuingRoute: "t",
+        continueAt: "a-2",
+      },
+      {
+        id: "q",
+        after: "q",
+        prompt: "?",
+        routes: [
+          { id: "r", label: "r", start: "r-1", end: "r-1", then: "fail" },
+          { id: "s", label: "s", start: "s-1", end: "s-1", then: "fail" },
+        ],
+      },
+    ];
+  }
+
+  it("two levels: `q` again while s is unplayed, then `m`, then the span's own decision", () => {
+    vi.useFakeTimers();
+    const m = machine({ settings: ALL, items: TWO, branches: twoLevels() });
+    expect(playAll(m)).toEqual([
+      "d:a",
+      "m:p",
+      "q:r",
+      "q:s<r",
+      "m:t<s",
+      "d:b<a",
+    ]);
+    expect(unshown(m, TWO.length)).toEqual([]);
+    expect(m.getState().cursor).toBe(TWO.length - 1);
+    // p was left at the span; every other route completed.
+    expect(m.exportContext().completedRoutes).toEqual([
+      { decision: 0, routes: [0, 1] },
+      { decision: 1, routes: [1] },
+      { decision: 2, routes: [0, 1] },
+    ]);
+    expect(m.getState().endCard).toEqual({
+      unseenRoutes: 0,
+      otherUnseen: false,
+      nextUnseen: false,
+    });
+    m.destroy();
+  });
+
+  it("two levels: `m`'s re-offer has a's frame open again", () => {
+    vi.useFakeTimers();
+    const m = machine({ settings: ALL, items: TWO, branches: twoLevels() });
+    const offers: string[] = [];
+    for (let n = 0; n < 60 && offers.length < 5; n += 1) {
+      const state = m.getState();
+      if (state.skipping) {
+        vi.advanceTimersByTime(DEFAULT_SETTINGS.skipDwellMs);
+        continue;
+      }
+      if (state.choice !== undefined) offers.push(state.choice.decisionId);
+      if (offers.length === 5) break;
+      m.advance();
+    }
+    expect(offers).toEqual(["d", "m", "q", "q", "m"]);
+    expect(m.getState().cursor).toBe(11); // f-1, the span's end
+    expect(m.exportContext().stack).toEqual([{ decision: 0, route: 0 }]);
+    m.destroy();
+  });
+
+  it("a pure choice all played closes past its region when that lies inside its enclosing route", () => {
+    vi.useFakeTimers();
+    // p reads on to p-2 after `q`'s region.
+    const items = [...TWO.slice(0, 8), "p-2", ...TWO.slice(8)];
+    const m = machine({ settings: ALL, items, branches: twoLevels("p-2") });
+    expect(playAll(m)).toEqual([
+      "d:a",
+      "m:p",
+      "q:r",
+      "q:s<r",
+      "m:t<p",
+      "d:b<a",
+    ]);
+    expect(unshown(m, items.length)).toEqual([]);
+    m.destroy();
+  });
+
+  // intro A | a1-1 B | b1-1 C | c1-1 | c2-1 | b1-2 | b2-1 | a1-2 | a2-1 |
+  //  0    1 | 2    3 | 4    5 | 6    | 7    | 8    | 9    | 10   | 11   |
+  // a3-1 | s-1 s-2 | join end
+  // 12   | 13  14  | 15   16
+  // A: a1 (holding B), a2 (then S), a3 (continuing, joining at `join`);
+  // span S ("return"). B in a1: b1 (holding C; continuing, joining at
+  // a1-2), b2 (then S). C in b1: c1 (then S), c2 (continuing, joining at
+  // b1-2). C's c1, B's b2 and A's a2 all name A's S.
+  const CHAIN = [
+    "intro",
+    "A",
+    "a1-1",
+    "B",
+    "b1-1",
+    "C",
+    "c1-1",
+    "c2-1",
+    "b1-2",
+    "b2-1",
+    "a1-2",
+    "a2-1",
+    "a3-1",
+    "s-1",
+    "s-2",
+    "join",
+    "end",
+  ];
+  const CHAIN_BRANCHES: Branch[] = [
+    {
+      id: "A",
+      after: "A",
+      prompt: "?",
+      routes: [
+        { id: "a1", label: "a1", start: "a1-1", end: "a1-2" },
+        { id: "a2", label: "a2", start: "a2-1", end: "a2-1", then: "S" },
+        { id: "a3", label: "a3", start: "a3-1", end: "a3-1" },
+      ],
+      continuingRoute: "a3",
+      continueAt: "join",
+      shared: [{ id: "S", start: "s-1", end: "s-2", result: "return" }],
+    },
+    {
+      id: "B",
+      after: "B",
+      prompt: "?",
+      routes: [
+        { id: "b1", label: "b1", start: "b1-1", end: "b1-2" },
+        { id: "b2", label: "b2", start: "b2-1", end: "b2-1", then: "S" },
+      ],
+      continuingRoute: "b1",
+      continueAt: "a1-2",
+    },
+    {
+      id: "C",
+      after: "C",
+      prompt: "?",
+      routes: [
+        { id: "c1", label: "c1", start: "c1-1", end: "c1-1", then: "S" },
+        { id: "c2", label: "c2", start: "c2-1", end: "c2-1" },
+      ],
+      continuingRoute: "c2",
+      continueAt: "b1-2",
+    },
+  ];
+
+  it("a chain of menus: each nested decision is offered again, innermost first, and every item is read", () => {
+    vi.useFakeTimers();
+    const m = machine({
+      settings: ALL,
+      items: CHAIN,
+      branches: CHAIN_BRANCHES,
+    });
+    expect(playAll(m)).toEqual([
+      "A:a2",
+      "A:a1<a2",
+      "B:b2",
+      "B:b1<b2",
+      "C:c1",
+      "C:c2<c1",
+      "A:a3<a1",
+    ]);
+    expect(unshown(m, CHAIN.length)).toEqual([]);
+    expect(m.exportContext().completedRoutes).toEqual([
+      { decision: 0, routes: [0, 1, 2] },
+      { decision: 1, routes: [0, 1] },
+      { decision: 2, routes: [0, 1] },
+    ]);
     m.destroy();
   });
 });

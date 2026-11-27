@@ -101,7 +101,10 @@
 // span's decision as a route's would (`endSpan`). The wheel walks a span
 // after the last-picked route reaching it (`spanLead`). Under Play all
 // routes a span another route of this pass has reached already is skipped
-// through by a burst of its own (`spanSkip`, `MachineState.readAgain`).
+// through by a burst of its own (`spanSkip`, `MachineState.readAgain`),
+// and the end of a span a nested route led into first offers again the
+// innermost decision between them with a route unplayed this pass, the
+// routes holding it reopened (`spanReturn`, item 9i2).
 //
 // Skip mode (tab) paces by pictures (docs/plan.md Phase 18): a `text` item
 // takes ZERO time — the renderer hides the caption while skipping — so one
@@ -970,6 +973,11 @@ interface PendingChoice {
    * from it (`ChoiceView.walkRoute`; -1 past a pure choice's region).
    */
   walk?: number;
+  /**
+   * Present on a re-offer from the end of an enclosing decision's shared
+   * span (`spanReturn`): that span's last item, the item under it.
+   */
+  over?: number;
 }
 
 /**
@@ -1235,7 +1243,9 @@ function routeSets(
  * decision's choice screen. `next` is the route the walk takes from the
  * choice screen (-1: past a pure choice's menu region), `via` the
  * returning route whose end led back to it (-1: reached from `after`;
- * past the routes' indices, a shared span of the decision, `viaEnd`).
+ * past the routes' indices, a shared span of the decision, `viaEnd`), and
+ * `over`, on a re-offer from an enclosing decision's span, the item under
+ * it (`PendingChoice.over`).
  */
 type Screen =
   | { readonly kind: "item"; readonly index: number }
@@ -1244,6 +1254,7 @@ type Screen =
       readonly decision: number;
       readonly next: number;
       readonly via: number;
+      readonly over?: number;
     };
 
 function itemScreen(index: number): Screen {
@@ -2496,6 +2507,7 @@ export function createMachine(options: MachineOptions): Machine {
   /** The item a screen stands on: a choice screen's is the item under it. */
   function anchorOf(screen: Screen): number {
     if (screen.kind === "item") return screen.index;
+    if (screen.over !== undefined) return screen.over;
     const decision = decisions[screen.decision];
     return screen.via >= 0 ? viaEnd(decision, screen.via) : decision.afterIndex;
   }
@@ -2662,7 +2674,7 @@ export function createMachine(options: MachineOptions): Machine {
   function screenKey(screen: Screen): string {
     return screen.kind === "item"
       ? `i${String(screen.index)}`
-      : `c${String(screen.decision)}:${String(screen.next)}:${String(screen.via)}`;
+      : `c${String(screen.decision)}:${String(screen.next)}:${String(screen.via)}:${String(screen.over ?? -1)}`;
   }
 
   /**
@@ -2704,7 +2716,14 @@ export function createMachine(options: MachineOptions): Machine {
     const next =
       pendingChoice.walk ??
       (via < 0 ? pickFor(decision) : decision.continuingRoute);
-    return { kind: "choice", decision: decision.index, next, via };
+    const { over } = pendingChoice;
+    return {
+      kind: "choice",
+      decision: decision.index,
+      next,
+      via,
+      ...(over === undefined ? {} : { over }),
+    };
   }
 
   /**
@@ -3301,7 +3320,8 @@ export function createMachine(options: MachineOptions): Machine {
    * route that just ended (a re-offer; past the routes, a shared span), or
    * -1 on a first fire, and `back` the route whose label the re-offer
    * names (through a span, the route that led into it); with `auto`
-   * (play-all) the machine answers the choice itself.
+   * (play-all) the machine answers the choice itself. `over` is the item
+   * under a re-offer from an enclosing decision's span (`spanReturn`).
    */
   function openChoice(
     decisionIndex: number,
@@ -3310,6 +3330,7 @@ export function createMachine(options: MachineOptions): Machine {
     back: Frame | null = via >= 0
       ? { decision: decisionIndex, route: via }
       : null,
+    over?: number,
   ): void {
     const resumeSkip = skipping;
     closeFramesFor(decisionIndex);
@@ -3318,6 +3339,7 @@ export function createMachine(options: MachineOptions): Machine {
       decision: decisionIndex,
       continueOption: offersContinue(decision),
       via,
+      ...(over === undefined ? {} : { over }),
     };
     passBase = null; // reading opened it: no walk any more
     // Play all routes (docs/plan.md Phase 18) answers the choice itself, on
@@ -3503,6 +3525,7 @@ export function createMachine(options: MachineOptions): Machine {
     const then = decision.routes[frame.route].then;
     if (then !== undefined) {
       if (!inSpan(frame)) return spanOf(then).startIndex;
+      if (spanReturn(frame, then) !== null) return -1;
       const owner = decisions[then.decision];
       return spanJoins(owner, then, frame) ? owner.continueAt : -1;
     }
@@ -3796,6 +3819,16 @@ export function createMachine(options: MachineOptions): Machine {
       next = "read";
     }
     spanSkip = false;
+    const back = spanReturn(frame, then);
+    if (back !== null) {
+      // The routes holding the decision offered again are open again.
+      const around = framesAround(back.decision.afterIndex);
+      const from = around.findIndex((f) => f.decision === then.decision);
+      for (const open of around.slice(from)) stack.push(open);
+      if (back.close) closeIfPureAndComplete(back.decision, next);
+      else openChoice(back.decision.index, -1, true, frame, cursor);
+      return;
+    }
     if (closeIfPureAndComplete(decision, next)) return;
     if (spanJoins(decision, then, frame)) {
       join(decision, next);
@@ -3809,6 +3842,50 @@ export function createMachine(options: MachineOptions): Machine {
       return;
     }
     openChoice(decision.index, via, false, frame);
+  }
+
+  /**
+   * Under Play all routes, where the end of shared span `then`, entered
+   * from the route of `frame`, goes before the span's `result` acts at the
+   * span's own decision (docs/content-format.md, "Branches"; docs/plan.md
+   * Phase 60 item 9i2). From the route's decision outwards, short of the
+   * span's: the first decision with a route unplayed this pass is offered
+   * again (`close` false); a pure choice every route of which has played,
+   * whose fall-through past its region lies inside the route holding it,
+   * closes there (`close` true), as at its last route's end. Null with
+   * Play all routes off, for a route of the span's own decision, or where
+   * no decision between is either: the span's `result` acts.
+   */
+  function spanReturn(
+    frame: Frame,
+    then: SpanRef,
+  ): { decision: ResolvedDecision; close: boolean } | null {
+    if (!settings.playAllRoutes) return null;
+    let at = frame.decision;
+    for (
+      let depth = 0;
+      at !== then.decision && at >= 0 && depth < decisions.length;
+      depth += 1
+    ) {
+      const decision = decisions[at];
+      if (nextAutoRoute(decision) >= 0) return { decision, close: false };
+      if (decision.continuingRoute < 0 && closesInside(decision))
+        return { decision, close: true };
+      at = decision.parent;
+    }
+    return null;
+  }
+
+  /**
+   * Whether a nested pure choice's fall-through past its menu region lies
+   * inside the route holding it (`closeIfPureAndComplete` reads on there
+   * rather than ending that route).
+   */
+  function closesInside(decision: ResolvedDecision): boolean {
+    const holder = innermost[decision.afterIndex];
+    if (holder === null || holder.decision !== decision.parent) return false;
+    const route = decisions[holder.decision].routes[holder.route];
+    return regionEnd(decision) + 1 <= route.endIndex;
   }
 
   /**
@@ -4004,11 +4081,20 @@ export function createMachine(options: MachineOptions): Machine {
         : [...decision.routes, ...decision.shared].findIndex(
             (span) => span.endIndex === cursor,
           );
+    // A re-offer from an enclosing decision's span stands over its end.
+    const span = via < 0 ? (spanAt[cursor] ?? null) : null;
+    const over =
+      span !== null &&
+      span.decision !== decisionIndex &&
+      spanOf(span).endIndex === cursor
+        ? cursor
+        : undefined;
     closeFramesFor(decisionIndex);
     pendingChoice = {
       decision: decisionIndex,
       continueOption: offersContinue(decision),
       via,
+      ...(over === undefined ? {} : { over }),
     };
   }
 

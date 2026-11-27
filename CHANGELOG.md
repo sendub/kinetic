@@ -63,8 +63,14 @@ something more of an author.
   already: skipping" (Space stops it); with it off a span is read every
   time. The wheel walks a span after the route last picked that reaches
   it, and a bookmark, save or reload inside a span keeps the route
-  that led in. The validator's never-shown warnings follow spans, and a
-  pure choice's region runs to its last route or span end.
+  that led in. Under Play all routes the end of a span entered from a
+  route of a nested decision first offers that decision again while a
+  route of it is unplayed this pass, then each decision enclosing it,
+  innermost first, the routes holding it open again (a nested pure
+  choice played through closes inside its route instead), before the
+  span's `result` acts, so every route of a chain of menus into one
+  span plays once a pass. The validator's never-shown warnings follow
+  spans, and a pure choice's region runs to its last route or span end.
 - The branch map draws a shared span once, as a box with rounded
   corners after its decision's routes, with a line into it from each
   route that goes on to it (a route of a nested decision too), and
@@ -169,9 +175,10 @@ something more of an author.
   and the span goes on where the scene does: back to the story at the
   join, to the story's end, or back to the choice. A nested menu whose
   choices meet at the scene joins at it, the route holding that menu
-  going on to it. A scene a nested menu's route reaches while its
-  sibling routes go elsewhere, and one holding a menu of its own, still
-  keep the menu linear, reported as before. The validator's never-shown
+  going on to it, and a nested menu's route, at any depth, may go on to
+  a scene of an enclosing menu while its sibling routes go elsewhere. A
+  scene holding a menu of its own still keeps the menu linear, reported
+  as before. The validator's never-shown
   warning for an item in a shared span no route reaches says so
   (docs/extracting.md, "The walk follows labels").
 - **Upgrading:** a folder you keep as converted needs nothing; its

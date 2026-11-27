@@ -235,7 +235,7 @@ main line: 3 items
   items e0 (1 item)
   the story ends at e0
 
-never reached from the opening: 4 items (y0, w0, k0, b2)
+every item is reached from the opening
 """
 
 

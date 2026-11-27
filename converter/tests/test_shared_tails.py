@@ -224,13 +224,13 @@ def test_an_outer_choice_first_then_a_nested_one(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("first", ["Climb", "Swim"])
-def test_a_label_a_nested_route_reaches_alone_stays_linear(
-        tmp_path: Path, first: str) -> None:
+def test_a_label_a_nested_route_reaches_alone(tmp_path: Path, first: str
+                                              ) -> None:
     """Jump, a route of the decision nested in Climb, goes on to `fall`
-    where its sibling Hold does not. Naming the outer decision's span,
-    Jump would leave both decisions' routes there, and Play all routes
-    (each route entered once a pass) would never read Hold: both menus
-    stay linear, reported as before."""
+    where its sibling Hold does not: the span is the outer decision's,
+    Jump and Swim name it, and Jump leaves both decisions there. Play all
+    routes offers the nested decision again at the span's end for Hold
+    (docs/plan.md Phase 60 item 9i2), so every item is shown."""
     script = nested(first).replace(
         '                    "You hold on."\n'
         '            jump fall\n',
@@ -238,19 +238,64 @@ def test_a_label_a_nested_route_reaches_alone_stays_linear(
         '            "You reach the top."\n'
         '            jump home\n')
     out, manifest, ledger = extract(tmp_path, script)
-    assert spans(manifest) == {} and thens(manifest) == {}
-    reasons = menu_reports(ledger)
-    assert all("rejoins content read at game/script.rpy:" in r
-               for r in reasons), reasons
-    # With Climb first, Jump reads `fall` first and only Swim rejoins it:
-    # the nested decision is one as before, the outer menu linear. With
-    # Swim first, Jump rejoins it too: both menus linear.
-    expected = {"Climb": ["You climb."], "Swim": []}[first]
-    assert [next(i.get("text") for i in manifest["items"]
-                 if i["id"] == b["after"])
-            for b in manifest.get("branches", [])] == expected
-    assert len(reasons) == 2 - len(expected)
-    validates_clean(out)
+    assert spans(manifest) == {"Lead.": [
+        ("shared-fall", "You fall.", "You fall.", "continue")]}
+    assert thens(manifest) == {"Jump": "shared-fall", "Swim": "shared-fall"}
+    assert menu_reports(ledger) == []
+    outer = next(b for b in shape(manifest) if b["after"] == "Lead.")
+    assert outer["continuing"] == "Wait" and outer["continueAt"] == "Home."
+    inner = next(b for b in shape(manifest) if b["after"] == "You climb.")
+    assert [r[0] for r in inner["routes"]] == ["Jump", "Hold"]
+    assert inner["continuing"] == "Hold"
+    check_folder(tmp_path, out, manifest)
+
+
+CHAIN = LEAD + (
+    '    menu:\n'
+    '        "Climb":\n'
+    '            "You climb."\n'
+    '            menu:\n'
+    '                "Up":\n'
+    '                    "You go up."\n'
+    '                    menu:\n'
+    '                        "Jump":\n'
+    '                            "You jump."\n'
+    '                            jump fall\n'
+    '                        "Hold":\n'
+    '                            "You hold on."\n'
+    '                    "You reach the top."\n'
+    '                "Slip":\n'
+    '                    "You slip."\n'
+    '                    jump fall\n'
+    '            "You are on the ledge."\n'
+    '            jump home\n'
+    '        "Swim":\n'
+    '            "You swim."\n'
+    '            jump fall\n'
+    '        "Wait":\n'
+    '            "You wait."\n'
+    '            jump home\n'
+    'label fall:\n'
+    '    "You fall."\n'
+    '    jump home\n'
+    'label home:\n'
+    '    "Home."\n'
+    '    return\n')
+
+
+def test_a_chain_of_menus_to_one_label(tmp_path: Path) -> None:
+    """Climb holds a menu whose route Up holds another: Jump (two levels
+    in), Slip (one level in) and Swim (outer) all go on to `fall`, a span
+    of the outer decision each names; every menu is a decision."""
+    out, manifest, ledger = extract(tmp_path, CHAIN)
+    assert spans(manifest) == {"Lead.": [
+        ("shared-fall", "You fall.", "You fall.", "continue")]}
+    assert thens(manifest) == {"Jump": "shared-fall", "Slip": "shared-fall",
+                               "Swim": "shared-fall"}
+    assert menu_reports(ledger) == []
+    assert sorted(b["after"] for b in shape(manifest)) == [
+        "Lead.", "You climb.", "You go up."]
+    check_folder(tmp_path, out, manifest)
 
 
 def test_a_shared_label_ending_the_story(tmp_path: Path) -> None:

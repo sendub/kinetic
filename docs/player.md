@@ -169,7 +169,10 @@ shared scene that an earlier route of the same run through the decision
 already read is not read again: a skip runs through it on its own, as
 Tab's does, under the pill "Read already: skipping" (Space stops it and
 you read the scene there), then the story carries on from the scene's
-end. With Play all routes off the scene is read every time. It
+end. When the route that went on to the scene was one of a choice
+inside another route, that inner choice comes back first for its routes
+not yet played, then each choice around it, before the scene's end
+carries on. With Play all routes off the scene is read every time. It
 picks even with auto-forward off: you still press Space through the
 text, but no decision waits for an answer. The auto-forward speed also
 times the countdown. Turn it off on the Esc screen to choose every route

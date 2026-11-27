@@ -703,7 +703,8 @@ and items always use ids, never array positions.
   `"continue"` route's end. A route naming an enclosing decision's span
   leaves its own decision and the enclosing routes holding it there:
   the span's `result` acts at the span's decision, and those enclosing
-  routes are left, not completed. Through the span the reader stays in
+  routes are left, not completed (under `Play all routes`, unless a
+  re-offer below carries one on to its own end). Through the span the reader stays in
   the route they picked: the "Route: <label>" pill, `u`, the PLAYED
   mark and completion are that route's. A span adds no row to the
   choice screen and has no mark of its own; its items are ordinary
@@ -720,7 +721,26 @@ and items always use ids, never array positions.
   Under `Play all routes` the first route of a pass to reach a span
   reads it. A later route of the same pass reaching it runs a skip
   through it on its own, as Tab does (Space stops it), under a pill
-  saying it was read already, and then the span's `result` acts. The
+  saying it was read already, and then the span's `result` acts.
+
+  Under `Play all routes` the end of a span entered from a route of a
+  nested decision first goes back to the decisions that route left
+  (since 1.15.0): from the route's own decision outwards, short of the
+  span's decision, the innermost that has a route unplayed this pass is
+  offered again, as at a route's end (the countdown, its status line
+  naming the route that led into the span), with the routes holding it
+  open again. Its other routes then end as ever: one reaching its join
+  carries on in the enclosing route, which ends by its own rules, and
+  one going on to the span again skips through it as read already. A
+  pure choice there whose every route has played and whose close past
+  its menu region lies inside the route holding it closes instead, as
+  at its last route's end, and the enclosing route reads on. Only where
+  no decision between does either does the span's `result` act at its
+  own decision. So a chain of menus each with a route into one span
+  plays every route once a pass, the innermost menu's first. The
+  re-offer stands over the span's last item: the wheel steps back from
+  it onto that item, and a reload with it open reopens it there. With
+  `Play all routes` off the span's `result` acts at once, as above. The
   wheel walks a span after the last-picked route that reaches it, and a
   save, reload, bookmark or resume inside a span keeps the route that
   led in. A player older than 1.15.0 ignores both fields: a route with

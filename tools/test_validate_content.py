@@ -3437,13 +3437,12 @@ def spans_manifest() -> dict[str, Any]:
 def test_the_walk_follows_then_into_a_span() -> None:
     """The walk follows each route's `then` into its span and the span's
     `result` back to its decision: the span's items show. n1, played
-    first at `n`, leaves d2 at the enclosing decision's span, so n2 and
-    d2's join i6 stay unread, and only they warn."""
+    first at `n`, leaves d2 at the enclosing decision's span, whose end
+    offers `n` again for n2 (docs/plan.md Phase 60 item 9i2), d2 open
+    again, so n2 joins at i6 and every item shows."""
     manifest = spans_manifest()
     assert validate_content.branches_problems(manifest) == []
-    lines = validate_content.reach_warnings(manifest)
-    assert [re.match(r"warning: manifest\.json: items\[(\d+)\]", line)[1]
-            for line in lines] == ["5", "6"]
+    assert validate_content.reach_warnings(manifest) == []
 
 
 def test_a_span_and_the_routes_around_it_all_show() -> None:

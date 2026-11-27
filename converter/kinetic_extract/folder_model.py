@@ -438,12 +438,15 @@ def shown_by_play_all(items: list[Any], decisions: list[Decision]
 
     A port of the player's forward flow (player/src/machine/machine.ts:
     `moveForward`, `fireDecision`, `nextAutoRoute`, `handleRouteEnd`,
-    `endJoins`, `enterSpan`, `endSpan`, `spanJoins`, `join`,
+    `endJoins`, `enterSpan`, `endSpan`, `spanReturn`, `spanJoins`, `join`,
     `autoResolve`, `closeIfPureAndComplete`, `relevantDecision`,
     `atRouteEnd`, `nothingFollows`), with each choice taken at once as
     play-all takes it: the shortest route not played this pass, the
     continuing route last. A route with `then` goes on into its shared
-    span, and the span's end acts at the span's decision; a span play-all
+    span, and the span's end acts at the span's decision, except that one
+    entered from a nested route first offers again the innermost decision
+    between them with a route unplayed this pass, or closes a pure one
+    played through inside its route (`span_return`); a span play-all
     skips through shows its items all the same. Play-all shows every item any
     reading by choices shows (a reader picks among the same routes and
     joins at the same `continueAt`, and an ending route's end, where a
@@ -587,11 +590,54 @@ def shown_by_play_all(items: list[Any], decisions: list[Decision]
         stack.append(frame)
         show(decisions[then[0]].shared[then[1]].start)
 
+    def holder_route(decision: Decision) -> int:
+        """The route of its parent holding a nested decision's `after`."""
+        parent = decisions[decision.parent]
+        return next(ri for ri, (start, end, _r) in enumerate(parent.routes)
+                    if start <= decision.after <= end)
+
+    def span_return(frame: tuple[Decision, int], owner: Decision
+                    ) -> tuple[Decision, bool] | None:
+        """machine.ts `spanReturn`: from the leading route's decision
+        outwards, short of the span's own, the first with a route
+        unplayed this pass (offered again), or a pure choice all played
+        whose fall-through lies inside the route holding it (closed)."""
+        decision = frame[0]
+        for _depth in range(len(decisions)):
+            if decision is owner or decision.parent < 0:
+                return None
+            if next_auto_route(decision) >= 0:
+                return decision, False
+            if decision.continuing < 0 and decision.menu_end + 1 <= \
+                    decisions[decision.parent].routes[
+                        holder_route(decision)][1]:
+                return decision, True
+            decision = decisions[decision.parent]
+        return None
+
+    def reopen_around(decision: Decision, owner: Decision) -> None:
+        """Push the frames of the routes holding ``decision``, from the
+        route of ``owner`` inwards."""
+        frames: list[tuple[Decision, int]] = []
+        inner = decision
+        while inner is not owner and inner.parent >= 0:
+            frames.insert(0, (decisions[inner.parent], holder_route(inner)))
+            inner = decisions[inner.parent]
+        stack.extend(frames)
+
     def end_span(frame: tuple[Decision, int]) -> None:
         then = frame[0].thens[frame[1]]
         assert then is not None
         stack.pop()
         owner = decisions[then[0]]
+        back = span_return(frame, owner)
+        if back is not None:
+            reopen_around(back[0], owner)
+            if back[1]:
+                close_if_pure_and_complete(back[0])
+            else:
+                offer(back[0])
+            return
         if close_if_pure_and_complete(owner):
             return
         continuing = frame[0] is owner and frame[1] == owner.continuing
