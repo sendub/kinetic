@@ -19,6 +19,11 @@ file extensions - corpus extensions lie. Policies:
 - An animation's frames (``ItemRecord.frames``, docs/plan.md Phase 60
   item 8) ship one by one by the image rule, as image items' files do;
   the item's ``frames`` are their shipped paths.
+- A generated picture (``ItemRecord.generated``, docs/plan.md Phase 60
+  item 9n2): the black still a line before any picture shows over is a
+  PNG Pillow makes at the game's size (``ship_generated``, after the
+  pass, once the size is known); its ledger source is ``{"generated":
+  "black"}`` and its one ``solid`` step makes it again.
 - Other image formats (bmp, tiff, avif, ...) are decoded with Pillow (an
   AVIF sequence's first frame, the picture Ren'Py shows); the smallest
   of (PNG, JPEG q92, JXL) ships, lossless-first when the image
@@ -1296,6 +1301,9 @@ def audio_work(source: Path, probe: AudioProbe, step: dict[str, Any] | None,
 # ``run_steps``. A recipe and the code that ran it cannot drift apart.
 
 IMAGE_STEPS = ("carve", "preserve", "convert", "jxl")
+# A step that makes a picture from nothing: a generated source's
+# (docs/plan.md Phase 60 item 9n2).
+GENERATED_STEPS = ("solid",)
 FILE_STEPS = ("transcode", "remux", "extract", "poster")
 _PIL_SAVE = {"png": "PNG", "jpeg": "JPEG"}
 
@@ -1347,6 +1355,43 @@ def run_image_step(step: dict[str, Any], data: bytes) -> bytes:
         return media_tools.jxl_encode_lossless(
             _jxl_pixels(data, step["pixels"]), effort=int(step["effort"]))
     raise _unsupported(step)
+
+
+def solid_step(width: int, height: int) -> dict[str, Any]:
+    """The ledger step that makes the black still (docs/plan.md Phase 60
+    item 9n2): an RGB picture of one colour at ``width`` x ``height``,
+    saved as PNG with the image rule's PNG parameters."""
+    return {"step": "solid", "rgb": [0, 0, 0], "width": width,
+            "height": height, "format": "png", "params": _PNG_PARAMS}
+
+
+def run_generated_step(step: dict[str, Any]) -> bytes:
+    """The bytes a ``solid`` step makes, or StepError."""
+    if step.get("step") != "solid" or step.get("format") != "png":
+        raise _unsupported(step)
+    from PIL import Image
+
+    try:
+        rgb = tuple(int(v) for v in step["rgb"])
+        size = (int(step["width"]), int(step["height"]))
+        buf = BytesIO()
+        Image.new("RGB", size, rgb).save(buf, "PNG", **step["params"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StepError(f"step solid failed: {type(exc).__name__}: "
+                        f"{exc}") from exc
+    return buf.getvalue()
+
+
+def run_generated(steps: list[dict[str, Any]], work: Path) -> Path:
+    """Make a generated source's output again (``ship_generated``): its
+    one step, inside the empty directory ``work``. StepError when the
+    steps are not one generated step."""
+    if len(steps) != 1 or not isinstance(steps[0], dict) \
+            or steps[0].get("step") not in GENERATED_STEPS:
+        raise StepError("a generated source takes one solid step")
+    out = work / "generated.png"
+    out.write_bytes(run_generated_step(steps[0]))
+    return out
 
 
 def run_file_step(step: dict[str, Any], source: Path,
@@ -1440,7 +1485,8 @@ def _step_tools(step: dict[str, Any]) -> tuple[str, ...]:
         return (("imagecodecs", "libjxl")
                 if step["mode"] == "jpeg-recompression"
                 else ("Pillow", "numpy", "imagecodecs", "libjxl"))
-    return {"convert": ("Pillow",), "transcode": ("ffmpeg",),
+    return {"convert": ("Pillow",), "solid": ("Pillow",),
+            "transcode": ("ffmpeg",),
             "remux": ("ffmpeg",), "extract": ("ffmpeg",),
             "poster": ("ffmpeg", "Pillow")}.get(name, ())
 
@@ -1625,6 +1671,8 @@ def _source_identity(source: dict[str, Any]) -> tuple[str, ...]:
     """Which source file this is: its path (or archive + member) and, in
     a several-project game, the project it is under."""
     project = (str(source["project"]),) if "project" in source else ()
+    if "generated" in source:
+        return ("generated", str(source["generated"]))
     if "archive" in source:
         return ("archive", source["archive"], source["member"], *project)
     return ("path", source["path"], *project)
@@ -1831,7 +1879,10 @@ MEDIA_TYPES = ("image", "video", "audio")
 
 def _ship_record(record: ItemRecord, run: _Pass,
                  decoded_sizes: list[tuple[int, int]] | None) -> int:
-    """Place one record's media (in record order); 1 when skipped."""
+    """Place one record's media (in record order); 1 when skipped. A
+    generated picture ships later (``ship_generated``)."""
+    if record.generated is not None:
+        return 0
     kind = record.item.get("type")
     if kind == "animation":
         return _ship_animation(record, run, decoded_sizes)
@@ -1885,6 +1936,33 @@ def _ship_animation(record: ItemRecord, run: _Pass,
     meta["frames"] = [{"asset": frame.asset, **frame.asset_meta}
                       for frame in record.frames]
     return 0
+
+
+def ship_generated(records: list[ItemRecord], out_dir: Path,
+                   tools: dict[str, Any], size: tuple[int, int],
+                   media: dict[str, dict[str, Any]]) -> None:
+    """Ship the pictures the walk made from nothing (docs/plan.md Phase 60
+    item 9n2), once the game's ``size`` is known: one black still at that
+    size for every record whose ``generated`` is ``"black"``, recorded in
+    ``media`` (the ledger's section, changed in place) with the source
+    ``{"generated": "black"}`` and the ``solid`` step that makes it
+    again. A file already at its content path with other bytes raises
+    ``media.ExistingFileError``, as the asset pass does."""
+    black = [r for r in records if r.generated == "black" and not r.skipped]
+    if not black:
+        return
+    step = solid_step(*size)
+    data = run_generated_step(step)
+    with tempfile.TemporaryDirectory(prefix=".kinetic-tmp-",
+                                     dir=out_dir) as scratch:
+        placed = _Placed(out_dir, tools, Path(scratch))
+        placed.media = media
+        ref, _already = placed.put_bytes(data, "png")
+        placed.record(ref, "image", {"generated": "black"}, [step])
+    for record in black:
+        _set_media(record.item, ref)
+        record.asset_meta.update({"sniffedFormat": "png",
+                                  "decision": "generated", "file": ref})
 
 
 def _media_records(records: list[ItemRecord]) -> list[ItemRecord]:

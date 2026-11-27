@@ -727,7 +727,9 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
     archive member; plus `sha256` and `bytes` of the raw source, before
     any carve, and, when several projects made one game, `project` (N,
     1-based: Several episodes, one game, above). A poster's source is
-    its video.
+    its video. The black still a line before any picture shows over
+    (Finding a script's files, below) comes from no game file: its
+    source is `{"generated": "black"}`, with no `sha256` or `bytes`.
   - `steps`: what was done to the source, in order. Each carries every
     parameter that decides the output bytes:
     - `{"step": "decode", "hook": "MODULE:FUNC", "hookSha256": "…",
@@ -740,6 +742,10 @@ files (docs/plan.md Phase 25), which `kinetic-media rebuild` reads:
       `source.sha256` stays the raw original's;
     - `{"step": "carve", "offset": N}`: drop the first N bytes (a
       wrapped image);
+    - `{"step": "solid", "rgb": [0, 0, 0], "width": W, "height": H,
+      "format": "png", "params": {"optimize": true}}`: a generated
+      source's one step, a picture of that colour at that size that
+      Pillow saves as PNG with these save parameters;
     - `{"step": "preserve"}`: ship the bytes unchanged. For an image
       that could have become JPEG XL, `reason` says why it did not
       (Image policy, below), e.g. `"jxl 10048 >= original 1306 bytes"`;
@@ -808,7 +814,8 @@ Each item entry names its outputs with `file` and `poster` (keys into
 `sniffedFormat`, `decision` and, for video, `codec`. An animation's
 entry has `asset: null`, `decision: "frames"` and `frames`, one
 `{asset, sniffedFormat, decision, file}` per frame (ATL frame lists,
-above). Every dict in
+above). The black still's item entry has `asset: null` and `decision:
+"generated"` (Finding a script's files, below). Every dict in
 `mediaTools` and `media` has sorted keys (step and argument lists keep
 their order), so the same input gives the same ledger bytes. A shortened
 example:
@@ -830,7 +837,7 @@ example:
 ## Finding a script's files
 
 A `scene` or `show` name resolves as Ren'Py resolves it: the game's
-`image` definition first (a `Movie(play=...)` value answers as a video),
+`image` definition first (a `Movie(...)` value answers as a video),
 then the implicit image index of loose files and archive members (BUG 5
 under Results, below): a file's path under `game/` without its
 extension, then its file name without the extension, then Ren'Py's own
@@ -859,8 +866,7 @@ docs/plan.md Phase 60 item 9n read the rest of Ren'Py's rules:
   string with a `[` names a variable the converter does not know and
   resolves nowhere.
 - **`image` statements inside `init:` and `init N:` blocks** are read,
-  ATL blocks included. `init python:` blocks are not (`renpy.image()`
-  calls stay unread).
+  ATL blocks included.
 - **File names match whatever their case**, as Ren'Py's loader matches
   them: `image hall = "Pics/Hall.PNG"` finds `pics/hall.png`, a loose
   file or an archive member, after every exact match. The ledger names
@@ -899,9 +905,55 @@ docs/plan.md Phase 60 item 9n read the rest of Ren'Py's rules:
   each such line's ledger notes say `kept over the last visual` and name
   the visual. A `movie` whose file is found nowhere does the same until
   `stop movie`. A menu's routes each start under the visual at the menu.
-  Only a line with no picture before it at all drops, as before
-  (`droppedUnresolved`), since a `text` item needs one. A visual is
-  still never shipped as a missing-file placeholder.
+  A visual is still never shipped as a missing-file placeholder.
+
+docs/plan.md Phase 60 item 9n2 read these too:
+
+- **A line before any picture shows over black**, as Ren'Py's empty
+  scene does: a line with no picture emitted before it in the walk (at
+  the story's start, after a `scene black` there, or under a visual
+  that resolves nowhere) is an `image` item of a black still at the
+  game's size, its ledger notes saying so, and the lines after it are
+  `text` items over it until a picture comes. One black still serves
+  every such place, the first line of each episode included; it is a
+  PNG (`decision: "generated"`, `asset: null`), made once the game's
+  size is known and recorded in the ledger's `media` with the source
+  `{"generated": "black"}` and its `solid` step (Build ledger, above),
+  which `kinetic media rebuild` makes again from nothing and checks as
+  any other. No line drops for want of a picture (item 9n dropped one,
+  `droppedUnresolved`).
+- **`renpy.image("name", d)` calls** define images as `image`
+  statements do, in a `$` line or a Python block (`init python:` and
+  others), a call over several lines included: a name that is a string
+  literal, or a tuple of them (`("eve", "calm")` is `eve calm`), and `d`
+  a string, read as a displayable, or another expression read as an
+  `image` statement's is. A call whose name is computed (`"x %d" % n`)
+  defines nothing the converter knows.
+- **A `show` of a tag on screen chooses its image by attributes**, as
+  Ren'Py's `apply_attributes` does: the name itself first, when it
+  resolves (its definition or its file, as before); else, with `eve
+  casual calm` on screen, `show eve happy` shows the
+  image with the tag whose attributes are all given or kept from the
+  shown ones, every given one among them, the most attributes winning
+  (`eve casual happy`), as a say statement's attributes choose (Say
+  statements, above), images-folder names included. `-x` removes x, and
+  `show eve` with no attributes keeps the picture on screen. A `scene`
+  clears the layer, so its name keeps no attributes. The item's ledger
+  notes name the picture chosen; with no choice, the name as written
+  resolves as before.
+- **A `Movie(...)` image is a video.** Its `play` file (either quote)
+  is the item's video, shipped by the video rule; with no `play`, it
+  shows what its channel (`channel=`, else `movie`) plays: `play movie
+  "f.webm"` and `show movie`, in either order, make `f.webm` the video
+  item, for the `movie` channel or any registered with `movie=True`.
+  `stop movie` ends it, and a `Movie` with no `play` shows nothing while
+  its channel plays nothing: the picture on screen stays. A `play` on a
+  movie channel with no such `Movie` image is still reported as not
+  converted. The Movie arguments a video item cannot hold are named in
+  the item's ledger notes, `not carried`: `loop=False` (a video item
+  loops under its lines), `size` (the player fits the video to the
+  screen), `mask`, `image` and `start_image`, and any other but
+  `play`, `channel`, `fps` and `loop=True`.
 
 ### ATL frame lists
 
@@ -909,12 +961,14 @@ An `image name:` block of ATL (docs/plan.md Phase 60 item 8) is read
 as a frame list when it holds only these statements, one per line or
 joined by commas as Ren'Py allows:
 
-- a frame: a quoted string, a file when it has a dot (as Ren'Py reads
-  one), else an image name, resolved as `show` resolves a name (its
+- a frame: a quoted string, double- or single-quoted (docs/plan.md
+  Phase 60 item 9n2), a file when it has a dot (as Ren'Py reads one),
+  else an image name, resolved as `show` resolves a name (its
   `image` definition, a one-frame ATL image included, then the implicit
   index); a frame may end in `with <transition>`;
 - `pause N` or a bare number `N`, the time the frame before it shows
-  (several in a row add up);
+  (several in a row add up), the number in any parentheses (`pause
+  (0.5)`, `pause(0.5)`, `(0.5)`: item 9n2);
 - `pass`, `animation`, and `function name`;
 - a last `repeat` or `repeat N`.
 
@@ -976,6 +1030,11 @@ and the `preserve` step's `reason` says why.
 | Lossy WebP | none | - | always, reason `lossy WebP: exact JPEG XL is always larger`: the exact JXL was larger in all 206 measured files (see Results) and cost about 27 s each. Read from the RIFF chunks before any decode: a `VP8 ` image chunk is lossy, `VP8L` lossless; in an extended `VP8X` file the first image chunk (inside the first `ANMF` frame when animated) decides |
 | Animated GIF, WebP, PNG | none | - | always: the libjxl binding takes no frame durations or loop count, so an animated JXL could not be verified to keep the timing |
 | `.jxl` | shipped as is | libjxl decodes the whole file (else the item is skipped) | - |
+
+The black still a line before any picture shows over (docs/plan.md
+Phase 60 item 9n2) is no game file: Pillow makes it as a PNG at the
+game's size with the PNG save parameters above, and it ships as that
+PNG.
 
 Other formats (BMP, TIFF, AVIF, ...) are converted to the smallest of
 PNG, JPEG q92 and JXL of the PNG, as before; AVIF since docs/plan.md
@@ -1689,7 +1748,9 @@ files, and checks every hash (docs/plan.md Phase 25):
   folder's `media/`.
 - `<game_root>` is the original game. A build ledger's `game/...`
   sources resolve against the project as kinetic-extract takes it (the
-  project dir, `game/` itself, or a macOS `.app`). A media ledger's
+  project dir, `game/` itself, or a macOS `.app`). A generated source
+  (the black still, docs/plan.md Phase 60 item 9n2) needs no game file:
+  its `solid` step makes it again. A media ledger's
   sources resolve against `<game_root>` as given, the same root the
   ship ran with.
 - Several game roots: for a game kinetic-extract made from several

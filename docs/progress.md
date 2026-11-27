@@ -7004,7 +7004,38 @@ truthful: an unchecked box means nothing was accepted.
       of the first 24 failed first). Orchestrator: converter/ 1426
       passed, test_validate_content.py and test_setup_media_tools.py
       569 passed, setup self-test 23 cases passed.)
-- [ ] Pictures the converter still misses (item 9n2).
+- [x] Pictures the converter still misses (item 9n2).
+      (2026-11-27: a line before any picture (the story's start, after
+      a starting `scene black`, under a visual that resolves nowhere)
+      shows over one generated black PNG at the game's size; ledger
+      source `{"generated": "black"}` with a `solid` step, which
+      `kinetic media rebuild` makes again and checks; item 9n's
+      `droppedUnresolved` drop is gone. Single-quoted ATL frames,
+      `pause (N)`, `pause(N)` and a bare `(N)` animate. `show tag attrs`
+      whose name resolves nowhere takes Ren'Py's attribute choice
+      (`scene` keeps none). Literal `renpy.image()` calls define images.
+      `Movie(play=...)` ships as a video; a `Movie` with no `play` shows
+      what its channel plays (`play movie`, any `movie=True` channel);
+      arguments a video cannot hold are noted "not carried". Choices:
+      the name as written resolves first, so no resolving show changed;
+      the black still ships after the asset pass, once the size is
+      known; three tests asserting the old drop rewritten. Leads: solid-
+      colour scenes later in a story, a menu before any picture, and
+      say attributes trying the exact name first -> item 9n3; `loop=False`
+      videos -> item 9n4 (holdLastFrame is animation-only today);
+      `renpy.movie_cutscene` already in future.md. Corpus recount (71
+      games, parse-only, read-only): invalid first `text` item 21 games
+      -> 0; 547 lines over black in 23 games; drops 3 -> 0; lines over
+      the last visual 7,951 -> 7,202; unresolved visual statements 2,828
+      -> 2,131; animation items 1,997 -> 2,132; video items 8,446 ->
+      9,363; total lines 917,365 -> 917,366. No attribute shows or
+      literal `renpy.image` calls occur in the corpus. Orchestrator's
+      grep: 14,528 solid-colour `scene` lines, 1,205 `loop=False` Movies
+      in 6 games. Tests: 16 new in test_picture_forms.py (15 failed
+      first). Orchestrator: converter/ 1441 passed,
+      test_validate_content.py 536 passed.)
+- [ ] Solid-colour scenes and a menu before any picture (item 9n3).
+- [ ] Videos that play once (item 9n4).
 - [ ] Menus no longer kept linear (item 9o).
 - [ ] More `if` chains become decisions (item 9p).
 - [ ] Variables shown in text (item 9q).

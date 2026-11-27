@@ -314,16 +314,21 @@ def test_missing_files_drop_their_cues(tmp_path: Path) -> None:
     assert result.audio_tracks == {}
 
 
-def test_voice_drops_with_its_unresolved_line(tmp_path: Path) -> None:
+def test_voice_stays_with_a_line_over_black(tmp_path: Path) -> None:
+    """A line with no picture before it shows over black (docs/plan.md
+    Phase 60 item 9n2; item 9n dropped it, and its voice), its voice
+    with it."""
     result, reasons = walk(tmp_path, """
         voice "v.ogg"
         scene nowhere
-        "Dropped with its visual."
+        "Over black."
         scene black
         "Kept."
         """, files=("v.ogg",))
-    assert by_text(result) == {"Kept.": None}
-    assert has(reasons, "voice dropped with its line")
+    found = by_text(result)
+    assert list(found) == ["Over black.", "Kept."]
+    assert found["Over black."] is not None and found["Kept."] is None
+    assert not has(reasons, "voice dropped")
 
 
 # --- names, files and partial specs ------------------------------------------
@@ -797,4 +802,5 @@ def test_cli_prefixes_track_ids_per_episode(tmp_path: Path) -> None:
     manifest = json.loads((out / "manifest.json").read_text("utf-8"))
     assert list(manifest["audio"]["tracks"]) == ["ep1-m", "ep2-m"]
     by_id = {item["id"]: item for item in manifest["items"]}
-    assert by_id["ep2-line-001"]["audio"] == {"music": "ep2-m"}
+    # Each episode's first line shows over black (Phase 60 item 9n2).
+    assert by_id["ep2-black-001"]["audio"] == {"music": "ep2-m"}

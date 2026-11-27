@@ -21,6 +21,11 @@ entry, and each of its ``alsoFrom`` sources, is rebuilt independently:
    ``audio_format``) has it made again from that output, and its sha256
    and size must equal the recorded ones.
 
+A generated source (``{"generated": "black"}``, docs/plan.md Phase 60
+item 9n2: the black still a line before any picture shows over) names
+no game file: its one recorded step makes the output from nothing
+(``assets.run_generated``), which must match as any other.
+
 The folder's own ``media/`` is checked too: a file the ledgers do not
 list (a script counts as listed by its entry), an entry whose file is
 absent, or a file whose bytes differ from its entry are failures. With
@@ -254,6 +259,8 @@ def rebuild_one(entry: dict[str, Any], made: dict[str, Any],
     the entry's sha256; otherwise reports through `fail` and returns
     None."""
     source = made.get("source") or {}
+    if "generated" in source:
+        return _rebuild_generated(entry, made, work, fail)
     bare = source_ref(source)
     if bare is None:
         fail(f"unsupported source {json.dumps(source, sort_keys=True)}")
@@ -281,6 +288,24 @@ def rebuild_one(entry: dict[str, Any], made: dict[str, Any],
                 return None
     try:
         out = assets.run_steps(steps, path, bare, decoders, work)
+    except assets.StepError as exc:
+        fail(str(exc))
+        return None
+    got = sha256_file(out)
+    if got != entry.get("sha256"):
+        fail(f"output mismatch: expected {entry.get('sha256')}, got {got}")
+        return None
+    return out
+
+
+def _rebuild_generated(entry: dict[str, Any], made: dict[str, Any],
+                       work: Path, fail: Callable[[str], None]
+                       ) -> Path | None:
+    """Make a generated source's output again (rebuild_one)."""
+    steps = made.get("steps")
+    try:
+        out = assets.run_generated(steps if isinstance(steps, list) else [],
+                                   work)
     except assets.StepError as exc:
         fail(str(exc))
         return None

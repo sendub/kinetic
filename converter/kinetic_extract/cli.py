@@ -110,7 +110,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__, conditions
-from .assets import run_asset_pass
+from .assets import run_asset_pass, ship_generated
 from .audio_cues import AudioFiles, carry_dropped_audio, rename_tracks
 from .audio_ship import SoundShipment, ship_sound
 from .decoders import Decoder, DecoderError, load_decoder
@@ -163,7 +163,9 @@ SIMPLIFICATIONS = [
     "ambiguous basenames take the first match in sorted order and are "
     "noted), file names in any case; a visual that resolves nowhere "
     "leaves the picture on screen, its lines kept over it (ledger "
-    "unresolvedVisual), never shipped as a missing-file placeholder",
+    "unresolvedVisual), never shipped as a missing-file placeholder; a "
+    "line before any picture shows over one black still at the game's "
+    "size (ledger media source {\"generated\": \"black\"})",
     "audio statements attach to the next item emitted (a dropped item's "
     "pass to the next item kept); every file a kept item's cue names "
     "ships by the audio policy, and a track that ships nothing or starts "
@@ -1022,6 +1024,14 @@ def main(argv: list[str] | None = None) -> int:
                        else f"default {DEFAULT_SIZE[0]}x{DEFAULT_SIZE[1]}")
         if args.width or args.height:
             source_note += " with --width/--height override"
+    try:
+        # The black still a line before any picture shows over, at the
+        # game's size (docs/plan.md Phase 60 item 9n2).
+        ship_generated(result.items, args.out_dir, tools, (width, height),
+                       sound.media)
+    except ExistingFileError as exc:
+        print(f"kinetic-extract: {exc}", file=sys.stderr)
+        return 1
     first = episodes[0]
     configs = _identity_configs(first, args.files)
     derived_ids = [derive_story_id(configs, first.project)[0]]

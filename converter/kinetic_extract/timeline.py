@@ -69,7 +69,7 @@ from .flow import follow_labels
 from .media import probe_duration_seconds
 from .parser import (_KEYWORD_ARG_RE, Event, FileParse, Report,
                      _call_arguments, character_images, nameless_characters,
-                     say_key, slug as _slug)
+                     say_key, slug as _slug, string_literal)
 from .presentation import (CharacterColors, Resolved, TransitionCounts,
                            character_colors, resolve_transition,
                            transition_defines)
@@ -80,8 +80,26 @@ _INTERPOLATION_RE = re.compile(r"\[[^][]*\]")
 KEPT = "kept over the last visual"
 _INTERPOLATION_NOTE = " interpolation(s) literal in text"
 # `image X = Movie(play="f.webm", ...)` (parser stores the value verbatim
-# as an expression): the play file is the item's video (BUG 2).
-_MOVIE_PLAY_RE = re.compile(r"\bplay\s*=\s*\"((?:[^\"\\]|\\.)*)\"")
+# as an expression): the play file is the item's video (BUG 2), either
+# quote (Phase 60 item 9n2).
+_MOVIE_PLAY_RE = re.compile(
+    r"""\bplay\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
+# How a Movie's arguments the folder's video items cannot show are noted
+# (Phase 60 item 9n2): the others are shown as the item plays (`play`,
+# `channel`, `loop=True`) or change nothing the reader sees (`fps`).
+_MOVIE_SHOWN_ARGS = frozenset({"play", "channel", "fps"})
+_MOVIE_ARG_NOTES = {
+    "loop": "the video loops under its lines, as every video item does",
+    "size": "the player fits the video to the screen",
+    "mask": "the video shows without its mask",
+    "image": "the picture Ren'Py shows once the movie ends",
+    "start_image": "the picture Ren'Py shows before the movie starts",
+}
+# The black still a line before any picture shows over (Phase 60 item
+# 9n2), and its item's ledger note.
+BLACK = "black"
+BLACK_NOTE = ("no picture before this line: it shows over black, as "
+              "Ren'Py's empty scene does (a black still at the game's size)")
 _QUOTED_RE = re.compile(r"\"((?:[^\"\\]|\\.)*)\"")
 # Any quoted string of an image expression, either quote.
 _ANY_QUOTED_RE = re.compile(r"\"((?:[^\"\\]|\\.)*)\"|'((?:[^'\\]|\\.)*)'")
@@ -114,7 +132,7 @@ def def_value_target(defined: tuple[str, str]) -> tuple[str, str | None]:
         return "image", value
     m = _MOVIE_PLAY_RE.search(value)
     if m:
-        return "video", m.group(1)
+        return "video", m.group(1) if m.group(1) is not None else m.group(2)
     m = _QUOTED_RE.search(value)
     return "image", m.group(1) if m else None
 
@@ -146,6 +164,37 @@ class _Target:
     found: Any = None
     reason: str | None = None
     notes: list[str] = field(default_factory=list)
+    # Notes for the item's ledger entry only, never reported (a Movie's
+    # arguments not carried, item 9n2).
+    extra: list[str] = field(default_factory=list)
+
+
+def movie_call(value: str) -> dict[str, str] | None:
+    """A `Movie(...)` expression's keyword arguments (docs/plan.md Phase
+    60 item 9n2), else None for any other expression."""
+    head = _CALL_HEAD_RE.match(value)
+    if head is None or head.group(1).rsplit(".", 1)[-1] != "Movie":
+        return None
+    args = _call_arguments(value, head.end())
+    if args is None:
+        return None
+    keywords: dict[str, str] = {}
+    for arg in args:
+        m = _KEYWORD_ARG_RE.fullmatch(arg)
+        if m is not None:
+            keywords[m.group(1)] = m.group(2).strip()
+    return keywords
+
+
+def movie_notes(keywords: dict[str, str]) -> list[str]:
+    """One note per Movie argument the video item does not carry."""
+    notes = []
+    for key, value in keywords.items():
+        if key in _MOVIE_SHOWN_ARGS or (key == "loop" and value == "True"):
+            continue
+        why = _MOVIE_ARG_NOTES.get(key, "no video item field holds it")
+        notes.append(f"Movie argument `{key}={value}` not carried: {why}")
+    return notes
 
 
 @dataclass
@@ -204,6 +253,11 @@ class ItemRecord:
     # Phase 60 item 6): ``(chain, arm index)``, whose words each language
     # file gets in its own language (kinetic_extract.translations).
     condition_arm: tuple[Any, int] | None = None
+    # A picture made from nothing but its ledger entry: ``"black"``, the
+    # black still a line before any picture shows over (Phase 60 item
+    # 9n2), which kinetic_extract.assets.ship_generated ships once the
+    # game's size is known; None for a picture from a game file.
+    generated: str | None = None
 
 
 def set_video_duration(record: ItemRecord,
@@ -301,6 +355,8 @@ class _Pending:
         self.quiet = False
         # Why an unresolved visual resolves nowhere (item 9n).
         self.reason: str | None = None
+        # A picture made from nothing (ItemRecord.generated, item 9n2).
+        self.generated: str | None = None
 
     @property
     def drops_bare(self) -> bool:
@@ -322,6 +378,7 @@ class _Pending:
             again = _Pending(self.kind, self.name, self.asset_rel,
                              self.asset_abs, self.source, self.source_ref)
             again.frames, again.timing = self.frames, self.timing
+            again.generated = self.generated
         again.notes = list(self.notes) + [note or (
             f"repeats the visual on screen at the menu at {menu_source}"
             f"{' (its held last frame)' if held else ''}: a route's first "
@@ -454,6 +511,18 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     stale: tuple[str, str] | None = None
     # Image names whose stand-in picture was reported.
     stand_ins: set[str] = set()
+    # A channel that plays video -> the file it plays (`play movie "f"`),
+    # and the channel and name of the `Movie` image on screen that shows
+    # what its channel plays (item 9n2), else None.
+    movie_files: dict[str, str] = {}
+    movie_shown: tuple[str, str] | None = None
+    # The channels a `Movie` image with no `play` file shows.
+    movie_channels: set[str] = set()
+    for def_tag, def_value in image_defs.values():
+        movie_args = movie_call(def_value) if def_tag == "expr" else None
+        if movie_args is not None and "play" not in movie_args:
+            movie_channels.add(string_literal(
+                movie_args.get("channel", '"movie"')) or "movie")
     defines = transition_defines(parses)
     # Whether the pending visual changed since the last interaction, so
     # a bare `with` applies to it.
@@ -637,8 +706,24 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 value.refs, depth,
                 f"ATL image {name!r} ({value.source}) is not a frame list",
                 "unchanged")
+        movie = movie_call(value) if tag == "expr" else None
         if tag == "file":
             got = displayable(value, depth)
+        elif movie is not None:
+            # A Movie is its video (item 9n2): its `play` file, else what
+            # its channel plays (``movie``).
+            kind = "video"
+            play = movie.get("play")
+            played = string_literal(play) if play is not None else None
+            if played is not None:
+                got = file_target(played, "video")
+            elif play is not None:
+                got = _Target("none", reason=f"Movie `play={play}` names no "
+                              "file the converter knows")
+            else:
+                channel = string_literal(movie.get("channel", '"movie"'))
+                got = _Target("movie", found=channel or "movie")
+            got.extra = movie_notes(movie)
         elif _MOVIE_PLAY_RE.search(value):
             kind, ref = def_value_target(defined)
             got = file_target(ref, kind)
@@ -740,8 +825,25 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     f"it; using the first in sorted order ({chosen})")
         else:
             return None
-        pend.notes[:0] = got.notes
+        pend.notes[:0] = got.notes + got.extra
         return pend
+
+    def play_video(parsed: FileParse, source: str, asset: str | None,
+                   name: str) -> _Pending | None:
+        """The visual a video file shows, or None when the file is found
+        nowhere: the visual then stays as it was, its lines kept over it
+        until `stop movie`, reported (item 9n)."""
+        nonlocal stale
+        ledger_rel, abs_path, src_ref = asset_paths(asset, "video")
+        if not (src_ref is not None and "archive" in src_ref) \
+                and (abs_path is None or not abs_path.exists()):
+            stale = (Path(asset or "movie").stem, source, True)
+            parsed.reports.append(Report(
+                source, f"movie {asset}",
+                f"unresolvedVisual: video asset {asset!r} not found; its "
+                f"lines {KEPT}"))
+            return None
+        return _Pending("video", name, ledger_rel, abs_path, source, src_ref)
 
     def flush_bare() -> None:
         """Emit an unconsumed visual (replaced or at end of flow) bare;
@@ -821,6 +923,23 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                                      if not a.startswith("-")])
         return " ".join([tag] + [a for a in shown if a not in remove])
 
+    def show_name(name: str, scene: bool) -> str:
+        """The image a `scene`/`show` of ``name`` that names no image
+        shows, as Ren'Py's ``apply_attributes`` picks it (item 9n2): for
+        a `show` of the tag of the picture on screen, the attribute
+        choice of a say statement's attributes (``attribute_name``: the
+        given ones, `-x` removing, the shown ones kept); for a `scene`,
+        which clears the layer, the choice with none kept. ``name``
+        itself when nothing else answers."""
+        parts = name.split()
+        if not parts:
+            return name
+        current = pending if pending is not None else on_screen
+        shown = ((current.name or "").split()
+                 if current is not None and not scene else [])
+        return attribute_name(parts[0], shown[1:] if shown[:1] == parts[:1]
+                              else [], tuple(parts[1:]))
+
     def say_pending(name: str, source: str) -> _Pending | None:
         """The picture an image name shows, resolved as a `show` of it is,
         or None when nothing answers it (nothing reported: the picture on
@@ -894,7 +1013,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         record = ItemRecord(item=item, source=pend.source,
                             asset=pend.asset_rel, asset_abs=pend.asset_abs,
                             source_ref=pend.source_ref,
-                            text_source=line_source)
+                            text_source=line_source,
+                            generated=pend.generated)
         record.notes.extend(pend.notes)
         if pend.kind == "animation":
             item.update(pend.timing)
@@ -918,7 +1038,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             # archive and member with the member's sha256 and size.
             record.notes.append(
                 f"asset extracted from .rpa archive ({pend.asset_rel})")
-        if pend.kind == "animation":
+        if pend.kind == "animation" or pend.generated is not None:
             pass
         elif pend.asset_abs is not None:
             if not pend.asset_abs.exists():
@@ -1227,9 +1347,48 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 fresh = clause is None
                 name = event.name or "black"
                 # `show expression "file"` shows the string as Ren'Py
-                # reads a displayable (item 9n).
+                # reads a displayable (item 9n); a name, the image
+                # Ren'Py's attribute choice picks (item 9n2).
                 got = (displayable(event.asset, 0) if event.asset is not None
                        else lookup(name))
+                chosen = name
+                if event.asset is None and got.kind == "none":
+                    # No image of the exact name (Ren'Py's first pick).
+                    alt = show_name(name, event.scene)
+                    alt_got = lookup(alt) if alt != name else got
+                    if alt_got.kind != "none":
+                        chosen, got = alt, alt_got
+                current = pending if pending is not None else on_screen
+                if chosen != name and current is not None \
+                        and current.name == chosen:
+                    # `show eve` while `eve casual` shows: the picture
+                    # stays.
+                    fresh = False
+                    continue
+                if got.kind == "movie":
+                    # A Movie with no `play` file shows what its channel
+                    # plays (item 9n2), nothing while it plays nothing.
+                    playing = movie_files.get(got.found)
+                    if playing is None:
+                        fresh = False
+                        movie_shown = (got.found, chosen)
+                        continue
+                    pend = play_video(parsed, event.source, playing, chosen)
+                    if pend is None:
+                        fresh = False
+                        movie_shown = (got.found, chosen)
+                        continue
+                    pend.notes[:0] = got.extra + [
+                        f"Movie image {chosen!r} shows the {got.found!r} "
+                        f"channel's video ({playing})"]
+                    flush_bare()
+                    stale = None
+                    pending = pend
+                    movie_shown = (got.found, chosen)
+                    if clause is not None:
+                        pending.transition = clause.transition
+                    continue
+                movie_shown = None
                 if got.kind == "solid":
                     # A solid screen carries no media; the visual is
                     # cleared.
@@ -1248,7 +1407,12 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         parsed.reports.append(Report(
                             event.source, name, got.notes[0]))
                     continue
-                pend = target_pending(parsed, event.source, name, got)
+                pend = target_pending(parsed, event.source, chosen, got)
+                if pend is not None and chosen != name:
+                    pend.notes.append(
+                        f"picture {chosen!r} chosen by the attributes of "
+                        f"`{'scene' if event.scene else 'show'} {name}`, "
+                        "as Ren'Py chooses an image")
                 if pend is None or pend.unresolved:
                     # Item 9n: a visual that resolves nowhere leaves the
                     # picture on screen as it was, and its lines are kept
@@ -1272,27 +1436,44 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 if clause is not None:
                     pending.transition = clause.transition
             elif event.kind == "video":
-                ledger_rel, abs_path, src_ref = asset_paths(
-                    event.asset, "video")
-                if not (src_ref is not None and "archive" in src_ref) \
-                        and (abs_path is None or not abs_path.exists()):
-                    # Same rule as scene refs (item 9n): the visual stays
-                    # as it was, its lines kept over it.
+                movie_shown = None
+                pend = play_video(parsed, event.source, event.asset,
+                                  Path(event.asset or "movie").stem)
+                if pend is None:
                     fresh = False
-                    stale = (Path(event.asset or "movie").stem,
-                             event.source, True)
-                    parsed.reports.append(Report(
-                        event.source, f"movie {event.asset}",
-                        f"unresolvedVisual: video asset {event.asset!r} "
-                        f"not found; its lines {KEPT}"))
                     continue
                 fresh = True
                 flush_bare()
                 stale = None
-                pending = _Pending(
-                    "video", Path(event.asset or "movie").stem,
-                    ledger_rel, abs_path, event.source, src_ref)
+                pending = pend
+            elif event.kind == "audio" and movie_channels \
+                    and (movie := cues.movie_play(event)) is not None \
+                    and movie[0] in movie_channels:
+                # `play movie "f"`: what a Movie image of the channel shows
+                # (item 9n2), at once when one is on screen.
+                channel, playing = movie
+                if playing is None:
+                    movie_files.pop(channel, None)
+                    continue
+                movie_files[channel] = playing
+                if movie_shown is None or movie_shown[0] != channel:
+                    continue
+                pend = play_video(parsed, event.source, playing,
+                                  movie_shown[1])
+                if pend is None:
+                    fresh = False
+                    continue
+                image = image_defs.get(movie_shown[1])
+                pend.notes[:0] = (movie_notes(movie_call(image[1]) or {})
+                                  if image is not None else []) + [
+                    f"Movie image {movie_shown[1]!r} shows the {channel!r} "
+                    f"channel's video ({playing})"]
+                fresh = True
+                flush_bare()
+                stale = None
+                pending = pend
             elif event.kind == "stop-movie":
+                movie_files.pop("movie", None)
                 flush_bare()
                 if stale is not None and stale[2]:
                     # The movie that resolved nowhere ends.
@@ -1309,19 +1490,15 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 restore, attribute_note = None, None
                 if event.attributes or event.temporary:
                     restore, attribute_note = say_picture(parsed, event)
-                if stale is not None and pending is None \
-                        and on_screen is None:
-                    # Its visual resolves nowhere and no picture came
-                    # before it to keep it over: a text item needs one,
-                    # so it drops (BUG 1).
-                    parsed.reports.append(Report(
-                        event.source, event.text,
-                        f"droppedUnresolved: line dropped with its "
-                        f"unresolved visual {stale[0]!r} ({stale[1]}): no "
-                        "picture before it to keep it over"))
-                    cues.line_dropped()
-                    last_line = None
-                    continue
+                if pending is None and on_screen is None:
+                    # No picture before it (item 9n2): it shows over
+                    # black, Ren'Py's empty scene, one black still for
+                    # every such line (BUG 1 and item 9n dropped one
+                    # whose visual resolved nowhere).
+                    pending = _Pending("image", BLACK, None, None,
+                                       event.source)
+                    pending.generated = BLACK
+                    pending.notes.append(BLACK_NOTE)
                 if pending is not None and not pending.consumed:
                     emit_media(pending, speaker, event.text,
                                say_key(event.source, event.paragraph),

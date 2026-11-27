@@ -261,6 +261,29 @@ def _call_arguments(text: str, start: int) -> list[str] | None:
     return None
 
 
+# A whole string literal, double- or single-quoted.
+_STRING_RE = re.compile(r""""(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'""")
+
+
+def string_at(text: str, pos: int = 0) -> tuple[str, int] | None:
+    """The double- or single-quoted string literal at ``text[pos]``:
+    (its text, the index after it), else None (docs/plan.md Phase 60
+    item 9n2: an ATL frame may be either)."""
+    if text[pos:pos + 1] == "'":
+        m = _STRING_RE.match(text, pos)
+        value = _literal_value(m.group(0)) if m is not None else None
+        return (value, m.end()) if m is not None and value is not None \
+            else None
+    return _parse_quoted(text, pos)
+
+
+def string_literal(text: str) -> str | None:
+    """``text``'s value when it is one string literal, either quote, and
+    nothing else, else None."""
+    m = _STRING_RE.fullmatch(text.strip())
+    return _literal_value(m.group(0)) if m is not None else None
+
+
 def _literal_value(literal: str) -> str | None:
     """A double- or single-quoted literal's text, as the converter reads
     say text (_parse_quoted)."""
@@ -540,6 +563,10 @@ class Event:
     # from 0: Ren'Py makes a say statement, with its own translation, of
     # each (docs/plan.md Phase 60 item 9m2; say_key).
     paragraph: int = 0
+    # A visual event of a `scene`, which clears the layer, so a name's
+    # attributes choose with none kept from a picture shown before it
+    # (docs/plan.md Phase 60 item 9n2); False for a `show`.
+    scene: bool = False
 
 
 @dataclass
@@ -771,10 +798,9 @@ def _atl_refs(block: list[tuple[int, str, int]]) -> list[str]:
     refs: list[str] = []
     for _lineno, text, _depth in block:
         for clause in _call_arguments(text + ")", 0) or [text]:
-            if clause.startswith("\""):
-                parsed = _parse_quoted(clause, 0)
-                if parsed is not None and parsed[0]:
-                    refs.append(parsed[0])
+            parsed = string_at(clause)
+            if parsed is not None and parsed[0]:
+                refs.append(parsed[0])
     return refs
 
 
@@ -865,6 +891,20 @@ _ATL_OTHER = frozenset({"block", "parallel", "choice", "on", "contains",
 NOT_CONVERTED = "image without a file: ATL statement `{}` ({}) not converted"
 
 
+def _atl_pause(clause: str) -> float | None:
+    """The seconds of an ATL pause clause, else None: `pause N` or a
+    bare `N`, the number in any parentheses (`pause (0.5)`,
+    `pause(0.5)`, `(0.5)`: docs/plan.md Phase 60 item 9n2)."""
+    text = clause.strip()
+    if text.startswith("pause") and text[5:6] in ("", " ", "\t", "("):
+        text = text[5:].strip()
+        if not text:
+            return None
+    while text.startswith("(") and text.endswith(")"):
+        text = text[1:-1].strip()
+    return float(text) if _ATL_NUMBER_RE.fullmatch(text) else None
+
+
 def _is_motion(word: str) -> bool:
     """A warper (`linear`, `ease`, `easein_quad`, ...) or a structure
     keyword: ATL a frame list does not hold."""
@@ -876,8 +916,9 @@ def read_atl_image(block: list[tuple[int, str, int]], relname: str,
     """Read an `image name:` ATL block (``(lineno, text, indent)`` lines)
     as a frame list, or None with the report naming the first statement
     that is not one (docs/plan.md Phase 60 item 8). Frames are quoted
-    strings, each followed by `pause N` or a bare number (summed when
-    several); a last `repeat` or `repeat N` sets the loops. A frame's
+    strings, either quote, each followed by `pause N` or a bare number,
+    in any parentheses (`pause (0.5)`, item 9n2), summed when
+    several; a last `repeat` or `repeat N` sets the loops. A frame's
     `with` is a cut and a `function` is dropped, each reported; a frame
     with no time after it shows for none and is left out, except the
     last frame of a block with no `repeat`, which Ren'Py shows from then
@@ -908,8 +949,9 @@ def read_atl_image(block: list[tuple[int, str, int]], relname: str,
             word_m = _ATL_WORD_RE.fullmatch(clause)
             word, value = (word_m.group(1), word_m.group(2) or "") \
                 if word_m else ("", "")
-            if clause.startswith("\""):
-                parsed = _parse_quoted(clause, 0)
+            parsed = string_at(clause)
+            pause = _atl_pause(clause) if parsed is None else None
+            if parsed is not None:
                 tail = clause[parsed[1]:].strip()
                 if tail.startswith("with ") or tail == "with":
                     reports.append(Report(at, clause, (
@@ -918,11 +960,10 @@ def read_atl_image(block: list[tuple[int, str, int]], relname: str,
                 elif tail:
                     props.append((at, tail))
                 frames.append(AtlFrame(parsed[0], 0.0, at))
-            elif _ATL_NUMBER_RE.fullmatch(clause) or (
-                    word == "pause" and _ATL_NUMBER_RE.fullmatch(value)):
+            elif pause is not None:
                 if not frames:
                     return reject(clause, at)
-                frames[-1].seconds += float(value or clause)
+                frames[-1].seconds += pause
             elif word == "repeat" and (not value or value.isdigit()):
                 repeated, repeat = True, int(value) if value else None
                 if repeat == 0:
@@ -1637,6 +1678,8 @@ def _scan_settings(raw_lines: list[str], relname: str,
             if store is not None and not line.startswith(("define", "$")):
                 line = f"{store[0]}.{line}"
             _read_character(line, f"{relname}:{n + 1}", result)
+        if "renpy.image" in text:
+            _renpy_image(raw_lines, n, text, result)
         if "register_channel(" in text:
             channel = read_channel(_call_text(raw_lines, n))
             if channel is None:
@@ -1646,6 +1689,43 @@ def _scan_settings(raw_lines: list[str], relname: str,
                     "literals: channel not read"))
             else:
                 result.channels[channel.name] = channel
+
+
+# `renpy.image(` where a line's code calls it (docs/plan.md Phase 60 item
+# 9n2).
+_RENPY_IMAGE_RE = re.compile(r"(?<![\w.])renpy\.image\s*\(")
+
+
+def _renpy_image(raw_lines: list[str], n: int, text: str,
+                 result: FileParse) -> None:
+    """Record a literal `renpy.image("name", d)` call on line ``n`` (in a
+    `$` line or a Python block, over several lines too) as an `image`
+    statement is recorded (docs/plan.md Phase 60 item 9n2): a name that
+    is a string literal, or a tuple of them, and ``d`` a string literal
+    (read as a displayable) or another expression kept verbatim. A call
+    whose name is computed defines nothing the converter knows."""
+    m = _RENPY_IMAGE_RE.search(text)
+    if m is None:
+        return
+    line = _continued(raw_lines, n, text.strip())[0]
+    m = _RENPY_IMAGE_RE.search(line)
+    args = _call_arguments(line, m.end()) if m is not None else None
+    if not args or len(args) != 2 or _KEYWORD_ARG_RE.fullmatch(args[0]):
+        return
+    head, value = args
+    parts = ([head] if not head.startswith("(") else
+             [a for a in (_call_arguments(head[1:] + ")", 0) or [])])
+    words = [string_literal(part) for part in parts]
+    if not words or None in words:
+        return
+    name = " ".join(" ".join(w for w in words if w).split())
+    keyword = _KEYWORD_ARG_RE.fullmatch(value)
+    if keyword is not None:
+        value = keyword.group(2).strip()
+    literal = string_literal(value)
+    if name:
+        result.image_defs[name] = (("file", literal) if literal is not None
+                                   else ("expr", value))
 
 
 def _scan_code(raw_lines: list[str], n: int, text: str, relname: str,
@@ -2050,7 +2130,9 @@ def _scan_lines(raw_lines: list[str], start: int, stop: int, relname: str,
                 open_block()
             continue
         if keyword == "scene":
-            events.append(_visual_event(source, rest, "black"))
+            visual = _visual_event(source, rest, "black")
+            visual.scene = True
+            events.append(visual)
             if line.endswith(":"):
                 # `scene x:`: an ATL block, whose lines are no statements.
                 open_block()

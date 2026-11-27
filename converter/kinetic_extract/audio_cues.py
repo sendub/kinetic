@@ -88,7 +88,6 @@ UNKNOWN_CHANNEL = ("audio channel {channel!r} is not registered in the "
                    "scripts: not converted")
 MOVIE = "the movie channel plays video: not converted"
 VOICE_MENU = "voice before a menu: not converted"
-VOICE_DROPPED = "voice dropped with its line"
 VOICE_EXTEND = ("voice before an extend line: not converted (the line "
                 "joins the item before it, which keeps its own voice)")
 VOICE_NO_LINE = "voice with no line after it in its route: not converted"
@@ -377,6 +376,28 @@ class CueWalker:
                                 list[dict[str, str]]]] = []
         self._ambiguous = False
 
+    def movie_play(self, event: Event) -> tuple[str, str | None] | None:
+        """``(channel, file)`` of a `play` or `queue` on a channel that
+        plays video (the `movie` channel, or one registered with
+        ``movie=True``), for a `Movie` image of that channel to show
+        (docs/plan.md Phase 60 item 9n2): its first file with the
+        channel's prefix and suffix, None when it names none the
+        converter reads; ``(channel, None)`` for a stop. None for any
+        other statement."""
+        stmt = event.cue
+        channel = self._channels.get(stmt.channel) if stmt else None
+        if stmt is None or channel is None or not channel.movie:
+            return None
+        if stmt.action == "stop":
+            return channel.name, None
+        ref = stmt.refs[0] if stmt.refs else None
+        value = (ref.value if ref is not None and ref.kind == "file" else
+                 self._defs.get(ref.value) if ref is not None else None)
+        if not value:
+            return channel.name, None
+        return channel.name, f"{channel.file_prefix}{value}" \
+            f"{channel.file_suffix}"
+
     # --- reading -------------------------------------------------------------
 
     def statement(self, parsed: FileParse, event: Event) -> None:
@@ -549,12 +570,6 @@ class CueWalker:
         if audio:
             record.audio = merge_audio(record.audio, audio)
         self._group = _Group()
-
-    def line_dropped(self) -> None:
-        """A line was dropped with its unresolved visual: so is its
-        voice."""
-        if self._voice is not None:
-            self._report_voice(VOICE_DROPPED)
 
     def extend_line(self) -> None:
         """An `extend` line joined the item before it

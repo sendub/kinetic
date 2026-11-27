@@ -246,6 +246,17 @@ something more of an author.
   over the picture before it and reported (`unresolvedVisual`), where
   it used to be dropped (docs/extracting.md, "Finding a script's
   files").
+- A line before any picture shows over black, as Ren'Py's empty scene
+  does: one black still at the game's size, recorded so `kinetic media
+  rebuild` makes it again, where the converter used to make a first
+  `text` item the validator refused (or drop the line). Single-quoted
+  ATL frames and `pause (0.5)` frame lists animate; `show eve happy`
+  with `eve casual calm` on screen shows `eve casual happy`, as Ren'Py
+  chooses an image by its attributes; literal `renpy.image("name",
+  "file")` calls define images; and a `Movie(...)` image is its video,
+  its `play` file or what `play movie` plays, the Movie arguments a
+  video item cannot hold (`loop=False`, `size`, `mask`) noted in the
+  ledger (docs/extracting.md, "Finding a script's files").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds` and `holdLastFrame` once
   upgraded. Converting a Ren'Py game again with this release gains its

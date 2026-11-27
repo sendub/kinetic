@@ -17,19 +17,39 @@
   statement's attribute choice as `image` statements do.
 - A line whose visual resolves nowhere is kept over the picture on
   screen and reported, instead of being dropped.
+
+Item 9n2 (the pictures item 9n still missed):
+
+- A line before any picture shows over black, as Ren'Py's empty scene
+  does: one black still at the game's size, made from nothing but its
+  ledger entry, which `kinetic media rebuild` makes again.
+- Single-quoted ATL frames and parenthesised pauses (`pause (0.5)`)
+  are frame lists like any other.
+- `show eve happy` of a tag on screen chooses among the images with
+  the tag as Ren'Py's attribute choice does (an exact name first).
+- Literal `renpy.image("name", "file")` calls define images.
+- A `Movie(...)` image is its video: its `play` file, or what `play
+  movie` plays on its channel.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 from PIL import Image
 
+from contextlib import redirect_stdout
+from io import StringIO
+
 from kinetic_extract import rpa as rpa_mod
+from kinetic_extract.cli import main as cli_main
+from kinetic_extract.media_cli import main as media_main
 from kinetic_extract.parser import parse_file
 
 from test_jump_menus import check_folder, extract, texts
+from test_route_items import H264, PICTURE, ffmpeg
 from test_rpa import tiny_png_bytes, write_rpa
 
 
@@ -55,8 +75,11 @@ def assets(manifest: dict, ledger: dict) -> list[str | None]:
     out, last = [], None
     for item in manifest["items"]:
         entry = ledger["items"][item["id"]]
-        if item["type"] != "text":
-            last = Path(entry["asset"]).stem
+        if item["type"] == "animation":
+            last = "(animation)"
+        elif item["type"] != "text":
+            last = (Path(entry["asset"]).stem if entry["asset"] is not None
+                    else "(black)")
         out.append(last)
     return out
 
@@ -394,17 +417,6 @@ def test_a_line_takes_the_picture_waiting_before_the_unresolved_one(
     assert any(KEPT in n for n in notes_of(manifest, ledger, "B."))
 
 
-def test_a_line_with_no_picture_before_it_is_still_dropped(tmp_path: Path
-                                                         ) -> None:
-    out, manifest, ledger = run(tmp_path, (
-        'label start:\n'
-        '    scene nowhere\n    "A."\n'
-        '    scene bg\n    "B."\n'
-        '    return\n'))
-    assert texts(manifest) == ["B."]
-    assert any(r.startswith("droppedUnresolved") for r in reasons(ledger))
-
-
 def test_forms_together_make_a_folder_that_plays(tmp_path: Path) -> None:
     out, manifest, ledger = run(tmp_path, (
         'define e = Character("Eve", image="eve")\n'
@@ -432,3 +444,333 @@ def test_forms_together_make_a_folder_that_plays(tmp_path: Path) -> None:
     assert assets(manifest, ledger)[:4] == ["corridor", "corridor",
                                             "eve calm", "eve happy"]
     check_folder(tmp_path, out, manifest)
+
+
+# ==========================================================================
+# Item 9n2
+# ==========================================================================
+
+# --------------------------------------------------------------------------
+# A line before any picture shows over black
+# --------------------------------------------------------------------------
+
+def black_file(out: Path, manifest: dict) -> str:
+    """The one black still the folder's items show: a PNG at the game's
+    size, every pixel black."""
+    files = {i["file"] for i in manifest["items"]
+             if i["type"] == "image" and "black-" in i["id"]}
+    (ref,) = files
+    assert ref.endswith(".png")
+    with Image.open(out / ref) as img:
+        assert img.size == (manifest["width"], manifest["height"])
+        assert img.convert("RGB").getextrema() == ((0, 0), (0, 0), (0, 0))
+    return ref
+
+
+def test_a_line_before_any_picture_shows_over_black(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    "Darkness."\n    "Still dark."\n'
+        '    scene bg\n    "Light."\n'
+        '    return\n'))
+    assert [(i["type"], i.get("text")) for i in manifest["items"]] == [
+        ("image", "Darkness."), ("text", "Still dark."), ("image", "Light.")]
+    assert assets(manifest, ledger) == ["(black)", "(black)", "bg"]
+    ref = black_file(out, manifest)
+    first = manifest["items"][0]
+    entry = ledger["items"][first["id"]]
+    assert entry["decision"] == "generated" and entry["file"] == ref
+    assert any("black" in n for n in entry["notes"])
+    media = ledger["media"][ref]
+    assert media["kind"] == "image" and "path" not in media["source"]
+    assert media["source"]["generated"] == "black"
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_line_over_a_solid_scene_before_any_picture_shows_over_black(
+        tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene black with fade\n    "Darkness."\n'
+        '    scene bg\n    "Light."\n'
+        '    return\n'))
+    assert texts(manifest) == ["Darkness.", "Light."]
+    assert assets(manifest, ledger) == ["(black)", "bg"]
+    black_file(out, manifest)
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_line_with_no_picture_before_its_unresolved_one_shows_over_black(
+        tmp_path: Path) -> None:
+    """Item 9n dropped it (`droppedUnresolved`): it now shows over
+    Ren'Py's empty scene, kept as the other lines under the visual are."""
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene nowhere\n    "A."\n'
+        '    scene bg\n    "B."\n'
+        '    return\n'))
+    assert texts(manifest) == ["A.", "B."]
+    assert assets(manifest, ledger) == ["(black)", "bg"]
+    assert any(KEPT in n and "nowhere" in n
+               for n in notes_of(manifest, ledger, "A."))
+    assert not any(r.startswith("droppedUnresolved") for r in reasons(ledger))
+    check_folder(tmp_path, out, manifest)
+
+
+def test_the_black_still_rebuilds_from_the_ledger(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    "Darkness."\n'
+        '    scene bg\n    "Light."\n'
+        '    return\n'))
+    ref = black_file(out, manifest)
+    rebuilt = tmp_path / "rebuilt"
+    with redirect_stdout(StringIO()) as said:
+        assert media_main(["rebuild", str(tmp_path / "proj"), str(out),
+                           "--out", str(rebuilt)]) == 0
+    assert f"{len(ledger['media'])} matched, 0 failed" in said.getvalue()
+    assert (rebuilt / ref).read_bytes() == (out / ref).read_bytes()
+    # A changed black still is a failure, as any other output's is.
+    (out / ref).write_bytes(b"not black")
+    with redirect_stdout(StringIO()):
+        assert media_main(["rebuild", str(tmp_path / "proj"), str(out)]) == 1
+
+
+def test_every_place_before_a_picture_shares_one_black_still(
+        tmp_path: Path) -> None:
+    projects = []
+    for n in (1, 2):
+        game = tmp_path / f"ep{n}" / "game"
+        picture(game, "images/bg.png", (40, 60, 80))
+        (game / "script.rpy").write_text(
+            f'label start:\n    "Episode {n} opens."\n'
+            f'    scene bg\n    "Episode {n} goes on."\n    return\n',
+            encoding="utf-8")
+        projects.append(str(game.parent))
+    out = tmp_path / "out"
+    with redirect_stdout(StringIO()):
+        assert cli_main([*projects, str(out)]) == 0
+    manifest = json.loads((out / "manifest.json").read_text("utf-8"))
+    ledger = json.loads((out / "build-ledger.json").read_text("utf-8"))
+    blacks = [i for i in manifest["items"] if i["type"] == "image"
+              and "black" in i["id"]]
+    assert len(blacks) == 2
+    ref = black_file(out, {**manifest, "items": blacks[:1]})
+    assert {i["file"] for i in blacks} == {ref}
+    assert [k for k, e in ledger["media"].items()
+            if e["source"].get("generated")] == [ref]
+    check_folder(tmp_path, out, manifest)
+
+
+# --------------------------------------------------------------------------
+# Frame lists in other forms
+# --------------------------------------------------------------------------
+
+QUOTED_FRAMES = ("image blink:\n"
+                 "    'pics/open.png'\n"
+                 "    pause (0.5)\n"
+                 "    'pics/shut.png'\n"
+                 "    pause(0.25)\n"
+                 "    repeat\n"
+                 "image wink:\n"
+                 '    "pics/open.png", (0.5)\n'
+                 "    'pics/shut.png', pause ( 0.5 )\n"
+                 "    repeat 2\n")
+
+
+def test_single_quoted_frames_and_parenthesised_pauses_are_frame_lists(
+        ) -> None:
+    parsed = parse_file(QUOTED_FRAMES, "game/script.rpy")
+    tag, blink = parsed.image_defs["blink"]
+    assert tag == "atl"
+    assert [(f.ref, f.seconds) for f in blink.frames] == [
+        ("pics/open.png", 0.5), ("pics/shut.png", 0.25)]
+    tag, wink = parsed.image_defs["wink"]
+    assert tag == "atl"
+    assert [(f.ref, f.seconds) for f in wink.frames] == [
+        ("pics/open.png", 0.5), ("pics/shut.png", 0.5)]
+    assert wink.timing() == {"fps": 2.0, "loopCount": 2,
+                             "holdLastFrame": True}
+    assert not any("image without a file" in r.reason
+                   for r in parsed.reports)
+
+
+def test_frame_lists_in_other_forms_animate(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, QUOTED_FRAMES + (
+        'label start:\n'
+        '    scene bg\n    "Bg."\n'
+        '    show blink\n    "Blinking."\n'
+        '    show wink\n    "Winking."\n'
+        '    return\n'), {"pics/open.png": (200, 100, 0),
+                          "pics/shut.png": (0, 100, 200)})
+    assert texts(manifest) == ["Bg.", "Blinking.", "Winking."]
+    blink, wink = manifest["items"][1:]
+    assert blink["type"] == wink["type"] == "animation"
+    assert blink["frameSeconds"] == [0.5, 0.25]
+    assert len(set(blink["frames"])) == 2
+    check_folder(tmp_path, out, manifest)
+
+
+# --------------------------------------------------------------------------
+# `show eve happy`: Ren'Py's attribute choice
+# --------------------------------------------------------------------------
+
+def test_a_show_of_a_shown_tag_chooses_by_attributes(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'image eve formal happy = "pics/formal.png"\n'
+        'label start:\n'
+        '    scene bg\n'
+        '    show eve casual calm\n    "Calm."\n'
+        '    show eve happy\n    "Happy."\n'
+        '    show eve -casual formal\n    "Formal."\n'
+        '    show eve\n    "Same."\n'
+        '    return\n'), {"images/eve casual calm.png": (10, 20, 30),
+                          "images/Eve Casual Happy.png": (200, 20, 30),
+                          "pics/formal.png": (10, 200, 30)})
+    assert texts(manifest) == [None, "Calm.", "Happy.", "Formal.", "Same."]
+    assert assets(manifest, ledger) == ["bg", "eve casual calm",
+                                        "Eve Casual Happy", "formal",
+                                        "formal"]
+    notes = notes_of(manifest, ledger, "Happy.")
+    assert any("eve casual happy" in n and "attributes" in n
+               for n in notes), notes
+    assert not any("unresolved" in r.lower() for r in reasons(ledger))
+    check_folder(tmp_path, out, manifest)
+
+
+def test_an_image_of_the_exact_name_wins_over_the_attribute_choice(
+        tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene bg\n'
+        '    show eve casual calm\n    "Calm."\n'
+        '    show eve happy\n    "Happy."\n'
+        '    return\n'), {"images/eve casual calm.png": (10, 20, 30),
+                          "images/eve casual happy.png": (200, 20, 30),
+                          "images/eve happy.png": (10, 200, 30)})
+    assert assets(manifest, ledger) == ["bg", "eve casual calm", "eve happy"]
+
+
+def test_a_scene_keeps_no_attributes(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, (
+        'label start:\n'
+        '    scene room day\n    "Day."\n'
+        '    scene room night\n    "Night."\n'
+        '    return\n'), {"images/room day.png": (10, 20, 30),
+                          "images/room day night.png": (200, 20, 30),
+                          "images/room night.png": (10, 200, 30)})
+    assert assets(manifest, ledger) == ["room day", "room night"]
+
+
+# --------------------------------------------------------------------------
+# `renpy.image` calls
+# --------------------------------------------------------------------------
+
+RENPY_IMAGE = ('init python:\n'
+               '    renpy.image("hall", "pics/corridor.png")\n'
+               "    renpy.image('porch', 'yard dusk')\n"
+               '    renpy.image(("eve", "calm"), "pics/eve.png")\n'
+               '    for n in range(3):\n'
+               '        renpy.image("loop %d" % n, "pics/x%d.png" % n)\n'
+               'init 1 python:\n'
+               '    renpy.image("door",\n'
+               '                "pics/door.png")\n')
+
+
+def test_renpy_image_calls_define_images() -> None:
+    parsed = parse_file(RENPY_IMAGE + (
+        'label start:\n'
+        '    $ renpy.image("gate", "pics/gate.png")\n'
+        '    "Gate."\n'), "game/script.rpy")
+    defs = parsed.image_defs
+    assert defs["hall"] == ("file", "pics/corridor.png")
+    assert defs["porch"] == ("file", "yard dusk")
+    assert defs["eve calm"] == ("file", "pics/eve.png")
+    assert defs["door"] == ("file", "pics/door.png")
+    assert defs["gate"] == ("file", "pics/gate.png")
+    assert not any(name.startswith("loop") for name in defs)
+
+
+def test_renpy_image_pictures_show(tmp_path: Path) -> None:
+    out, manifest, ledger = run(tmp_path, RENPY_IMAGE + (
+        'label start:\n'
+        '    $ renpy.image("gate", "pics/gate.png")\n'
+        '    scene hall\n    "Hall."\n'
+        '    scene porch\n    "Porch."\n'
+        '    scene gate\n    "Gate."\n'
+        '    show eve calm\n    "Eve."\n'
+        '    scene door\n    "Door."\n'
+        '    return\n'), {"pics/corridor.png": (200, 100, 0),
+                          "images/yard dusk.png": (0, 100, 200),
+                          "pics/gate.png": (90, 0, 90),
+                          "pics/eve.png": (9, 9, 90),
+                          "pics/door.png": (90, 90, 9)})
+    assert texts(manifest) == ["Hall.", "Porch.", "Gate.", "Eve.", "Door."]
+    assert assets(manifest, ledger) == ["corridor", "yard dusk", "gate",
+                                        "eve", "door"]
+    check_folder(tmp_path, out, manifest)
+
+
+# --------------------------------------------------------------------------
+# Movie images
+# --------------------------------------------------------------------------
+
+def clip(tmp_path: Path, rel: str = "clip.mp4") -> None:
+    ffmpeg(tmp_path / "proj" / "game" / rel, [*PICTURE, *H264])
+
+
+def test_a_movie_image_with_a_play_file_is_that_video(tmp_path: Path
+                                                     ) -> None:
+    clip(tmp_path, "movies/intro.mp4")
+    out, manifest, ledger = run(tmp_path, (
+        "image intro = Movie(play='movies/intro.mp4', loop=False, "
+        "size=(64, 36), mask='movies/intro-mask.mp4')\n"
+        'label start:\n'
+        '    scene bg\n    "Before."\n'
+        '    show intro\n    "Playing."\n'
+        '    return\n'))
+    assert [(i["type"], i.get("text")) for i in manifest["items"]] == [
+        ("image", "Before."), ("video", "Playing.")]
+    assert assets(manifest, ledger) == ["bg", "intro"]
+    notes = notes_of(manifest, ledger, "Playing.")
+    for arg in ("loop=False", "size", "mask"):
+        assert any(arg in n and "not carried" in n for n in notes), notes
+    check_folder(tmp_path, out, manifest)
+
+
+@pytest.mark.parametrize("order", ["play first", "show first"])
+def test_a_movie_image_shows_what_play_movie_plays(tmp_path: Path,
+                                                   order: str) -> None:
+    clip(tmp_path)
+    play, show = '    play movie "clip.mp4"\n', '    show movie\n'
+    out, manifest, ledger = run(tmp_path, (
+        'image movie = Movie(size=(1280, 720), xalign=0.5)\n'
+        'label start:\n'
+        '    scene bg\n    "Before."\n'
+        + (play + show if order == "play first" else show + play) +
+        '    "Playing."\n'
+        '    stop movie\n'
+        '    hide movie\n'
+        '    scene bg\n    "After."\n'
+        '    return\n'))
+    assert [(i["type"], i.get("text")) for i in manifest["items"]] == [
+        ("image", "Before."), ("video", "Playing."), ("image", "After.")]
+    assert assets(manifest, ledger) == ["bg", "clip", "bg"]
+    assert not any("unresolved" in r.lower() for r in reasons(ledger))
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_movie_channel_of_its_own(tmp_path: Path) -> None:
+    clip(tmp_path)
+    out, manifest, ledger = run(tmp_path, (
+        'init python:\n'
+        '    renpy.music.register_channel("cut", "movie", movie=True)\n'
+        'image screen = Movie(channel="cut")\n'
+        'label start:\n'
+        '    scene bg\n    "Before."\n'
+        '    show screen\n'
+        '    play cut "clip.mp4"\n'
+        '    "Playing."\n'
+        '    return\n'))
+    assert [(i["type"], i.get("text")) for i in manifest["items"]] == [
+        ("image", "Before."), ("video", "Playing.")]

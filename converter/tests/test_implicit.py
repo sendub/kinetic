@@ -15,9 +15,10 @@ Covers the branches added when the five recorded slice bugs were fixed:
 - BUG 3: `al"..."` (no space) parses as speaker dialogue;
 - BUG 4: a game dir reached through a symlink parses (the stale-twin
   ledger path that used to crash);
-- BUG 1: an item whose visual resolves nowhere is dropped — with the
-  lines under it — never shipped as a placeholder, and the empty folder
-  that can leave behind validates.
+- BUG 1: a visual that resolves nowhere is never shipped as a
+  placeholder (its lines are kept: over the picture before it, or over
+  black with none, docs/plan.md Phase 60 items 9n and 9n2), and an
+  empty slice folder validates.
 """
 
 from __future__ import annotations
@@ -263,23 +264,21 @@ def test_symlinked_game_dir_extracts(tmp_path: Path) -> None:
     assert manifest_of(out)["items"]  # the implicit asset resolved
 
 
-# --- BUG 1: unresolved visuals drop ------------------------------------------
+# --- BUG 1: unresolved visuals ship nothing ----------------------------------
 
-def test_unresolved_visual_drops_item_and_its_lines(tmp_path: Path) -> None:
-    """With no picture before it, a line under a visual that resolves
-    nowhere drops with it (after one, Phase 60 item 9n keeps it over
-    that picture: test_picture_forms)."""
+def test_unresolved_visual_ships_no_item(tmp_path: Path) -> None:
+    """A visual that resolves nowhere is never shipped as a placeholder
+    (its lines show over the picture before it, Phase 60 item 9n, or over
+    black with none, item 9n2: test_picture_forms)."""
     proj = make_project(tmp_path,
                         "label start:\n"
                         "    scene nowhere\n"
-                        '    al"one"\n'
-                        '    "two"\n')
+                        "    return\n")
     out = tmp_path / "out"
     # A slice run ends cleanly with an empty manifest.
     assert cli_main([str(proj), str(out), "--label", "start"]) == 0
     assert manifest_of(out)["items"] == []
     reasons = [r["reason"] for r in ledger_of(out)["report"]]
-    assert sum("droppedUnresolved" in r for r in reasons) == 2  # its lines
     assert sum(r.startswith("unresolvedVisual") for r in reasons) == 1
     # The empty folder is a VALID content folder, exit 0.
     assert validate_content.validate_folder(out) == []
@@ -297,9 +296,11 @@ def test_whole_project_with_no_items_is_fatal(tmp_path: Path) -> None:
         cli_main([str(proj), str(tmp_path / "out")])
 
 
-def test_dropped_visual_does_not_steal_later_items(tmp_path: Path) -> None:
-    # A resolvable scene after a dropped one still ships, and dialogue
-    # under it is a normal text item.
+def test_unresolved_visual_does_not_steal_later_items(tmp_path: Path
+                                                    ) -> None:
+    # A resolvable scene after an unresolved one still ships, and
+    # dialogue under it is a normal text item; the line before it shows
+    # over black (Phase 60 item 9n2).
     proj = make_project(tmp_path,
                         "label start:\n"
                         "    scene nowhere\n"
@@ -312,5 +313,5 @@ def test_dropped_visual_does_not_steal_later_items(tmp_path: Path) -> None:
     out = tmp_path / "out"
     assert cli_main([str(proj), str(out)]) == 0
     items = manifest_of(out)["items"]
-    assert [i["type"] for i in items] == ["image", "text"]
-    assert items[0]["text"] == "kept" and items[1]["text"] == "chain"
+    assert [i["type"] for i in items] == ["image", "image", "text"]
+    assert [i["text"] for i in items] == ["gone", "kept", "chain"]

@@ -5093,6 +5093,27 @@ The orchestrator's choices, within those decisions:
     `image x = Movie(play="f")` shown, or played with `play movie`, is
     that video, as other videos ship. Tests: one per form; the demo's
     golden unchanged where none applies.
+9n3. Solid-colour scenes and a menu before any picture (leads from
+    item 9n2; about 14,500 `scene black`, `scene white` or `scene
+    #rrggbb` statements in the corpus). A shown solid colour (Ren'Py's
+    built-in `black`, an `image x = "#rgb"` or `Solid(...)` with a
+    literal colour) shows a generated still of that colour at the
+    game's size, one per colour, as item 9n2's black still, instead of
+    keeping its lines over the last picture; item 9n's rule that a file
+    beside a same-named solid-colour image shows the file stays. A menu
+    before any picture hangs off a black item instead of staying
+    linear. A say statement's image attributes try the exact image name
+    first, as Ren'Py's `apply_attributes` does. Tests: one per form,
+    `kinetic media rebuild` matching a coloured still.
+9n4. Videos that play once (about 1,200 `Movie(..., loop=False)` in 6
+    corpus games). A video item's optional `holdLastFrame`, as an
+    animation's: it plays its `loopCount` plays beneath its lines, then
+    holds its last frame, and a line reached with no run under way
+    shows that last frame. The converter writes it for `loop=False`
+    Movies. Format: docs/content-format.md, the schema and validator;
+    the player (Chrome and WebKit), the last frame as the still for
+    rewind, skip and thumbnails. Tests: validator cases, machine and
+    render tests, a scenario part on both engines, the converter case.
 9o. Menus no longer kept linear (about 49,000 lines lost, 75,000 read
     in a row, in 43 games). A conditional choice (`"x" if cond:`)
     becomes a route labelled with its condition in words, as a counter
@@ -5150,7 +5171,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9o -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 
