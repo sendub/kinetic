@@ -6369,9 +6369,35 @@ truthful: an unchecked box means nothing was accepted.
       A literal assignment reached before the menu, outside every menu
       and chain, is the variable's value for routes that set nothing,
       as a `default` is.
-- [ ] The condition phrases in every interface language (item 6b, item
+- [x] The condition phrases in every interface language (item 6b, item
       6 split in two). Every PO file translates item 6's phrases; the
       converter's file regenerated; a test that every language has them.
+      (2026-11-27: the 14 `converter.condition.*` messages translated
+      in all 38 PO files with the pot's translator comments, every
+      placeholder kept, each file's conventions followed (formality as
+      its "your last pick" entry, French no-break spaces and curly
+      apostrophes, `¿…?`, `؟`, Greek `;`, full-width `：` and `（）` in
+      zh-Hans, zh-Hant and ja, es "Si has elegido", es-419 "Si
+      elegiste"). Subagent's calls: `set`/`notSet` as "{name}: yes"/
+      "{name}: no" in every language (a literal "is set" would agree
+      with a name's unknown gender and reads as jargon); `is`/`isNot`
+      by the language's copula where it does not agree, else a colon or
+      dash form; word order per language for ranges (ja `以上`/`未満`,
+      ko `이상`/`미만`, tr `veya üzeri`/`altında`, hu and fi `{low}–{high}`),
+      ranges inclusive at both ends; ja quotes the choice
+      (`「{choice}」を選んだ場合`). i18n.mjs's `auditLocale` no longer
+      skips `converter.*` (the existing placeholder-set check covers
+      them); `npm run i18n` regenerated locales.generated.ts,
+      apps/host-words.json (digest) and converter/condition-words.json
+      (messages.pot unchanged). Tests: the exemption test removed; new
+      tests that a blank or placeholder-changed converter phrase is
+      reported and that the shipped words file gives every language
+      every phrase with the English placeholders. verify-player.md and
+      extracting.md updated (the latter committed with item 6c).
+      Subagent: npm test 1922, check clean, test_build_wheel 10,
+      test_conditions 57 with 1 failing on the old English German label
+      (fixed in item 6c's file). Orchestrator: npm test 1922/1922, check
+      clean; de, fr, ja, ar and ru phrases read in the words file.)
 - [x] Animation timing (item 7). `frameSeconds` and `holdLastFrame` in
       the format, validator, player and tools.
       (2026-11-26: types.ts's AnimationItem gains both fields;

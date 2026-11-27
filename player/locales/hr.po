@@ -1157,3 +1157,85 @@ msgstr ""
 "{title} ne može pronaći {file} pokraj ovog programa.\n"
 "\n"
 "Držite program u mapi njegove igre ili umjesto toga otvorite datoteku {file} u mapi."
+
+#. Converter words, not the player's: written into a converted game as the prompt of a decision made from a condition in the script (what the story so far decides); the reader picks the route that matches their earlier choices.
+msgctxt "converter.condition.prompt"
+msgid "Which fits your story so far?"
+msgstr "Što odgovara vašoj dosadašnjoj priči?"
+
+#. Converter words: a route label of a decision made from a condition; {choice} is the game's own text of an earlier choice (or several, joined by the "or" words below).
+#. Placeholders: {choice}.
+msgctxt "converter.condition.chose"
+msgid "If you chose: {choice}"
+msgstr "Ako ste odabrali: {choice}"
+
+#. Converter words: joins two alternatives in a route label, choices ({first} the game's text of one choice, or of several already joined) or number ranges ("love under 1 or love 3 or more").
+#. Placeholders: {first}, {second}.
+msgctxt "converter.condition.or"
+msgid "{first} or {second}"
+msgstr "{first} ili {second}"
+
+#. Converter words: a route label for a counter; {name} is the game's name for it (e.g. love), {n} a whole number: the counter is {n} or higher.
+#. Placeholders: {name}, {n}.
+msgctxt "converter.condition.atLeast"
+msgid "{name} {n} or more"
+msgstr "{name} {n} ili više"
+
+#. Converter words: a route label for a counter; {name} is the game's name for it, {low} and {high} whole numbers at least two apart: the counter is from {low} to {high}, both included.
+#. Placeholders: {name}, {low}, {high}.
+msgctxt "converter.condition.between"
+msgid "{name} {low} to {high}"
+msgstr "{name} od {low} do {high}"
+
+#. Converter words: a route label for a counter; {name} is the game's name for it, {low} and {high} two whole numbers in a row (1 and 2): the counter is one or the other.
+#. Placeholders: {name}, {low}, {high}.
+msgctxt "converter.condition.either"
+msgid "{name} {low} or {high}"
+msgstr "{name} {low} ili {high}"
+
+#. Converter words: a route label for a counter; {name} is the game's name for it, {n} a whole number: the counter is exactly {n}.
+#. Placeholders: {name}, {n}.
+msgctxt "converter.condition.exactly"
+msgid "{name} exactly {n}"
+msgstr "{name} točno {n}"
+
+#. Converter words: a route label for a counter; {name} is the game's name for it, {n} a whole number: the counter is below {n}.
+#. Placeholders: {name}, {n}.
+msgctxt "converter.condition.under"
+msgid "{name} under {n}"
+msgstr "{name} manje od {n}"
+
+#. Converter words: the route label of the last case of a decision made from a condition, when the rest cannot be put in words.
+msgctxt "converter.condition.otherwise"
+msgid "Otherwise"
+msgstr "Inače"
+
+#. Converter words: a route label; {name} is the game's name for something the story has or has not done (e.g. met_sam): it has.
+#. Placeholders: {name}.
+msgctxt "converter.condition.set"
+msgid "{name} is set"
+msgstr "{name}: da"
+
+#. Converter words: a route label; {name} is the game's name for something the story has or has not done: it has not.
+#. Placeholders: {name}.
+msgctxt "converter.condition.notSet"
+msgid "{name} is not set"
+msgstr "{name}: ne"
+
+#. Converter words: a route label; {name} is the game's name for a setting of the story, {value} the game's own value for it (e.g. ending is good).
+#. Placeholders: {name}, {value}.
+msgctxt "converter.condition.is"
+msgid "{name} is {value}"
+msgstr "{name} je {value}"
+
+#. Converter words: a route label; {name} is the game's name for a setting of the story, {value} the game's own value it does not have.
+#. Placeholders: {name}, {value}.
+msgctxt "converter.condition.isNot"
+msgid "{name} is not {value}"
+msgstr "{name} nije {value}"
+
+#. Converter words: a line of the story showing a route label ({label}, one of the labels above) in parentheses, for a route with no line of its own.
+#. Placeholders: {label}.
+msgctxt "converter.condition.aside"
+msgid "({label})"
+msgstr "({label})"

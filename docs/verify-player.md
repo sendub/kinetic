@@ -195,10 +195,9 @@ print it.
   reader is `player/scripts/po.mjs`.
 - `npm test` also holds every `<tag>.po` to a complete catalogue
   (`auditLocale` in `scripts/i18n.mjs`): its header says it is an
-  unreviewed draft; every message is translated (the `converter.*`
-  messages may wait for theirs until docs/plan.md Phase 60 item 6b: the
-  converter writes English for a phrase a language lacks and says so);
-  every plural message
+  unreviewed draft; every message is translated, the `converter.*`
+  messages included, each with the English placeholders; every plural
+  message
   has each CLDR category the language uses
   (`Intl.PluralRules(tag).resolvedOptions().pluralCategories`: Polish
   one, few, many and other; Japanese other alone); and each plural form

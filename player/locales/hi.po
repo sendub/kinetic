@@ -1122,3 +1122,85 @@ msgstr ""
 "{title} को इस प्रोग्राम के पास {file} नहीं मिल रही।\n"
 "\n"
 "प्रोग्राम को उसके गेम फ़ोल्डर के अंदर ही रखें, या इसके बजाय फ़ोल्डर की {file} खोलें।"
+
+#. Converter words, not the player's: written into a converted game as the prompt of a decision made from a condition in the script (what the story so far decides); the reader picks the route that matches their earlier choices.
+msgctxt "converter.condition.prompt"
+msgid "Which fits your story so far?"
+msgstr "अब तक की आपकी कहानी से कौन-सा मेल खाता है?"
+
+#. Converter words: a route label of a decision made from a condition; {choice} is the game's own text of an earlier choice (or several, joined by the "or" words below).
+#. Placeholders: {choice}.
+msgctxt "converter.condition.chose"
+msgid "If you chose: {choice}"
+msgstr "अगर आपने यह चुना: {choice}"
+
+#. Converter words: joins two alternatives in a route label, choices ({first} the game's text of one choice, or of several already joined) or number ranges ("love under 1 or love 3 or more").
+#. Placeholders: {first}, {second}.
+msgctxt "converter.condition.or"
+msgid "{first} or {second}"
+msgstr "{first} या {second}"
+
+#. Converter words: a route label for a counter; {name} is the game's name for it (e.g. love), {n} a whole number: the counter is {n} or higher.
+#. Placeholders: {name}, {n}.
+msgctxt "converter.condition.atLeast"
+msgid "{name} {n} or more"
+msgstr "{name} {n} या अधिक"
+
+#. Converter words: a route label for a counter; {name} is the game's name for it, {low} and {high} whole numbers at least two apart: the counter is from {low} to {high}, both included.
+#. Placeholders: {name}, {low}, {high}.
+msgctxt "converter.condition.between"
+msgid "{name} {low} to {high}"
+msgstr "{name} {low} से {high} तक"
+
+#. Converter words: a route label for a counter; {name} is the game's name for it, {low} and {high} two whole numbers in a row (1 and 2): the counter is one or the other.
+#. Placeholders: {name}, {low}, {high}.
+msgctxt "converter.condition.either"
+msgid "{name} {low} or {high}"
+msgstr "{name} {low} या {high}"
+
+#. Converter words: a route label for a counter; {name} is the game's name for it, {n} a whole number: the counter is exactly {n}.
+#. Placeholders: {name}, {n}.
+msgctxt "converter.condition.exactly"
+msgid "{name} exactly {n}"
+msgstr "{name} ठीक {n}"
+
+#. Converter words: a route label for a counter; {name} is the game's name for it, {n} a whole number: the counter is below {n}.
+#. Placeholders: {name}, {n}.
+msgctxt "converter.condition.under"
+msgid "{name} under {n}"
+msgstr "{name} {n} से कम"
+
+#. Converter words: the route label of the last case of a decision made from a condition, when the rest cannot be put in words.
+msgctxt "converter.condition.otherwise"
+msgid "Otherwise"
+msgstr "अन्यथा"
+
+#. Converter words: a route label; {name} is the game's name for something the story has or has not done (e.g. met_sam): it has.
+#. Placeholders: {name}.
+msgctxt "converter.condition.set"
+msgid "{name} is set"
+msgstr "{name}: हाँ"
+
+#. Converter words: a route label; {name} is the game's name for something the story has or has not done: it has not.
+#. Placeholders: {name}.
+msgctxt "converter.condition.notSet"
+msgid "{name} is not set"
+msgstr "{name}: नहीं"
+
+#. Converter words: a route label; {name} is the game's name for a setting of the story, {value} the game's own value for it (e.g. ending is good).
+#. Placeholders: {name}, {value}.
+msgctxt "converter.condition.is"
+msgid "{name} is {value}"
+msgstr "{name}: {value}"
+
+#. Converter words: a route label; {name} is the game's name for a setting of the story, {value} the game's own value it does not have.
+#. Placeholders: {name}, {value}.
+msgctxt "converter.condition.isNot"
+msgid "{name} is not {value}"
+msgstr "{name}: {value} नहीं"
+
+#. Converter words: a line of the story showing a route label ({label}, one of the labels above) in parentheses, for a route with no line of its own.
+#. Placeholders: {label}.
+msgctxt "converter.condition.aside"
+msgid "({label})"
+msgstr "({label})"

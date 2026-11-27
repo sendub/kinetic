@@ -279,10 +279,6 @@ export function auditLocale(tag, text, en = EN) {
   for (const [key, english] of Object.entries(en)) {
     const value = catalogue[key];
     if (value === undefined) {
-      // The converter's words may wait for their translation (docs/plan.md
-      // Phase 60 item 6b): kinetic-extract writes English for a phrase a
-      // language lacks and `kinetic report` says so.
-      if (key.startsWith(CONVERTER_PREFIX)) continue;
       found.push(`${name}: "${key}" is not translated`);
       continue;
     }

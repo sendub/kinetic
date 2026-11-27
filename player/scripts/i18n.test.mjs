@@ -231,24 +231,28 @@ describe("auditLocale: a complete catalogue in its language", () => {
     );
   });
 
-  it("lets a PO file lack the converter's words for now (item 6b)", () => {
-    const blank = (text) =>
-      text.replace(
-        /(msgctxt "converter\.[^"]+"\nmsgid "source"\nmsgstr )"[^"]*"/g,
-        '$1""',
-      );
-    const text = blank(full((m) => m));
-    expect(text).toContain(
-      'msgctxt "converter.condition.prompt"\nmsgid "source"\nmsgstr ""',
+  it("holds the converter's words to the same rule as the player's", () => {
+    const text = full((m) => m);
+    const blank = text.replace(
+      /(msgctxt "converter\.condition\.prompt"\nmsgid "[^"]*"\nmsgstr )"[^"]*"/,
+      '$1""',
     );
-    expect(auditLocale("de", text)).toEqual([]);
-    const missing = text.replace(
-      /msgctxt "help.title"\nmsgid "source"\nmsgstr "Keys"/,
-      'msgctxt "help.title"\nmsgid "source"\nmsgstr ""',
-    );
-    expect(auditLocale("de", missing)).toEqual([
-      'de.po: "help.title" is not translated',
+    expect(blank).not.toBe(text);
+    expect(auditLocale("de", blank)).toEqual([
+      'de.po: "converter.condition.prompt" is not translated',
     ]);
+    const lost = text.replace(
+      /(msgctxt "converter\.condition\.atLeast"\nmsgid "[^"]*"\nmsgstr )"[^"]*"/,
+      '$1"{name} {count} oder mehr"',
+    );
+    expect(lost).not.toBe(text);
+    const found = auditLocale("de", lost);
+    expect(found).toContain(
+      'de.po: "converter.condition.atLeast" is not translated',
+    );
+    expect(found.join("\n")).toMatch(
+      /"converter\.condition\.atLeast" placeholders differ from the English \(extra \{count\}, missing \{n\}\)/,
+    );
   });
 
   it("names an untranslated message and a header with no draft mark", () => {
@@ -368,6 +372,21 @@ describe("the generated files", () => {
     expect(shipped.languages.en["converter.condition.prompt"]).toBe(
       "Which fits your story so far?",
     );
+  });
+
+  it("the converter's table gives every language every phrase, the English placeholders kept", () => {
+    const shipped = JSON.parse(readFileSync(CONVERTER_WORDS_FILE, "utf8"));
+    const keys = Object.keys(EN).filter((key) => key.startsWith("converter."));
+    expect(keys.length).toBeGreaterThan(0);
+    for (const tag of localeTags()) {
+      const words = shipped.languages[tag];
+      expect(Object.keys(words), tag).toEqual(keys);
+      for (const key of keys) {
+        expect(placeholdersOf(words[key]).sort(), `${tag} ${key}`).toEqual(
+          placeholdersOf(EN[key]).sort(),
+        );
+      }
+    }
   });
 
   it("the sources' digest changes with a PO file", () => {
