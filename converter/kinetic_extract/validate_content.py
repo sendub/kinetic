@@ -59,8 +59,8 @@ per item that no reading from the opening shows, Play all routes included,
 then a count, printed before any audio warnings. The walk is the player's
 own forward flow (player/src/machine/machine.ts), so it catches an item
 inside a decision's region (after its `after` item, before its
-`continueAt` or, for a pure choice, up to its last route end) in none of
-its routes, a decision that never fires, and what lies past a route end
+`continueAt` or, for a pure choice, up to its last route or shared span
+end) in none of its routes, a shared span no route reaches, a decision that never fires, and what lies past a route end
 the walk reaches with no decision open. A manifest without branches
 prints none, nor does one whose decisions break the span rules
 (`folder_model.span_problems`: a route not after its `after` item,
@@ -1006,9 +1006,9 @@ def reach_warnings(manifest: Any) -> list[str]:
     (`_shown_by_play_all`), in item order.
 
     An item inside a decision's region (after its `after` item and before
-    its `continueAt`, or for a pure choice up to its last route end) that
-    lies in none of its routes says so, naming the innermost such
-    decision; any other says no reading reaches it (a decision that never
+    its `continueAt`, or for a pure choice up to its last route or shared
+    span end) that lies in none of its routes says so, naming the
+    innermost such decision; any other says no reading reaches it (a decision that never
     fires, or what lies past a route end the walk reaches with no
     decision open, where the story ends). Warnings never change the exit
     status. A manifest whose decisions break the span rules
@@ -1038,8 +1038,9 @@ def reach_warnings(manifest: Any) -> list[str]:
         if decision is not None:
             bound = (f"before {items[decision.continue_at]['id']!r}"
                      if decision.continue_at >= 0 else
-                     f"to its last route end "
-                     f"{items[decision.region_end]['id']!r}")
+                     f"to its last "
+                     f"{'route' if decision.menu_end == decision.region_end else 'span'}"
+                     f" end {items[decision.menu_end]['id']!r}")
             why = (f"inside decision {decision.id!r} (after "
                    f"{items[decision.after]['id']!r}, {bound}) in none "
                    f"of its routes")
@@ -1052,7 +1053,8 @@ def _innermost_regions(decisions: list[_Decision], indices: list[int]
                        ) -> dict[int, _Decision]:
     """Item index -> the decision with the narrowest region (after its
     `after` item, up to the item before its `continueAt` or, for a pure
-    choice, its last route end) holding it in none of its routes, the
+    choice, its last route or shared span end) holding it in none of its
+    routes, the
     earliest decision on a tie; for each of the ascending `indices` that
     has one.
 
@@ -1062,7 +1064,7 @@ def _innermost_regions(decisions: list[_Decision], indices: list[int]
     regions = []
     for decision in decisions:
         last = decision.continue_at - 1 if decision.continue_at >= 0 \
-            else decision.region_end
+            else decision.menu_end
         if last > decision.after:
             regions.append((decision.after + 1, last, decision.index))
     regions.sort()

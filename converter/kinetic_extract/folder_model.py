@@ -100,7 +100,7 @@ class Decision:
 
     __slots__ = ("index", "id", "after", "routes", "continuing",
                  "continue_at", "parent", "region_end", "branch", "follows",
-                 "takes", "shared", "thens")
+                 "takes", "shared", "thens", "menu_end")
 
     def __init__(self, index: int, branch_id: Any, after: int,
                  routes: list[tuple[int, int, str]], continuing: int,
@@ -124,6 +124,9 @@ class Decision:
         # that decision's `shared`), None without one that resolves.
         self.shared: list[SharedSpan] = []
         self.thens: list[tuple[int, int] | None] = [None] * len(routes)
+        # The menu region's end counting its shared spans too, as machine.ts
+        # `regionEnd`: a pure choice's close continues past both.
+        self.menu_end = self.region_end
 
 
 def resolve_decisions(items: list[Any], branches: list[Any]
@@ -172,6 +175,9 @@ def resolve_decisions(items: list[Any], branches: list[Any]
         resolved.append(Decision(len(resolved), branch.get("id"), after,
                                   spans, continuing, continue_at, bi))
         resolved[-1].shared = _shared_spans(branch, ref, continue_at)
+        resolved[-1].menu_end = max([resolved[-1].region_end]
+                                    + [span.end for span in
+                                       resolved[-1].shared])
     _resolve_nesting(resolved)
     _resolve_follows(resolved, branches)
     _resolve_thens(resolved, branches)
@@ -432,10 +438,13 @@ def shown_by_play_all(items: list[Any], decisions: list[Decision]
 
     A port of the player's forward flow (player/src/machine/machine.ts:
     `moveForward`, `fireDecision`, `nextAutoRoute`, `handleRouteEnd`,
-    `endJoins`, `join`, `autoResolve`, `closeIfPureAndComplete`,
-    `relevantDecision`, `atRouteEnd`, `nothingFollows`), with each choice
-    taken at once as play-all takes it: the shortest route not played
-    this pass, the continuing route last. Play-all shows every item any
+    `endJoins`, `enterSpan`, `endSpan`, `spanJoins`, `join`,
+    `autoResolve`, `closeIfPureAndComplete`, `relevantDecision`,
+    `atRouteEnd`, `nothingFollows`), with each choice taken at once as
+    play-all takes it: the shortest route not played this pass, the
+    continuing route last. A route with `then` goes on into its shared
+    span, and the span's end acts at the span's decision; a span play-all
+    skips through shows its items all the same. Play-all shows every item any
     reading by choices shows (a reader picks among the same routes and
     joins at the same `continueAt`, and an ending route's end, where a
     manual reading stops, re-offers the choice here), so an item it never
@@ -457,6 +466,8 @@ def shown_by_play_all(items: list[Any], decisions: list[Decision]
         by_after.setdefault(decision.after, []).append(decision)
     route_ends = {end for decision in decisions
                   for _start, end, _result in decision.routes}
+    route_ends |= {span.end for decision in decisions
+                   for span in decision.shared}
 
     stack: list[tuple[Decision, int]] = []  # open (decision, route) frames
     played: dict[int, set[int]] = {}  # routes entered this pass
@@ -526,7 +537,7 @@ def shown_by_play_all(items: list[Any], decisions: list[Decision]
         if decision.continuing >= 0 or next_auto_route(decision) >= 0:
             return False
         close_frames_for(decision)
-        target = decision.region_end + 1
+        target = decision.menu_end + 1
         if leaves_enclosing(decision, target):
             handle_route_end()
         elif target < count:
@@ -553,8 +564,52 @@ def shown_by_play_all(items: list[Any], decisions: list[Decision]
         else:
             auto_resolve(decision)
 
+    def span_of(frame: tuple[Decision, int]) -> SharedSpan | None:
+        """The span a frame's route leads into (its `then`), or None."""
+        then = frame[0].thens[frame[1]]
+        return None if then is None else decisions[then[0]].shared[then[1]]
+
+    def in_span(frame: tuple[Decision, int]) -> bool:
+        span = span_of(frame)
+        return span is not None and span.start <= cursor <= span.end
+
+    def frame_end(frame: tuple[Decision, int]) -> int:
+        span = span_of(frame)
+        if span is not None and in_span(frame):
+            return span.end
+        return frame[0].routes[frame[1]][1]
+
+    def enter_span(frame: tuple[Decision, int]) -> None:
+        then = frame[0].thens[frame[1]]
+        assert then is not None
+        stack.pop()
+        close_frames_for(decisions[then[0]])
+        stack.append(frame)
+        show(decisions[then[0]].shared[then[1]].start)
+
+    def end_span(frame: tuple[Decision, int]) -> None:
+        then = frame[0].thens[frame[1]]
+        assert then is not None
+        stack.pop()
+        owner = decisions[then[0]]
+        if close_if_pure_and_complete(owner):
+            return
+        continuing = frame[0] is owner and frame[1] == owner.continuing
+        joins = owner.shared[then[1]].result == "continue" and (
+            continuing or next_auto_route(owner) < 0)
+        if joins:
+            join(owner)
+        else:
+            offer(owner)
+
     def handle_route_end() -> None:
         decision, route_idx = stack[-1]
+        if decision.thens[route_idx] is not None:
+            if in_span(stack[-1]):
+                end_span(stack[-1])
+            else:
+                enter_span(stack[-1])
+            return
         if close_if_pure_and_complete(decision):
             return
         stack.pop()
@@ -567,7 +622,7 @@ def shown_by_play_all(items: list[Any], decisions: list[Decision]
             offer(decision)
 
     def at_route_end() -> bool:
-        return bool(stack) and cursor == stack[-1][0].routes[stack[-1][1]][1]
+        return bool(stack) and cursor == frame_end(stack[-1])
 
     def move_forward() -> bool:
         """One forward settle; False where the story ends."""

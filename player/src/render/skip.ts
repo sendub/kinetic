@@ -7,7 +7,12 @@
 // machine is the single source: it reports each flip (`onSkipChange`), so
 // a Tab that does nothing (nothing seen ahead, or where the story ends), a
 // panel's pause and a play-all choice a burst carries on through show
-// nothing. Same look, same 1.6 s hold, the newest announcement wins.
+// nothing. Same look, same 1.6 s hold, the newest announcement wins. A
+// burst that is a shared span's own (Play all routes skipping a span read
+// already this pass, `MachineState.readAgain`) shows "Read already:
+// skipping" in place of "Skip on"; it ends with the span with no flip, so
+// no "Skip off" cuts that pill short, and Space stopping it shows "Skip
+// off" as for Tab's.
 
 import { t } from "../i18n/catalogue.ts";
 import type { Machine } from "../machine/machine";
@@ -15,6 +20,11 @@ import type { Machine } from "../machine/machine";
 /** The pill naming the skip mode the reader is now in. */
 export function skipMessage(on: boolean): string {
   return on ? t("pill.skipOn") : t("pill.skipOff");
+}
+
+/** The pill over a shared span's own burst: the span was read already. */
+export function readAgainMessage(): string {
+  return t("pill.readAgain");
 }
 
 export interface SkipAnnouncementsOptions {
@@ -29,6 +39,7 @@ export function mountSkipAnnouncements({
   flash,
 }: SkipAnnouncementsOptions): () => void {
   return machine.onSkipChange((on) => {
-    flash([skipMessage(on)]);
+    const again = on && machine.getState().readAgain === true;
+    flash([again ? readAgainMessage() : skipMessage(on)]);
   });
 }

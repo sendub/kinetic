@@ -129,3 +129,24 @@ def test_the_tools_run_on_shared_spans(tmp_path: Path,
     proc = kinetic(args[0], str(folder), *args[1:])
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "Traceback" not in proc.stderr
+
+
+def test_the_reach_walk_follows_a_then_into_its_span() -> None:
+    """Play-all from the opening (`shown_by_play_all`): o1 first, its
+    nested i1 reads `fall`, the enclosing decision's span, which leaves
+    o1 there (e, i2, and f, its join, unread), and the span's "continue"
+    re-offers `outer` while o2 is unplayed; o2 then joins at j."""
+    shown = folder_model.shown_by_play_all(ITEMS, decisions_of(NESTED))
+    assert sorted(shown) == [0, 1, 2, 3, 6, 7, 8, 9, 10]
+
+
+def test_the_reach_walk_closes_a_pure_choice_past_its_span() -> None:
+    """A pure choice whose routes both read a span laid after them: each
+    route's end goes into the span, its end re-offers the choice, and
+    with every route played the close continues past the span."""
+    branches = [{"id": "p", "prompt": "?", "after": "a",
+                 "routes": [route("p1", "b", "b", then="tail"),
+                            route("p2", "c", "c", then="tail")],
+                 "shared": [{"id": "tail", "start": "e", "end": "f"}]}]
+    shown = folder_model.shown_by_play_all(ITEMS, decisions_of(branches))
+    assert sorted(shown) == [0, 1, 2, 4, 5] + list(range(6, 11))

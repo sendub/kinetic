@@ -308,8 +308,8 @@ export interface Route {
   /**
    * Id of a shared span read after this route's end (docs/content-format.md,
    * "Branches"): a span of this route's decision or of one enclosing it. The
-   * span's `result` then acts in place of this route's. Ignored for now
-   * (Phase 60 item 9f plays it), as a player older than 1.15.0 ignores it:
+   * span's `result` then acts in place of this route's, and the route
+   * completes when its span does. A player older than 1.15.0 ignores it:
    * the route acts on its own `result`.
    */
   then?: string;
@@ -877,6 +877,14 @@ export interface MachineState {
    * at an item, and whenever no step has been made since.
    */
   readonly segment?: SegmentView;
+  /**
+   * Present (true) while the skip burst running is a shared span's own
+   * (docs/content-format.md, "Branches"): under Play all routes a route
+   * reaching a span another route of this pass has reached already skips
+   * through it, and the pill says it was read already. `skipping` is true
+   * with it; Space stops the burst as it stops Tab's.
+   */
+  readonly readAgain?: true;
 }
 
 /**

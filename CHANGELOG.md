@@ -53,6 +53,18 @@ something more of an author.
   route's. The validator checks both (docs/content-format.md,
   "Branches", rules 28 to 30). An older player ignores them: a route
   with `then` acts on its own `result`.
+- The player reads shared spans: after the end of a route with `then`
+  the story reads on into its span with no choice screen, the reader
+  still in the route they picked (no new route pill; the route counts
+  as finished when the span is), and at the span's end its `result`
+  acts as that of a route of the span's decision would. With Play all
+  routes on, a span an earlier route of the same pass read already is
+  skipped through on its own, as Tab skips, under the pill "Read
+  already: skipping" (Space stops it); with it off a span is read every
+  time. The wheel walks a span after the route last picked that reaches
+  it, and a bookmark, save or reload inside a span keeps the route
+  that led in. The validator's never-shown warnings follow spans, and a
+  pure choice's region runs to its last route or span end.
 - The converter makes a decision of a menu whose choices set variables
   and `jump` (or `call`, or `return`) elsewhere, the commonest Ren'Py
   menu, where it used to keep it linear (`jump inside a choice block`).

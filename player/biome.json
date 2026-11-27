@@ -24,6 +24,9 @@
     "enabled": true,
     "rules": {
       "preset": "recommended",
+      "suspicious": {
+        "noThenProperty": "off"
+      },
       "style": {
         "noRestrictedImports": {
           "level": "error",

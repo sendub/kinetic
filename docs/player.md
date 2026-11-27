@@ -142,6 +142,16 @@ choice screen with the mouse wheel, from the branch map and with `u`.
 With Play all routes on it is an ordinary choice, and the route for
 your earlier pick plays last.
 
+Several routes can end in one shared scene (a failure scene, say,
+reached from a choice and from a choice inside another route), written
+once. After such a route's end the story reads on into that scene with
+no choice between, and you are still in the route you picked: no new
+route pill shows, and the route is finished when the scene is. The
+scene's end then carries on as a route's end does: back to the
+decision, on past it, or the end. The mouse wheel walks the scene after
+the route you last picked that leads there, and a bookmark or a reload
+inside it keeps that route.
+
 A list too long for the window scrolls inside the choice screen: with
 the pointer over it the mouse wheel scrolls the list; elsewhere on the
 screen the wheel moves through the story as usual.
@@ -154,7 +164,12 @@ interaction: each choice still shows, with the route it will take
 highlighted, counts down long enough to read the whole screen ("Play all
 routes picks in n s"), then picks for you. After a route ends, the
 choice's status line names it ("Back in time: “<route>” is done.").
-Space picks at once, ending any skip; a number picks another route. It
+Space picks at once, ending any skip; a number picks another route. A
+shared scene that an earlier route of the same run through the decision
+already read is not read again: a skip runs through it on its own, as
+Tab's does, under the pill "Read already: skipping" (Space stops it and
+you read the scene there), then the story carries on from the scene's
+end. With Play all routes off the scene is read every time. It
 picks even with auto-forward off: you still press Space through the
 text, but no decision waits for an answer. The auto-forward speed also
 times the countdown. Turn it off on the Esc screen to choose every route

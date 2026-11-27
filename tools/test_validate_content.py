@@ -3411,6 +3411,81 @@ def test_items_of_a_decision_no_reading_reaches_warn() -> None:
                          "it")
 
 
+def spans_manifest() -> dict[str, Any]:
+    """i0 `d` | d1 i1 | d2 i2..i5 holding `n` off i3 (n1 i4, n2 i5, the
+    continuing route, joining at i6) and i6 | d3 i7 (continuing) | the
+    span `fall` i8..i9 | i10 the join | i11. d1 and n1 read `fall`."""
+    items = [{"id": f"i{n}", "type": "image", "file": f"i{n}.jpg"}
+             for n in range(12)]
+    return {"items": items, "branches": [
+        {"id": "d", "after": "i0", "prompt": "?", "routes": [
+            {"id": "d1", "label": "1", "start": "i1", "end": "i1",
+             "then": "fall"},
+            {"id": "d2", "label": "2", "start": "i2", "end": "i6"},
+            {"id": "d3", "label": "3", "start": "i7", "end": "i7"}],
+         "continuingRoute": "d3", "continueAt": "i10",
+         "shared": [{"id": "fall", "start": "i8", "end": "i9",
+                     "result": "return"}]},
+        {"id": "n", "after": "i3", "prompt": "?", "routes": [
+            {"id": "n1", "label": "1", "start": "i4", "end": "i4",
+             "then": "fall"},
+            {"id": "n2", "label": "2", "start": "i5", "end": "i5"}],
+         "continuingRoute": "n2", "continueAt": "i6"},
+    ]}
+
+
+def test_the_walk_follows_then_into_a_span() -> None:
+    """The walk follows each route's `then` into its span and the span's
+    `result` back to its decision: the span's items show. n1, played
+    first at `n`, leaves d2 at the enclosing decision's span, so n2 and
+    d2's join i6 stay unread, and only they warn."""
+    manifest = spans_manifest()
+    assert validate_content.branches_problems(manifest) == []
+    lines = validate_content.reach_warnings(manifest)
+    assert [re.match(r"warning: manifest\.json: items\[(\d+)\]", line)[1]
+            for line in lines] == ["5", "6"]
+
+
+def test_a_span_and_the_routes_around_it_all_show() -> None:
+    """With only d1 reading the span (n1 now an ordinary route), every
+    item shows: d1, then d2 with both of n's routes, then d3."""
+    manifest = spans_manifest()
+    manifest["branches"][1]["routes"][0].pop("then")
+    assert validate_content.branches_problems(manifest) == []
+    assert validate_content.reach_warnings(manifest) == []
+
+
+def test_a_shared_span_no_route_reads_warns() -> None:
+    manifest = spans_manifest()
+    manifest["branches"][0]["routes"][0].pop("then")
+    manifest["branches"][1]["routes"][0].pop("then")
+    lines = validate_content.reach_warnings(manifest)
+    assert lines == [
+        f"warning: manifest.json: items[{n}]: item 'i{n}' is never shown: "
+        f"inside decision 'd' (after 'i0', before 'i10') in none of its "
+        f"routes" for n in (8, 9)]
+
+
+def test_a_pure_choices_region_runs_to_its_last_span_end() -> None:
+    """A pure choice's close continues past its shared spans: an item
+    between its last route and its span is inside its region, unread,
+    and what follows the span shows."""
+    items = [{"id": f"i{n}", "type": "image", "file": f"i{n}.jpg"}
+             for n in range(7)]
+    manifest = {"items": items, "branches": [
+        {"id": "p", "after": "i0", "prompt": "?", "routes": [
+            {"id": "p1", "label": "1", "start": "i1", "end": "i1",
+             "then": "tail"},
+            {"id": "p2", "label": "2", "start": "i2", "end": "i2",
+             "then": "tail"}],
+         "shared": [{"id": "tail", "start": "i4", "end": "i5"}]}]}
+    assert validate_content.branches_problems(manifest) == []
+    assert validate_content.reach_warnings(manifest) == [
+        "warning: manifest.json: items[3]: item 'i3' is never shown: "
+        "inside decision 'p' (after 'i0', to its last span end 'i5') in "
+        "none of its routes"]
+
+
 def test_stdout_and_exit_unchanged_by_the_warning(branch_folder: Path
                                                   ) -> None:
     """With a problem present, adding a gap item changes stderr only."""

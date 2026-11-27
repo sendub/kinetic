@@ -230,6 +230,11 @@ export const EN = {
   "pill.skipOn": "Skip on",
   /** Pill: skip mode stopped. */
   "pill.skipOff": "Skip off",
+  /**
+   * Pill: Play all routes skips through a scene several routes share,
+   * read already on an earlier route of this pass.
+   */
+  "pill.readAgain": "Read already: skipping",
   /** Pill: auto-forward turned on. */
   "pill.autoForwardOn": "Auto-forward on",
   /** Pill: auto-forward turned off. */

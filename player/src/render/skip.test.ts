@@ -110,6 +110,49 @@ describe("mountSkipAnnouncements (docs/plan.md Phase 43)", () => {
     expect(shown).toEqual([ON, OFF]);
   });
 
+  it("a shared span play-all skips shows the read-already pill, and its end no off pill", () => {
+    vi.useFakeTimers();
+    // lead decide | a-1 | b-1 | f-1 f-2 | tail: A and B both read the
+    // span `fail`, which returns to the choice; C continues.
+    const items = ["lead", "decide", "a-1", "b-1", "c-1", "f-1", "f-2", "tail"];
+    const machine = createMachine({
+      items: items.map(image),
+      branches: [
+        {
+          id: "d1",
+          after: "decide",
+          prompt: "Which road?",
+          routes: [
+            { id: "a", label: "A", start: "a-1", end: "a-1", then: "fail" },
+            { id: "b", label: "B", start: "b-1", end: "b-1", then: "fail" },
+            { id: "c", label: "C", start: "c-1", end: "c-1" },
+          ],
+          continuingRoute: "c",
+          continueAt: "tail",
+          shared: [{ id: "fail", start: "f-1", end: "f-2", result: "return" }],
+        },
+      ],
+      settings: { ...DEFAULT_SETTINGS, playAllRoutes: true },
+    });
+    const shown: string[][] = [];
+    mountSkipAnnouncements({
+      machine,
+      flash: (messages) => shown.push([...messages]),
+    });
+    machine.advance(); // decide
+    machine.advance(); // the choice: A first
+    machine.advance(); // a-1
+    machine.advance(); // f-1, read
+    machine.advance(); // f-2
+    machine.advance(); // the choice again: B
+    machine.advance(); // b-1
+    machine.advance(); // f-1: read already, skipped
+    expect(shown).toEqual([["Read already: skipping"]]);
+    vi.advanceTimersByTime(DEFAULT_SETTINGS.skipDwellMs * 2);
+    expect(machine.getState().choice?.decisionId).toBe("d1");
+    expect(shown).toEqual([["Read already: skipping"]]);
+  });
+
   it("a panel's pause and resume leave a burst on: no pill", () => {
     vi.useFakeTimers();
     const { machine, shown } = setup();

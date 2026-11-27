@@ -4,14 +4,22 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMachine } from "./machine";
-import type { Branch, Item, Manifest, Route, RouteResult } from "./types";
+import type {
+  Branch,
+  Item,
+  Manifest,
+  Route,
+  RouteResult,
+  SharedSpan,
+} from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 
 // The validator's unreachable-item warning (tools/validate_content.py,
 // `reach_warnings`; docs/plan.md Phase 48 item 6) held to the machine: on
 // seeded generated manifests (decisions, nested decisions, every route
 // result, continuing routes and pure choices, gaps, joins that land far
-// on), the items the validator warns on are exactly the items the machine's
+// on, shared spans read by routes of their decision and of nested ones),
+// the items the validator warns on are exactly the items the machine's
 // play-all walk from the opening never shows. One Python process takes the
 // whole batch; the CLI's wiring of the warning is tools/
 // test_validate_content.py's.
@@ -43,11 +51,15 @@ interface Coverage {
   gaps: number;
   farJoins: number;
   results: Record<string, number>;
+  spans: number;
+  nestedThens: number;
 }
 
 function generate(rand: () => number, coverage: Coverage): Manifest {
   const ids: string[] = [];
   const branches: Branch[] = [];
+  /** Every route made so far, with whether it is its decision's continuing one. */
+  const made: { route: Route; continuing: boolean }[] = [];
   const fixups: (() => void)[] = [];
   const int = (low: number, high: number) =>
     low + Math.floor(rand() * (high - low + 1));
@@ -74,6 +86,7 @@ function generate(rand: () => number, coverage: Coverage): Manifest {
       ...(continuing >= 0 ? (["continue"] as const) : []),
     ];
     const routes: Route[] = [];
+    const nestedFrom = made.length;
     for (let r = 0; r < routeCount; r += 1) {
       if (r > 0) gap(0.15); // between two routes
       const start = ids.length;
@@ -88,6 +101,10 @@ function generate(rand: () => number, coverage: Coverage): Manifest {
         ...(result === undefined ? {} : { result }),
       });
     }
+    const nested = made.slice(nestedFrom);
+    routes.forEach((route, r) => {
+      made.push({ route, continuing: r === continuing });
+    });
     const branch: Branch = {
       id: `d${branches.length}`,
       after: ids[after],
@@ -95,6 +112,37 @@ function generate(rand: () => number, coverage: Coverage): Manifest {
       routes,
     };
     branches.push(branch);
+    // Shared spans after the routes, each read by some of this decision's
+    // routes and now and then by a route of a decision nested in them.
+    if (rand() < 0.35) {
+      const shared: SharedSpan[] = [];
+      for (let k = int(1, 2); k > 0; k -= 1) {
+        gap(0.15);
+        const first = item();
+        for (let n = int(0, 1); n > 0; n -= 1) item();
+        const result = choices[int(0, choices.length - 1)];
+        shared.push({
+          id: `s${branch.id}-${shared.length}`,
+          start: ids[first],
+          end: ids[ids.length - 1],
+          ...(result === undefined ? {} : { result }),
+        });
+        coverage.spans += 1;
+      }
+      branch.shared = shared;
+      routes.forEach((route, r) => {
+        if (rand() >= 0.5) return;
+        const span = shared[int(0, shared.length - 1)];
+        // The continuing route reads only a "continue" span of its own.
+        if (r === continuing && span.result !== "continue") return;
+        route.then = span.id;
+      });
+      for (const { route, continuing: joins } of nested) {
+        if (joins || route.then !== undefined || rand() >= 0.3) continue;
+        route.then = shared[int(0, shared.length - 1)].id;
+        coverage.nestedThens += 1;
+      }
+    }
     if (continuing < 0) {
       coverage.pure += 1;
       return;
@@ -142,14 +190,17 @@ function neverShown(manifest: Manifest): number[] {
     autoAdvance: false,
   });
   // One press is one step, and takes an auto-pick at once; the walk is
-  // over when a press neither moves the cursor nor opens a choice.
+  // over when a press neither moves the cursor nor opens a choice. A press
+  // on a span read already this pass stops its skip burst (`readAgain`)
+  // where it stands, and reading goes on from there.
   const cap = 20 * manifest.items.length + 100;
   let presses = 0;
   for (; presses < cap; presses += 1) {
-    const before = m.getState().cursor;
+    const before = m.getState();
     m.advance();
     const state = m.getState();
-    if (state.cursor === before && state.choice === undefined) break;
+    if (before.skipping) continue;
+    if (state.cursor === before.cursor && state.choice === undefined) break;
   }
   expect(presses, "the play-all walk did not end").toBeLessThan(cap);
   const shown = new Set(m.visitedList());
@@ -207,6 +258,8 @@ describe("the validator's unreachable items match the machine", () => {
       gaps: 0,
       farJoins: 0,
       results: { default: 0, ending: 0, return: 0, continue: 0 },
+      spans: 0,
+      nestedThens: 0,
     };
     const manifests = Array.from({ length: MANIFESTS }, () =>
       generate(rand, coverage),
@@ -229,5 +282,7 @@ describe("the validator's unreachable items match the machine", () => {
     expect(coverage.farJoins).toBeGreaterThan(MANIFESTS / 20);
     for (const count of Object.values(coverage.results))
       expect(count).toBeGreaterThan(MANIFESTS / 4);
+    expect(coverage.spans).toBeGreaterThan(MANIFESTS / 4);
+    expect(coverage.nestedThens).toBeGreaterThan(MANIFESTS / 20);
   });
 });

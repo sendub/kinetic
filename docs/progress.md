@@ -6732,7 +6732,41 @@ truthful: an unchecked box means nothing was accepted.
       schema tests and 4 folder-model tests failing first. Orchestrator:
       the validator, assemble, spans, scale, malformed, report, routes,
       export and schema tests 672 passed; npm test 1932, check clean.)
-- [ ] Shared spans in the player (item 9f).
+- [x] Shared spans in the player (item 9f).
+      (2026-11-27: machine.ts follows a route's `then` into its span
+      (`enterSpan`: the route's frame stays on top, the span's decision
+      and what it holds closed, a reading entry an `advance`, a skip
+      step `nav`) and acts on the span's `result` at its end
+      (`endSpan`: the leading route completes; a pure choice all played
+      closes past its region, `"continue"` joins or re-offers under Play
+      all routes, else the choice is offered again with the return row
+      by its rule). Under Play all routes a span is read once per pass:
+      it counts as read when another route leading into it is in
+      `passPlayed`, and a later route runs a skip burst through it
+      (`MachineState.readAgain`, the skip-armed path, so only where
+      skip could start) under the pill "Read already: skipping"
+      (render/skip.ts); Space stops it with "Skip off". The wheel walks
+      a span after the last-picked route leading in and back; a save,
+      reload, bookmark or resume inside a span keeps the route, with no
+      new saved field (in a span = the top frame's route's `then` holds
+      the cursor). Completion needs the span's end seen; span ends count
+      as endings and route boundaries for `u` and the end card;
+      `regionEnd` includes spans. folder_model.py's reach walk follows
+      spans (`enter_span`, `end_span`, `menu_end`), so span items no
+      longer warn "never shown". Subagent's calls: skipTick's
+      stop-at-the-last-seen check looks at a route or span end's own
+      next step, not the next array item; a running Tab burst carries
+      on through a span as a normal burst; biome's
+      `suspicious/noThenProperty` is off (the field is named `then`);
+      i18n.mjs skips auditing `pill.readAgain` until item 9g. Tests:
+      shared.test.ts 19 (17 failed first), reach.test.ts's generator
+      with spans (failed against the old Python), a skip pill test,
+      validator and folder-model reach tests, scenario file shared
+      (read, playall, reload; 4 of 7 checks fail without `then`).
+      Orchestrator: npm test 1952 passed, check clean, smoke 6/6;
+      shared, branches, follows and media 130/130 on Chrome; shared and
+      branches 89/89 on WebKit; the validator, spans, malformed, scale,
+      routes and report tests 645 passed.)
 - [ ] The read-already pill in every interface language (item 9g).
 - [ ] Shared spans on the branch map and in the tools (item 9h).
 - [ ] The converter lays a shared tail out once (item 9i).
