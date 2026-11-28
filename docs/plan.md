@@ -5160,11 +5160,33 @@ The orchestrator's choices, within those decisions:
     and its lines with it, as Ren'Py flows. Tests: a synthetic script of
     that shape validates `--strict` and plays with `kinetic check`; the
     corpus walk outputs pass the branch rules.
+9o2b. Items the player never shows (lead from item 9o2). The
+    validator's reach check finds about 813,000 of the corpus walk
+    outputs' 1.4 million items never shown; in one game everything after
+    its first 165 items. Find what leaves them unreachable (a walk gap, a
+    route that ends where Ren'Py goes on, a label reached only by a
+    computed jump or call, or the survey's walk itself) and fix the
+    causes that the converter can, so the reader reaches what Ren'Py
+    reaches. Tests: a synthetic script per cause, its folder passing
+    `kinetic validate --strict` with no never-shown warning; a corpus
+    recount of never-shown items by cause.
+9o2c. A decision that gives up its join at a later decision with no
+    span between (lead from item 9o2). Where a decision's join path
+    passes an itemless `if` and meets a chain or menu, the decision
+    stays a pure choice and the later one hangs off its last route's
+    end, leaving items never shown. The later decision gets item 9o2's
+    line before it and the earlier one continues there, as Ren'Py's
+    routes go on into it; docs/extracting.md's "leaves the decision a
+    pure choice" rule changes to match. Tests: a synthetic script of
+    that shape validates `--strict` with no never-shown warning.
 9o3. Menu prompts in the game's languages (leads from item 9o). A say
     menuitem prompt (`e "Which one?"` in a menu) is translated from the
     game's `translate` blocks as its dialogue is, not looked up in
     `strings`; the default prompt "What happens next?" becomes a
-    converter phrase in every interface language, as item 6b. Tests: a
+    converter phrase in every interface language, as item 6b. The line
+    item 9o2 puts before a following chain says that a choice follows
+    only where the player shows one: a following chain gets its own
+    phrase (or no line, if the format allows it). Tests: a
     game with a language file shows both prompts translated.
 9o4. Menus kept linear because a choice rejoins content read elsewhere
     (lead from item 9o: 2,409 menus in the corpus, 35,499 lines kept in
@@ -5218,7 +5240,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o2b -> 9o2c -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

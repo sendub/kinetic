@@ -7209,7 +7209,33 @@ truthful: an unchecked box means nothing was accepted.
       test_validate_content.py 545 passed, npm test 1981 passed, npm
       run check clean; de, fr, ja, ar and ru phrases read in the words
       file.)
-- [ ] Shared spans that hold a decision's `after` item (item 9o2).
+- [x] Shared spans that hold a decision's `after` item (item 9o2).
+      (Cause: a decision whose join has no item of its own is a pure
+      choice and lays out its shared span after its routes, so an `if`
+      chain or menu opening next with no item between took the span's
+      end as its `after`; the join was lost by a released itemless `if`,
+      a path ending into the next computed-call candidate, or a `link`
+      to a menu not open. The rule is right (a span holds no decision),
+      so the converter changed: the later decision gets a line of its
+      own before it, its caption or "Another choice follows.", which is
+      the earlier decision's `continueAt` when it still waits on its
+      join; none when it stays linear or opens a route (item 8c's
+      choice text). Choices: a line rather than a silent repeated
+      picture; the existing phrase reused for chains, so no new words.
+      Tests: 6 in test_shared_tails.py, the 5 shape cases failing at
+      8617912 (their folders refused by the validator), 2 guards (one
+      caught the first version replacing choice text in one corpus
+      game). Recount, 75 of 79 entries on both sides: "shared span
+      holds a decision" 19 in 7 games -> 0, no other branch-rule
+      problem on either side; lines 1,407,642 -> 1,407,661 (+19 lead
+      lines, none lost in any game); decisions 33,715 and continueAt
+      24,032 unchanged. Leads -> items 9o2b (about 813,000 items
+      never shown in the corpus outputs), 9o2c (the same lost join with
+      no span between), and 9o3 (the line before a following chain).
+      Orchestrator: converter/ 1526 passed, test_validate_content.py
+      545 passed.)
+- [ ] Items the player never shows (item 9o2b).
+- [ ] A decision giving up its join at a later one (item 9o2c).
 - [ ] Menu prompts in the game's languages (item 9o3).
 - [ ] Menus kept linear by a rejoin (item 9o4).
 - [ ] More `if` chains become decisions (item 9p).

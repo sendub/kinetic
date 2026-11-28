@@ -633,8 +633,12 @@ def finalize_branches(result: TimelineResult,
                     note += ("; a stat choice (every choice reads nothing "
                              "of its own): its routes are its choice lines")
                 if rec.lead_used:
-                    note += ("; follows another decision's join with no "
-                             "line between: a line before it, "
+                    note += ("; opens right after a shared span's last "
+                             "item, which no decision hangs off"
+                             if rec.lead_after_span else
+                             "; follows another decision's join with no "
+                             "line between")
+                    note += (": a line before it, "
                              + ("its caption" if rec.lead_phrase is None
                                 else "the converter's words"))
                 if rec.passed:

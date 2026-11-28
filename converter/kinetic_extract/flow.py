@@ -930,6 +930,9 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             op = ops[fork]
             info["close_at"] = len(events)
             info["outcome"] = {}
+            # The `menu-lead` marker reads it too: the timeline gives no
+            # line to a menu that stays linear (item 9o2).
+            info["lead_event"].outcome = info["outcome"]
             if menu_reason(fork, set(), info["endings"]) is None:
                 # A nested decision is content of its enclosing routes.
                 for outer, k, _s in ctx:
@@ -1459,8 +1462,10 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                             # decision's join gets (docs/plan.md Phase 60
                             # item 9o): the timeline keeps it when no item
                             # came since that decision closed.
-                            events.append((parsed_of[op.file], Event(
-                                "menu-lead", op.source, name=str(op.menu))))
+                            lead = Event("menu-lead", op.source,
+                                         name=str(op.menu))
+                            events.append((parsed_of[op.file], lead))
+                            menus[n]["lead_event"] = lead
                             menus[n]["route_lead"] = route_lead(ctx)
                             events.append((parsed_of[op.file], Event(
                                 "menu-open", op.source, name=str(op.menu))))

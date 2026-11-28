@@ -649,6 +649,10 @@ class MenuRecord:
     lead_text: str | None = None
     lead_phrase: str | None = None
     lead_used: bool = False
+    # Whether that line is there because the menu (or chain: the
+    # converter's words) would otherwise hang off a shared span's last
+    # item (item 9o2).
+    lead_after_span: bool = False
     # Whether kinetic_extract.conditions.prepare has worded it (once),
     # in which base language and with which `--condition-names` words.
     worded: bool = False

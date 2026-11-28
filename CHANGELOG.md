@@ -319,6 +319,13 @@ something more of an author.
   linear keeps every choice's lines in a row, reported, where they
   were lost. The new words are in every interface language
   (docs/extracting.md, "The walk follows labels").
+- A menu or `if` chain that opens straight after a scene several
+  choices share (a shared span) no longer hangs off the scene's last
+  line, which the validator refused (`shared span holds decision`): it
+  gets a line of its own before it, its caption or `Another choice
+  follows.`, and the decision before it goes on into it there when its
+  choices lead there, as Ren'Py's do (docs/extracting.md, "The walk
+  follows labels").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

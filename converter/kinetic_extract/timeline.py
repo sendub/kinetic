@@ -720,6 +720,11 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     span_marks: dict[str, dict[str, Any]] = {}
     # Each shared span's key -> the decisions whose choices meet at it.
     span_joins: dict[str, list[dict[str, Any]]] = {}
+    # The index of each laid-out shared span's last item, which no
+    # decision may hang off (item 9o2).
+    span_ends: set[int] = set()
+    # Whether the line menu_lead last gave is one for that.
+    span_lead = False
 
     def check_limit() -> None:
         if max_items is not None and len(result.items) >= max_items:
@@ -1287,15 +1292,38 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         `continueAt` and the menu's `after`, as item 8c gives a nested
         menu its route's choice text. None when an item came since (or
         a visual waits that the `menu-open` emits), or the menu is a
-        chain's."""
+        chain's.
+
+        A menu or chain that would hang off a shared span's last item
+        (docs/plan.md Phase 60 item 9o2: a span holds no decision) gets
+        the line too, a chain the converter's words: an earlier decision
+        still waiting on its join's path, past an `if` or `return` that
+        shows nothing (item 9l), takes it as its `continueAt`. None for
+        one that stays linear, or opens a route with no item yet, which
+        hangs off the route's choice text (item 8c)."""
+        nonlocal span_lead
         record = parsed.menus[int(event.name or 0)]
-        if record.condition is not None or record.lead_text is None:
-            return None
-        if not any(len(result.items) <= count and id(cand) not in released
-                   for cand, count in awaiting):
-            return None
-        if not (pending is None or pending.consumed or (
-                pending.origin is not None and not pending.unresolved)):
+        span_lead = False
+        if any(len(result.items) <= count and id(cand) not in released
+               for cand, count in awaiting):
+            if record.condition is not None or record.lead_text is None:
+                return None
+            if not (pending is None or pending.consumed or (
+                    pending.origin is not None and not pending.unresolved)):
+                return None
+        elif result.items and len(result.items) - 1 in span_ends and (
+                pending is None or pending.consumed or pending.drops_bare) \
+                and not record.parse_reason \
+                and not (event.outcome or {}).get("linear") \
+                and not route_needs_lead():
+            record.lead_after_span = span_lead = True
+            if record.condition is not None or record.lead_text is None:
+                base = (record.condition.base if record.condition
+                        is not None else record.words_base)
+                record.lead_text = conditions.Words(
+                    base or conditions.ENGLISH).say(conditions.NEXT_MENU)
+                record.lead_phrase = conditions.NEXT_MENU
+        else:
             return None
         record.lead_used = True
         if record.lead_phrase is None:
@@ -1534,6 +1562,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 # routes act on their own result, and a decision joining
                 # at it has no join item.
                 shared.append({**laid[key], "start": start, "end": stop - 1})
+                span_ends.add(stop - 1)
             else:
                 for joined in span_joins.get(key, []):
                     joined["continue_idx"] = None
@@ -1898,6 +1927,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 if event.phrase is not None and last_line is not None:
                     last_line.converter_phrase = event.phrase
                     last_line.notes.append(
+                        "the converter's words before a decision that "
+                        "would otherwise hang off a shared span's last item"
+                        if span_lead else
                         "the converter's words before a menu that follows "
                         "a decision's join with no line between")
             elif event.kind == "path-end":

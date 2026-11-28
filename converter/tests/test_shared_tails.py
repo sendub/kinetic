@@ -8,7 +8,8 @@ where the label goes: `"continue"` to the join, `"ending"` at the story's
 end, `"return"` back to the menu's lead-in. A route's own `result` is what
 an older player, which ignores `then`, acts on. A label whose run holds a
 menu of its own (a span holds no decision) stays linear, reported as
-before ("rejoins content read at ...").
+before ("rejoins content read at ..."), and a decision opening straight
+after a span's last item hangs off a line of its own (item 9o2).
 
 Each case is a synthetic project extracted end to end; every folder
 validates `--strict` with nothing printed (no never-shown item), and one
@@ -22,6 +23,8 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
+
+from kinetic_extract import conditions
 
 from test_jump_menus import (LEAD, check_folder, detection, extract, ident,
                              menu_reports, ogg, run_kinetic, shape, texts)
@@ -373,3 +376,225 @@ def test_a_shared_label_holding_a_menu_stays_linear(tmp_path: Path) -> None:
     assert any("choice 2 (Run) rejoins content read at game/script.rpy:"
                in r for r in reasons), reasons
     validates_clean(out)
+
+
+# --- a decision right after a shared tail (Phase 60 item 9o2) --------------
+#
+# A decision opening with no item since a shared tail's last item would
+# hang off it, and a span holds no decision: it gets a line before it, its
+# caption or the converter's words (a chain's always), which it hangs off.
+# A decision still waiting on its join's path, past an `if` that shows
+# nothing, takes that line as its `continueAt`, as Ren'Py flows on into
+# the next decision.
+
+NEXT = conditions.Words("en").say("menu.next")
+
+
+def after_tail(decision: str) -> str:
+    """Fight and Run go on to `lose`, a shared tail that reaches the join,
+    `after`, whose `if` shows nothing (it stays linear) before
+    ``decision``."""
+    return (
+        'default brave = 0\n'
+        'default calm = 0\n' + LEAD +
+        '    menu:\n'
+        '        "Be brave":\n'
+        '            $ brave = 1\n'
+        '            "Brave now."\n'
+        '        "Be meek":\n'
+        '            "Meek now."\n'
+        '    "Then."\n'
+        '    menu:\n'
+        '        "Fight":\n            "You swing."\n            jump lose\n'
+        '        "Run":\n            "You run."\n            jump lose\n'
+        '        "Talk":\n            "You talk."\n            jump after\n'
+        'label lose:\n'
+        '    "You lose."\n'
+        '    "It hurts."\n'
+        '    jump after\n'
+        'label after:\n'
+        '    if calm:\n'
+        '        $ calm = 2\n'
+        + decision +
+        '    "After."\n'
+        '    return\n')
+
+
+TAIL_ROUTES = [("Fight", "You swing.", "You swing.", "continue"),
+               ("Run", "You run.", "You run.", "continue"),
+               ("Talk", "You talk.", "You talk.", "continue")]
+
+
+BRAVE_CHAIN = ('    if brave == 1:\n'
+         '        "Brave."\n'
+         '    else:\n'
+         '        "Timid."\n')
+
+
+def test_a_chain_after_a_shared_tail_hangs_off_a_line(tmp_path: Path
+                                                      ) -> None:
+    out, manifest, ledger = extract(tmp_path, after_tail(BRAVE_CHAIN))
+    assert texts(manifest) == [
+        "Lead.", "Brave now.", "Meek now.", "Then.", "You swing.",
+        "You run.", "You talk.", "You lose.", "It hurts.", NEXT, "Brave.",
+        "Timid.", "After."]
+    assert spans(manifest) == {"Then.": [
+        ("shared-lose", "You lose.", "It hurts.", "continue")]}
+    decisions = shape(manifest)
+    assert decisions[1] == {"after": "Then.", "routes": TAIL_ROUTES,
+                            "continuing": "Talk", "continueAt": NEXT}
+    assert decisions[2]["after"] == NEXT
+    assert [r[1] for r in decisions[2]["routes"]] == ["Brave.", "Timid."]
+    assert decisions[2]["continueAt"] == "After."
+    note = next(n["note"] for n in detection(ledger)
+                if n["source"] == "game/script.rpy:30")
+    assert ("opens right after a shared span's last item, which no "
+            "decision hangs off: a line before it, the converter's words"
+            in note), note
+    line = next(i for i in manifest["items"] if i.get("text") == NEXT)
+    assert ("the converter's words before a decision that would otherwise "
+            "hang off a shared span's last item"
+            in ledger["items"][line["id"]]["notes"])
+    check_folder(tmp_path, out, manifest)
+
+
+def test_the_line_before_a_chain_in_a_language_file(tmp_path: Path
+                                                    ) -> None:
+    out, manifest, _ledger = extract(tmp_path, after_tail(BRAVE_CHAIN), tl={
+        "de": 'translate de strings:\n    old "Fight"\n    new "Kampf"\n'})
+    line = next(i for i in manifest["items"] if i.get("text") == NEXT)
+    de = json.loads((out / "lang" / "de.json").read_text("utf-8"))
+    assert de["items"][line["id"]]["text"] == "Es folgt eine weitere Wahl."
+
+
+@pytest.mark.parametrize("caption", ["Where now?", None])
+def test_a_menu_after_a_shared_tail_hangs_off_a_line(tmp_path: Path,
+                                                     caption: str | None
+                                                     ) -> None:
+    """Its caption, else the converter's words, as item 9o gives a menu
+    straight after a join."""
+    head = f'    menu "{caption}":\n' if caption else '    menu:\n'
+    out, manifest, ledger = extract(tmp_path, after_tail(
+        head +
+        '        "North":\n            "North."\n'
+        '        "South":\n            "South."\n'))
+    lead = caption or NEXT
+    assert texts(manifest)[7:] == ["You lose.", "It hurts.", lead, "North.",
+                                   "South.", "After."]
+    decisions = shape(manifest)
+    assert decisions[1]["continueAt"] == lead
+    assert decisions[2]["after"] == lead
+    assert menu_reports(ledger) == []
+    check_folder(tmp_path, out, manifest)
+
+
+POINTS_CHAIN = ('    if points > 1:\n'
+                '        "Strong."\n'
+                '    else:\n'
+                '        "Weak."\n')
+
+
+def next_candidate(scene_b: str) -> str:
+    """Scene A's decision joins at `fin`, whose `return` leaves the
+    computed call's first candidate label for the next, scene B, which
+    the walk goes on into: ``scene_b`` is its body."""
+    return (
+        'default points = 0\n'
+        'default where = "scene_a"\n' + LEAD +
+        '    menu:\n'
+        '        "Train":\n            $ points += 2\n'
+        '            "You train."\n'
+        '        "Rest":\n            $ points += 1\n'
+        '            "You rest."\n'
+        '    "Then."\n'
+        '    call expression where\n'
+        '    "End."\n'
+        '    return\n'
+        'label scene_a:\n'
+        '    "Scene A."\n'
+        '    menu:\n'
+        '        "Fight":\n            "You swing."\n            jump lose\n'
+        '        "Run":\n            "You run."\n            jump lose\n'
+        '        "Talk":\n            "You talk."\n            jump fin\n'
+        'label lose:\n'
+        '    "You lose."\n'
+        '    "It hurts."\n'
+        '    jump fin\n'
+        'label fin:\n'
+        '    return\n'
+        'label scene_b:\n' + scene_b +
+        '    return\n'
+        'init python:\n'
+        '    targets = ["scene_a", "scene_b"]\n')
+
+
+def test_a_chain_in_the_next_computed_call_candidate(tmp_path: Path
+                                                     ) -> None:
+    """The join has no item of its own (a pure choice, its span
+    `"ending"`), and the chain opening the next candidate label hangs off
+    a line of its own, not the span's last item."""
+    out, manifest, _ledger = extract(tmp_path, next_candidate(POINTS_CHAIN))
+    assert texts(manifest)[8:] == ["You lose.", "It hurts.", NEXT,
+                                   "Strong.", "Weak.", "End."]
+    assert spans(manifest) == {"Scene A.": [
+        ("shared-lose", "You lose.", "It hurts.", "ending")]}
+    decisions = shape(manifest)
+    assert decisions[1]["continueAt"] is None
+    assert decisions[2]["after"] == NEXT
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_menu_that_stays_linear_after_a_shared_tail_gets_no_line(
+        tmp_path: Path) -> None:
+    """A menu kept linear hangs nothing off the span: its lines follow
+    the span's last item, and the chain after them hangs off its last."""
+    out, manifest, ledger = extract(tmp_path, next_candidate(
+        '    menu:\n'
+        '        "":\n            "Odd."\n'
+        '        "Fine":\n            "Fine."\n' + POINTS_CHAIN))
+    assert texts(manifest)[8:] == ["You lose.", "It hurts.", "Odd.",
+                                   "Fine.", "Strong.", "Weak.", "End."]
+    assert shape(manifest)[2]["after"] == "Fine."
+    assert any("empty choice label" in r for r in menu_reports(ledger))
+    validates_clean(out)
+
+
+def test_a_route_opening_with_a_menu_after_a_shared_tail(tmp_path: Path
+                                                        ) -> None:
+    """Stay out opens with a menu, right after the span its sibling
+    route's nested decision laid out: the nested menu hangs off the
+    route's choice text (item 8c), not the converter's words."""
+    out, manifest, ledger = extract(tmp_path, LEAD + (
+        '    menu:\n'
+        '        "Go in":\n'
+        '            "You go in."\n'
+        '            menu:\n'
+        '                "Fight":\n'
+        '                    "You swing."\n'
+        '                    jump lose\n'
+        '                "Run":\n'
+        '                    "You run."\n'
+        '                    jump lose\n'
+        '                "Talk":\n'
+        '                    "You talk."\n'
+        '                    jump done\n'
+        '        "Stay out":\n'
+        '            menu:\n'
+        '                "North":\n                    "North."\n'
+        '                "South":\n                    "South."\n'
+        '            jump done\n'
+        'label lose:\n'
+        '    "You lose."\n'
+        '    "It hurts."\n'
+        '    jump done\n'
+        'label done:\n'
+        '    "Done."\n'
+        '    return\n'))
+    assert texts(manifest) == [
+        "Lead.", "You go in.", "You swing.", "You run.", "You talk.",
+        "You lose.", "It hurts.", "Stay out", "North.", "South.", "Done."]
+    assert spans(manifest) == {"You go in.": [
+        ("shared-lose", "You lose.", "It hurts.", "continue")]}
+    assert sorted(d["after"] for d in shape(manifest)) == [
+        "Lead.", "Stay out", "You go in."]
+    check_folder(tmp_path, out, manifest)

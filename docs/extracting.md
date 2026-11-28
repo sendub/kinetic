@@ -214,7 +214,8 @@ game whose story order differs from its file order read out of order.
   follows the menu with no line between: the `continueAt` is then its
   first line). A menu the join's path meets past such a `return` or
   `if` before any item leaves the decision a pure choice and stays a
-  decision itself, as a menu reached there did before; a menu
+  decision itself, as a menu reached there did before, unless the
+  decision's last item is a shared span's (below); a menu
   nested in a route whose choices meet where the enclosing menu's do
   (a jump there, or falling through at the end of the enclosing
   choice's block) takes the enclosing `continueAt`, past its route's
@@ -230,7 +231,20 @@ game whose story order differs from its file order read out of order.
   which is the earlier decision's `continueAt` and the menu's `after`:
   its caption (translated from the `strings` block), else the
   converter's words, `Another choice follows.` (in each language file
-  that language's words; its ledger note says so). A choice with
+  that language's words; its ledger note says so). A menu or `if`
+  chain that would hang off a shared span's last item, no item since
+  the span's decision closed (Phase 60 item 9o2: a span holds no
+  decision), gets that line too, a chain the converter's words, and
+  hangs off it: when the span's decision still waits on its join's
+  path, past a `return` or an `if` that shows nothing, the line is its
+  `continueAt`, so its routes go on into the decision as Ren'Py's do;
+  else (its join has no item of its own, say the join's path ended
+  before one and the walk went on elsewhere) it stays a pure choice. A
+  menu or chain that stays linear gets no line, and one opening a route
+  with nothing of its own yet hangs off the route's choice text, as
+  above. The decision's
+  `branchDetection` note says `opens right after a shared span's last
+  item, which no decision hangs off`. A choice with
   nothing of its own (it goes straight to the join) is one line, its
   choice text, translated from the language's `strings` block. So a
   menu every choice of which is empty and meets the others at the join
