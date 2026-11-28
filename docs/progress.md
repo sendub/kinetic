@@ -7370,9 +7370,37 @@ truthful: an unchecked box means nothing was accepted.
       sound after a nested menu's close cueing only the last route ->
       item 9o2i. Orchestrator: converter/ 1569 passed,
       test_validate_content.py 545 passed.)
-- [ ] A chain after a join holds its decision (item 9o2g).
+- [x] A chain after a join holds its decision (item 9o2g).
+      (Cause: timeline.py's `resolve_awaiting` gave up on a decision
+      released past a crossed `return` or an `if` that shows nothing
+      when the next menu or chain stayed linear and so got no line
+      (`menu_lead`): no `continueAt`, a pure choice, routes `"ending"`.
+      Fix: that decision is held as one straight after a join already
+      was (`held`, `release_held`, item 9l), so it goes on into the
+      linear menu's first item, or waits on past one that shows
+      nothing. Choices: hold rather than give the linear menu a line
+      (no "Another choice follows." before a menu that offers none, no
+      new phrase); no guard in `release_held` for a menu that became a
+      decision after all (a corpus probe found none, and `menu_lead`
+      rules it out). Tests: test_chain_after_join.py 9; 5 failed at
+      21d7f09 (rechecked by the orchestrator with HEAD's timeline.py:
+      5 failed, 4 passed), 4 guards. Recount, 75 of 79 entries on both
+      sides: lines 1,409,323, decisions 33,715, never shown 0 and rule
+      problems 0 unchanged, item sequences identical in every game;
+      `continueAt` 24,858 -> 25,278; routes `continue` 50,746 ->
+      51,619, `ending` 19,415 -> 18,542, all 873 `ending` ->
+      `continue`, in 14 games; 172 ledger notes now say the decision
+      follows another's join past a return. Leads: a convertible chain
+      straight after a join is still forced linear while past a crossed
+      `return` it is a decision -> item 9p; item 9o2f's wider rule, every
+      item 9l join into the caller treated as crossed, retried now its
+      regression's cause is gone -> item 9o2j; a linear menu straight
+      after a join still gets "Another choice follows." -> item 9o3.
+      Orchestrator: converter/ 1578 passed, test_validate_content.py
+      545 passed.)
 - [ ] Joins at a block's end (item 9o2h).
 - [ ] A cue after a nested menu plays on every route (item 9o2i).
+- [ ] Every join into the caller crosses its return (item 9o2j).
 - [ ] Menu prompts in the game's languages (item 9o3).
 - [ ] Menus kept linear by a rejoin (item 9o4).
 - [ ] More `if` chains become decisions (item 9p).

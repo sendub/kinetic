@@ -5233,6 +5233,16 @@ The orchestrator's choices, within those decisions:
     every route reaches it (the join, or each route's end). Tests: a
     synthetic script whose nested menu is followed by a sound, each
     route's walk meeting the cue.
+9o2j. Every join into the caller crosses its return (lead from item
+    9o2g). Item 9o2f treated only lifted joins as having crossed their
+    `return`; treating every item 9l join whose choices `return` into
+    the caller that way made `_return` chains decisions, but turned 606
+    routes `continue` -> `ending` through the rule item 9o2g has since
+    changed. Retry it: each such join crosses its `return`, and a chain
+    on `_return` past it is a decision with item 9o2b's line where it
+    converts. Tests: a synthetic `_return` chain past a called stat
+    choice whose choices return; a corpus recount with no route turned
+    `continue` -> `ending` and no line lost.
 9o3. Menu prompts in the game's languages (leads from item 9o). A say
     menuitem prompt (`e "Which one?"` in a menu) is translated from the
     game's `translate` blocks as its dialogue is, not looked up in
@@ -5240,7 +5250,9 @@ The orchestrator's choices, within those decisions:
     converter phrase in every interface language, as item 6b. The line
     item 9o2 puts before a following chain says that a choice follows
     only where the player shows one: a following chain gets its own
-    phrase (or no line, if the format allows it). Tests: a
+    phrase (or no line, if the format allows it), and a menu kept
+    linear straight after a join (item 9o2g's lead) gets no line that
+    says a choice follows. Tests: a
     game with a language file shows both prompts translated.
 9o4. Menus kept linear because a choice rejoins content read elsewhere
     (lead from item 9o: 2,409 menus in the corpus, 35,499 lines kept in
@@ -5256,7 +5268,10 @@ The orchestrator's choices, within those decisions:
     an arm is read as Ren'Py flows through it. The same wording labels
     item 9o's conditional menu choices, which read "(not always
     offered)" for these tests until then. Item 9k's run-time state
-    stays unconverted. New phrases translated as in item 6b. Tests: one
+    stays unconverted. A chain that converts, met straight after a
+    decision's join (a stat choice, then an `if` on what it set), is a
+    decision as it is past a crossed `return`, not forced linear (lead
+    from item 9o2g). New phrases translated as in item 6b. Tests: one
     synthetic chain per form.
 9q. Variables shown in text (39,000 lines in 51 games show a literal
     `[name]`). `[var]` in a line or a speaker's name is replaced by the
@@ -5294,7 +5309,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o2b -> 9o2c -> 9o2d -> 9o2e -> 9o2f -> 9o2g -> 9o2h -> 9o2i -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o2b -> 9o2c -> 9o2d -> 9o2e -> 9o2f -> 9o2g -> 9o2h -> 9o2i -> 9o2j -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

@@ -359,6 +359,13 @@ something more of an author.
   longer end the story (a pure choice) where Ren'Py goes on, but
   continue where the enclosing decision does (docs/extracting.md, "The
   walk follows labels").
+- A decision whose choices meet past a `return` or an `if` that shows
+  nothing, at a menu or `if` chain the converter keeps linear (a lone
+  conditional choice, an arm that leads back to its condition), now
+  goes on into that menu's lines, as it already did into a chain
+  straight after its menu, instead of ending the story there (a pure
+  choice) where Ren'Py goes on (docs/extracting.md, "The walk follows
+  labels").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

@@ -1512,14 +1512,15 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         one's last route: it stays linear. An `if` chain doing so also
         holds the waiting decision (docs/plan.md Phase 60 item 9l), whose
         join's first item is then the first that follows: the chain's,
-        or its join's."""
+        or its join's. So does a menu or chain that stays linear past a
+        `return` or an `if` that shows nothing, which got no line there
+        (menu_lead; item 9o2g): the decision goes on into it, as Ren'Py
+        does."""
         for cand, count in awaiting:
             if len(result.items) > count:
                 cand["continue_idx"] = count
             elif follows is not None and id(cand) in released:
-                # The menu got no line (it stays linear): the
-                # decision gives up there, a pure choice.
-                pass
+                follows.setdefault("held", []).append((cand, count))
             elif follows is not None:
                 follows["reject"] = (
                     f"the menu follows the menu at "
@@ -1971,7 +1972,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 # The join's path went on through a `return` or past an
                 # `if` that shows nothing to a menu (item 9l): the
                 # decisions waiting on it wait on as a linear chain's
-                # held ones do, taking the menu's line (item 9o2b).
+                # held ones do, taking the menu's line (item 9o2b), or
+                # held by a menu or chain that stays linear (item 9o2g).
                 flush_bare()
                 last_line = None
                 for cand, count in awaiting:

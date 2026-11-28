@@ -232,10 +232,15 @@ game whose story order differs from its file order read out of order.
   `return` or `if` before any item stays a decision itself and gets a
   line before it, which is the decision's `continueAt` (below; Phase 60
   item 9o2b: before it the decision was a pure choice and the menu hung
-  off its last route; one that stays linear gets no line, and the
-  decision is a pure choice), and so does one that is a join item
-  9o2f follows to the caller, reached through the `return` as the walk
-  past it was; a menu
+  off its last route), and so does one that is a join item 9o2f follows
+  to the caller, reached through the `return` as the walk past it was.
+  One that stays linear for a reason of its own (a lone conditional
+  choice, an arm leading back to its condition, every choice empty)
+  gets no line and holds the decision, as a chain straight after the
+  menu does: the decision's `continueAt` is its first item, or, when it
+  shows nothing, the first item past it (item 9o2g: before it the
+  decision was a pure choice there, its routes `"ending"`, though
+  Ren'Py goes on into the linear menu); a menu
   nested in a route whose choices meet where the enclosing menu's do
   (a jump there, or falling through at the end of the enclosing
   choice's block) takes the enclosing `continueAt`, past its route's
@@ -269,7 +274,8 @@ game whose story order differs from its file order read out of order.
   Ren'Py's do; else (its join has no item of its own, say the join's
   path ended before one and the walk went on elsewhere, to a computed
   jump's next candidate) it stays a pure choice, the line after its
-  last route. A menu or chain that stays linear gets no line, and one
+  last route. A menu or chain that stays linear gets no line (past a
+  `return` it holds the decision waiting there, above), and one
   opening a route with nothing of its own yet hangs off the route's
   choice text, as above. The decision's `branchDetection` note says
   which: `opens right after a shared span's last item, which no
