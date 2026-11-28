@@ -7556,7 +7556,40 @@ truthful: an unchecked box means nothing was accepted.
       item 9o's rule withdrawing a chain after a join that now
       continues -> item 9p. Orchestrator: converter/ 1628 passed,
       test_validate_content.py 545 passed.)
-- [ ] Copied cues on a withdrawn decision play once (item 9o2l).
+- [x] Copied cues on a withdrawn decision play once (item 9o2l).
+      (Withdrawal paths after the timeline, all in cli.py's
+      `finalize_branches`: an asset-pass drop in the decision's span
+      (withdrawing it and every enclosing decision), and the two
+      follows rules (the followed menu withdrawn with no `else`; a
+      choice taking no route with no join to pass on to); all three
+      can hit a decision item 9o2i copied cues onto. Cause: nothing
+      recorded the copies, so a withdrawal could not undo them, and
+      read in a row each played. Fix: audio_cues.py's `CopiedCues`
+      (the decisions a copy's routes pass through) and `AudioLog` (the
+      audio writes to an item once it takes a copy), with
+      `collapse_copies` rebuilding an affected item's audio without the
+      copy and with the cue on the last route's item; timeline.py
+      carries `through` up from nested decisions; cli.py's
+      `withdrawn_candidates` (the three rules moved out of
+      `finalize_branches`, which still calls it) and
+      `collapse_withdrawn_cues`, run after the asset pass and before
+      `carry_dropped_audio`; `_mark_episode` and `_join_results` keep
+      the log across episodes. Choices: the collapsed cue on the last
+      route's item, its pre-9o2i place (in source order it follows the
+      whole menu); undo the copies rather than copy late, since a drop
+      is known only after the timeline; a copy collapses whole when any
+      decision it passes through is withdrawn; the last route's
+      ambience, as before 9o2i; a clause in item 9o2i's CHANGELOG
+      bullet rather than a bullet of its own (against 1.14.0 nothing
+      changes). Tests: 7 new in test_cues_after_nested_menus.py, all
+      failing at 9678838 (rechecked by the orchestrator with HEAD's
+      audio_cues.py, timeline.py and cli.py: 7 failed, 14 passed).
+      Corpus (survey walk, no asset pass): in the 8 games with copied
+      cues, 14 decisions copy onto 40 items; the follows rules withdraw
+      none of them, and items, audio, branches, notes and reports are
+      identical before and after; whether the asset pass withdraws any
+      on a real game was not run. Orchestrator: converter/ 1635
+      passed, test_validate_content.py 545 passed.)
 - [ ] A new decision with no join item reads on (item 9o2m).
 - [ ] Menu prompts in the game's languages (item 9o3).
 - [ ] Menus kept linear by a rejoin (item 9o4).

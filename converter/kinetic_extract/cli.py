@@ -111,7 +111,8 @@ from typing import Any
 
 from . import __version__, conditions
 from .assets import run_asset_pass, ship_generated
-from .audio_cues import AudioFiles, carry_dropped_audio, rename_tracks
+from .audio_cues import (AudioFiles, carry_dropped_audio, collapse_copies,
+                         rename_tracks)
 from .audio_ship import SoundShipment, ship_sound
 from .decoders import Decoder, DecoderError, load_decoder
 from .images import ImplicitImages
@@ -423,39 +424,12 @@ def suffixed_id(base: str, n: int) -> str:
     return base[:ID_MAX - len(suffix)] + suffix
 
 
-def finalize_branches(result: TimelineResult,
-                      parses: list[tuple[str, object]],
-                      reports: list[Report],
-                      ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    """Turn the walked menu candidates into manifest `branches`.
-
-    A candidate is withdrawn when the asset pass dropped any item of its
-    span (or its `after` item): the route references would dangle, and
-    the ledger says so. Route ids reuse the slug scheme of item ids;
-    decision and route ids are made unique manifest-wide. Every menu
-    parsed in the run gets one ledger `branchDetection` note — detected
-    (each route's result and how the walk proved it) or skipped (with its
-    reason). Results, the continuing route and `continueAt` come from the
-    walk (docs/plan.md Phase 60 item 4): the join is where the choices'
-    paths meet, never guessed. A `continueAt` item the asset pass dropped
-    moves to the next item kept; with none the decision is a pure choice."""
-    # The item ids kept and the decision ids made so far, which a new
-    # decision id avoids; it only grows, so the suffix a decision id
-    # last took is where the next search for its base starts.
-    used = {record.item["id"] for record in result.items
-            if not record.skipped}
-    next_suffix: dict[str, int] = {}
-    # The span ids in `span_ids`, which a new span id avoids.
-    span_made: set[str] = set()
-    branches: list[dict[str, Any]] = []
-    decision_of: dict[int, tuple[dict[str, Any], list[str]]] = {}
-    # A shared span's key -> its decision and id; each route's `then`
-    # key, set once every decision is made (a nested decision is made
-    # before the one whose span it names).
-    span_ids: dict[str, tuple[dict[str, Any], str]] = {}
-    pending_then: list[tuple[dict[str, Any], dict[str, Any], str]] = []
-    span_notes: dict[int, list[str]] = {}
-
+def withdrawn_candidates(result: TimelineResult
+                         ) -> tuple[set[int], dict[int, str]]:
+    """The candidates withdrawn (by id), with the reason for those the
+    `follows` rules withdraw: a candidate one of whose items (its span's
+    or its `after` item) the asset pass dropped, and by those rules.
+    Running it again gives the same answer."""
     def dropped(cand: dict[str, Any]) -> bool:
         top = max([end for _label, _start, end in cand["route_spans"]]
                   + [span["end"] for span in cand.get("shared", [])])
@@ -489,6 +463,55 @@ def finalize_branches(result: TimelineResult,
             why_withdrawn[id(cand)] = (
                 "a choice of the decision it follows takes no route, and "
                 "it has no join to pass on to")
+    return withdrawn, why_withdrawn
+
+
+def collapse_withdrawn_cues(result: TimelineResult) -> None:
+    """A cue the walk passed to each route of a nested decision going on
+    (docs/plan.md Phase 60 item 9o2i) goes on its enclosing route's last
+    item alone when a decision those routes pass through is withdrawn:
+    its routes are read in a row, and each copy would play (item 9o2l).
+    Run after the asset pass, before its dropped items' audio moves."""
+    withdrawn, _why = withdrawn_candidates(result)
+    if withdrawn:
+        collapse_copies(result.audio_log, lambda copy: any(
+            id(cand) in withdrawn for cand in copy.through))
+
+
+def finalize_branches(result: TimelineResult,
+                      parses: list[tuple[str, object]],
+                      reports: list[Report],
+                      ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Turn the walked menu candidates into manifest `branches`.
+
+    A candidate is withdrawn when the asset pass dropped any item of its
+    span (or its `after` item): the route references would dangle, and
+    the ledger says so. Route ids reuse the slug scheme of item ids;
+    decision and route ids are made unique manifest-wide. Every menu
+    parsed in the run gets one ledger `branchDetection` note — detected
+    (each route's result and how the walk proved it) or skipped (with its
+    reason). Results, the continuing route and `continueAt` come from the
+    walk (docs/plan.md Phase 60 item 4): the join is where the choices'
+    paths meet, never guessed. A `continueAt` item the asset pass dropped
+    moves to the next item kept; with none the decision is a pure choice."""
+    # The item ids kept and the decision ids made so far, which a new
+    # decision id avoids; it only grows, so the suffix a decision id
+    # last took is where the next search for its base starts.
+    used = {record.item["id"] for record in result.items
+            if not record.skipped}
+    next_suffix: dict[str, int] = {}
+    # The span ids in `span_ids`, which a new span id avoids.
+    span_made: set[str] = set()
+    branches: list[dict[str, Any]] = []
+    decision_of: dict[int, tuple[dict[str, Any], list[str]]] = {}
+    # A shared span's key -> its decision and id; each route's `then`
+    # key, set once every decision is made (a nested decision is made
+    # before the one whose span it names).
+    span_ids: dict[str, tuple[dict[str, Any], str]] = {}
+    pending_then: list[tuple[dict[str, Any], dict[str, Any], str]] = []
+    span_notes: dict[int, list[str]] = {}
+
+    withdrawn, why_withdrawn = withdrawn_candidates(result)
     for cand in result.branch_candidates:
         rec = cand["record"]
         after_idx = cand["after_idx"]
@@ -1060,6 +1083,7 @@ def main(argv: list[str] | None = None) -> int:
         skipped, media = run_asset_pass(result.items, args.out_dir, tools,
                                         args.decoder, result.decoded_sizes,
                                         cache=cache)
+        collapse_withdrawn_cues(result)
         carry_dropped_audio(result.items)
         sound = ship_sound(result, args.out_dir, tools, args.decoder,
                            media, cache, reports)
@@ -1308,6 +1332,12 @@ def _mark_episode(n: int, episode: _Episode) -> None:
         for media in [record, *record.frames]:
             if media.source_ref is not None:
                 media.source_ref = {**media.source_ref, "project": n}
+    for logged in episode.result.audio_log:
+        # The audio a withdrawn decision's copies are rebuilt from.
+        if logged.base:
+            logged.base = rename_tracks(logged.base, new_id)
+        logged.pieces = [(copy, alone, rename_tracks(audio, new_id))
+                         for copy, alone, audio in logged.pieces]
     walk = episode.result.walk
     for entry in (walk.get("labelsUnreached", []) + walk.get(
             "callsNotRepeated", []) + walk.get("notFollowed", [])
@@ -1343,6 +1373,7 @@ def _join_results(results: list[TimelineResult]) -> TimelineResult:
         joined.source_images += result.source_images
         joined.decoded_sizes += result.decoded_sizes
         joined.audio_tracks |= result.audio_tracks
+        joined.audio_log += result.audio_log
         joined.transitions.add(result.transitions)
         for cand in result.branch_candidates:
             copies[id(cand)] = {
@@ -1362,6 +1393,12 @@ def _join_results(results: list[TimelineResult]) -> TimelineResult:
             cand["joins_with"] = copies[id(cand["joins_with"])]
         if cand.get("follows") is not None:
             cand["follows"] = copies[id(cand["follows"])]
+    remapped: set[int] = set()
+    for entry in joined.audio_log:
+        for copy, _alone, _audio in entry.pieces:
+            if copy is not None and id(copy) not in remapped:
+                remapped.add(id(copy))
+                copy.through = [copies[id(cand)] for cand in copy.through]
     return joined
 
 

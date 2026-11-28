@@ -23,10 +23,15 @@ nothing and `kinetic check --steps all` walks to the story's end.
 
 from __future__ import annotations
 
+import json
+import shutil
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 import pytest
 
+from kinetic_extract.cli import main as cli_main
 from test_jump_menus import LEAD, check_folder, extract, ogg, shape, texts
 
 NESTED = [("Rest", "You rest.", "You rest.", "continue"),
@@ -293,3 +298,180 @@ def test_an_enclosing_join_that_shows_nothing_is_not_passed(
          "continueAt": "After."},
         enclosing()]
     check_folder(tmp_path, out, manifest)
+
+
+# --- a withdrawn decision's copies play once (item 9o2l) ---------------------
+#
+# The CLI withdraws a decision after the walk when the asset pass drops an
+# item of its span, or by the `follows` rules (cli.withdrawn_candidates).
+# Its routes are then read in a row, so the cue passed to each of them
+# would play at each copy: it goes, as before item 9o2i, on the item
+# before the enclosing route's end alone, where the reader of the linear
+# items has read every route.
+
+
+def broken(tmp_path: Path) -> None:
+    """A picture the asset pass drops, with the line shown on it."""
+    images = tmp_path / "proj" / "game" / "images"
+    images.mkdir(parents=True, exist_ok=True)
+    (images / "broken.png").write_bytes(b"\x00" * 64)
+
+
+def withdrawals(ledger: dict) -> list[str]:
+    return [r["reason"] for r in ledger["report"]
+            if "decision withdrawn, linear flow kept" in r["reason"]]
+
+
+@pytest.mark.parametrize(("cue", "lead", "audio"), [
+    ('play sound "audio/theme.ogg"', "", {"sfx": [
+        {"track": "theme", "channel": "sound"}]}),
+    ('play music "audio/theme.ogg"', "", {"music": "theme"}),
+    ("stop music", '    play music "audio/theme.ogg"\n', {"music": None}),
+])
+def test_a_dropped_route_item_cues_the_copies_once(
+        tmp_path: Path, cue: str, lead: str, audio: dict) -> None:
+    """The asset pass drops a picture in the nested menu's first route:
+    both decisions are withdrawn, and the cue after the nested menu goes
+    on its last route's last item alone, not on each route's."""
+    sounds(tmp_path, "theme")
+    broken(tmp_path)
+    out, manifest, ledger = extract(tmp_path, in_place(cue).replace(
+        '                    "You rest."\n',
+        '                    scene broken\n'
+        '                    "You doze."\n'
+        '                    scene bg\n'
+        '                    "You rest."\n').replace(
+        '    "Lead."\n', lead + '    "Lead."\n'))
+    assert texts(manifest) == ["Lead.", "You visit.", "You rest.",
+                               "You wait.", "You stay.", "After."]
+    assert manifest.get("branches", []) == []
+    assert len(withdrawals(ledger)) == 2
+    expected = {"You wait.": audio}
+    if lead:
+        expected["Lead."] = {"music": "theme"}
+    assert audio_of(manifest) == expected
+    check_folder(tmp_path, out, manifest)
+
+
+def test_menus_nested_twice_withdrawn_cue_once(tmp_path: Path) -> None:
+    """A dropped picture in the innermost menu withdraws all three
+    decisions: the sounds after the innermost and the middle menus each
+    play once, on the last item before the route that held that menu
+    ends."""
+    sounds(tmp_path, "door", "bell")
+    broken(tmp_path)
+    out, manifest, ledger = extract(tmp_path, in_place(
+        'play sound "audio/door.ogg"').replace(
+        '                    "You rest."\n',
+        '                    "You rest."\n'
+        '                    menu:\n'
+        '                        "Sit":\n'
+        '                            scene broken\n'
+        '                            "You doze."\n'
+        '                            scene bg\n'
+        '                            "You sit."\n'
+        '                        "Lie":\n'
+        '                            "You lie."\n'
+        '                    play sound "audio/bell.ogg"\n'))
+    assert texts(manifest) == ["Lead.", "You visit.", "You rest.",
+                               "You sit.", "You lie.", "You wait.",
+                               "You stay.", "After."]
+    assert manifest.get("branches", []) == []
+    assert len(withdrawals(ledger)) == 3
+    assert audio_of(manifest) == {
+        "You lie.": {"sfx": [{"track": "bell", "channel": "sound"}]},
+        "You wait.": DOOR}
+    check_folder(tmp_path, out, manifest)
+
+
+PICK = ('    menu:\n'
+        '        "Red":\n'
+        '            $ pick = "r"\n'
+        '            "Red it is."\n'
+        '        "Green":\n'
+        '            $ pick = "g"\n'
+        '            "Green it is."\n'
+        '        "Blue":\n'
+        '            $ pick = "b"\n'
+        '            "Blue it is."\n'
+        '    "Later."\n'
+        '    menu:\n'
+        '        "Visit":\n'
+        '            "You visit."\n'
+        '            if pick == "r":\n'
+        '                "Red again."\n'
+        '            elif pick == "g":\n'
+        '                "Green again."\n'
+        '            play sound "audio/door.ogg"\n'
+        '        "Stay":\n'
+        '            "You stay."\n')
+
+
+def test_a_chain_whose_followed_menu_is_withdrawn_cues_once(
+        tmp_path: Path) -> None:
+    """The chain in the Visit route follows the first menu and leaves out
+    its absent `else`; the asset pass withdraws that menu, so the chain
+    is withdrawn too and its arms are read in a row: the sound after it
+    plays once, on its last arm, in the decision that holds it."""
+    sounds(tmp_path, "door")
+    broken(tmp_path)
+    out, manifest, ledger = extract(tmp_path, LEAD + PICK.replace(
+        '            "Red it is."\n',
+        '            "Red it is."\n'
+        '            scene broken\n'
+        '            "Red glows."\n'
+        '            scene bg\n') + '    "After."\n    return\n')
+    assert shape(manifest) == [{
+        "after": "Later.",
+        "routes": [("Visit", "You visit.", "Green again.", "continue"),
+                   ("Stay", "You stay.", "You stay.", "continue")],
+        "continuing": "Stay", "continueAt": "After."}]
+    assert any("the decision it follows was withdrawn" in r
+               for r in withdrawals(ledger))
+    assert audio_of(manifest) == {"Green again.": DOOR}
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_chain_withdrawn_with_no_join_to_pass_on_to_cues_once(
+        tmp_path: Path) -> None:
+    """The enclosing decision has no join item, so the chain, a pure
+    choice too, cannot pass the choice no arm takes: it is withdrawn,
+    its arms read in a row, and the sound plays once."""
+    sounds(tmp_path, "door")
+    out, manifest, ledger = extract(tmp_path, LEAD + PICK + '    return\n')
+    assert [d["routes"] for d in shape(manifest)][1] == [
+        ("Visit", "You visit.", "Green again.", "ending"),
+        ("Stay", "You stay.", "You stay.", "ending")]
+    assert any("takes no route, and it has no join to pass on to" in r
+               for r in withdrawals(ledger))
+    assert audio_of(manifest) == {"Green again.": DOOR}
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_withdrawn_decision_in_a_second_episode_cues_once(
+        tmp_path: Path) -> None:
+    """Two projects as one game: the second one's decisions are withdrawn
+    in the joined walk, its track ids renamed, and the copies collapse
+    there too."""
+    sounds(tmp_path, "door")
+    broken(tmp_path)
+    extract(tmp_path, in_place('play sound "audio/door.ogg"').replace(
+        '                    "You rest."\n',
+        '                    scene broken\n'
+        '                    "You doze."\n'
+        '                    scene bg\n'
+        '                    "You rest."\n'))
+    first = tmp_path / "first"
+    shutil.copytree(tmp_path / "proj", first)
+    (first / "game" / "script.rpy").write_text(
+        LEAD + '    "Between."\n    return\n', encoding="utf-8")
+    out = tmp_path / "both"
+    with redirect_stdout(StringIO()):
+        assert cli_main([str(first), str(tmp_path / "proj"), str(out)]) == 0
+    manifest = json.loads((out / "manifest.json").read_text("utf-8"))
+    assert texts(manifest) == ["Lead.", "Between.", "Lead.", "You visit.",
+                               "You rest.", "You wait.", "You stay.",
+                               "After."]
+    assert manifest.get("branches", []) == []
+    assert audio_of(manifest) == {"You wait.": {"sfx": [
+        {"track": "ep2-door", "channel": "sound"}]}}

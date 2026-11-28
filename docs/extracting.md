@@ -1584,7 +1584,12 @@ goes on to one), with the ambience set that route left, changed as the
 cue changes it, and not on a route that ends the story or goes back to
 its menu (item 9o2i). Before, it waited for the next item and went on
 the enclosing route's last item, the nested decision's last route's,
-so a reader who chose another nested route never heard it.
+so a reader who chose another nested route never heard it. That is
+still where it goes when the CLI withdraws the nested decision, or a
+decision nested in it that those routes pass through (an item of its
+span the asset pass dropped, or a `follows` rule): its routes are read
+in a row, so the cue plays once, after all of them, not at each
+route's end (item 9o2l).
 
 Not converted, each reported with its statement in the ledger `report`
 and the summary:

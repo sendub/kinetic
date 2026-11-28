@@ -378,7 +378,10 @@ something more of an author.
 - A sound or music cue after a menu nested in a route, at the end of
   that route, now plays on every nested route that goes on, each with
   the ambience its route left, instead of only on the last nested
-  route's last line. Such a cue, a bare `with` or a `pause` there no
+  route's last line; when the converter withdraws the nested decision
+  (a picture dropped from a route, or an `if` chain that cannot follow
+  its menu), its routes read in a row and the cue plays once, after
+  them, as before. Such a cue, a bare `with` or a `pause` there no
   longer ends the nested menu's routes (a pure choice) where Ren'Py
   goes on: they continue where the enclosing decision does
   (docs/extracting.md, "The walk follows labels" and "Reading Ren'Py

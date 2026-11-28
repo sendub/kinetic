@@ -86,7 +86,7 @@ from pathlib import Path
 from typing import Any
 
 from . import conditions
-from .audio_cues import AudioFiles, AudioTrack, CueWalker
+from .audio_cues import AudioFiles, AudioLog, AudioTrack, CueWalker
 from .flow import follow_labels
 from .media import probe_duration_seconds
 from .parser import (_KEYWORD_ARG_RE, ID_MAX, Event, FileParse, Report,
@@ -450,6 +450,10 @@ class TimelineResult:
     branch_candidates: list[dict[str, Any]] = field(default_factory=list)
     # Track id -> the track the items' audio cues name.
     audio_tracks: dict[str, AudioTrack] = field(default_factory=dict)
+    # The audio written onto items that took a cue copied past a nested
+    # decision, which the CLI collapses when it withdraws one the copy
+    # passes through (docs/plan.md Phase 60 item 9o2l).
+    audio_log: list[AudioLog] = field(default_factory=list)
     # Speaker display name -> the coloured Character defines whose lines
     # the walk gave that name (kinetic_extract.presentation).
     speaker_colors: dict[str, list[CharacterColors]] = field(
@@ -746,8 +750,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     # Each decision's last item -> the last item of each of its routes
     # that goes on (through a nested decision ending such a route, that
     # one's), which a cue between its close and the end of the route
-    # holding it reaches (docs/plan.md Phase 60 item 9o2i).
-    route_exits: dict[int, list[int]] = {}
+    # holding it reaches (docs/plan.md Phase 60 item 9o2i), and the
+    # decisions those routes pass through, it first (item 9o2l).
+    route_exits: dict[int, tuple[list[int], list[dict[str, Any]]]] = {}
     # Why menu_lead gave the line it last gave (MenuRecord.lead_kind).
     lead_kind = "join"
 
@@ -1647,14 +1652,19 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         region_ends.add(len(result.items) - 1)
         span_of = {span["key"]: span for span in shared}
         exits: list[int] = []
+        through = [cand]
         for k, (_label, _start, end) in zip(kept, cand["route_spans"]):
             span = span_of.get(then_of.get(k))
             if span is not None:
                 end = span["end"] if span["result"] == "continue" else -1
             if results[k] == "continue" and end >= 0:
-                exits += route_exits.get(end, [end])
+                inner, passed = route_exits.get(end, ([end], []))
+                exits += inner
+                through += [c for c in passed
+                            if all(c is not t for t in through)]
         if exits:
-            route_exits[len(result.items) - 1] = list(dict.fromkeys(exits))
+            route_exits[len(result.items) - 1] = (
+                list(dict.fromkeys(exits)), through)
         for span in shared:
             for joined in span_joins.get(span["key"], []):
                 # The CLI drops that join too if it withdraws this one.
@@ -1705,11 +1715,15 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         elif ms["starts"]:
             has_item = len(result.items) > ms["starts"][-1]
             # A nested decision ending the route, no item since: its
-            # routes going on pass the cues waiting (item 9o2i).
-            exits = route_exits.get(len(result.items) - 1) \
+            # routes going on pass the cues waiting (item 9o2i), unless
+            # the CLI withdraws a decision they pass through (9o2l).
+            got = route_exits.get(len(result.items) - 1) \
                 if has_item else None
-            cues.route_end(result.items[-1] if has_item else None,
-                           exits=[result.items[i] for i in exits or ()])
+            exits, through = got or ([], [])
+            copy = cues.route_end(result.items[-1] if has_item else None,
+                                  exits=[result.items[i] for i in exits])
+            if copy is not None:
+                copy.through = through
 
     try:
         for parsed, event in walk.events:
@@ -2128,6 +2142,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         known.sort(key=lambda c: c.order)
     cues.finish()
     result.audio_tracks = cues.tracks
+    result.audio_log = cues.log
 
     if not result.items and start_label is None and max_items is None:
         raise SystemExit("kinetic-extract: script produced no items")

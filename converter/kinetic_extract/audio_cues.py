@@ -36,14 +36,17 @@ ambience change says so. A shared span laid out after the routes plays on
 from what played where the walk first read it. A cue after a nested
 decision that ends its enclosing route, no item between, goes on the last
 item of each of its routes that goes on, with that route's ambience
-(docs/plan.md Phase 60 item 9o2i).
+(docs/plan.md Phase 60 item 9o2i). When the CLI withdraws a decision
+those routes pass through, they are read in a row, so the copies give
+way to the cue on the route's last item alone (``collapse_copies``; item
+9o2l).
 """
 
 from __future__ import annotations
 
 import os
 import re
-from collections.abc import Container
+from collections.abc import Callable, Container
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -352,6 +355,50 @@ def fresh_track_id(stem: str, taken: Container[str]) -> str:
     return candidate
 
 
+@dataclass(eq=False)
+class CopiedCues:
+    """The cues one route's end passed to each route of the nested
+    decision ending it that goes on (docs/plan.md Phase 60 item 9o2i).
+    ``through``: the decisions those routes pass through, the nested one
+    first (the timeline's candidates, set by the timeline). When the CLI
+    withdraws any of them, ``collapse_copies`` gives the cues to the
+    route's last item alone, as for a route ending with no decision
+    (item 9o2l)."""
+
+    through: list[Any] = field(default_factory=list)
+
+
+@dataclass
+class AudioLog:
+    """The audio written onto one item after it was emitted, in order:
+    its audio before (``base``) and each piece, with the copy it belongs
+    to and whether it is that copy's cue for the route's last item, given
+    only when the copy is collapsed (``alone``). Whatever rewrites the
+    items' audio before ``collapse_copies`` runs rewrites these too (the
+    CLI's track ids per project)."""
+
+    record: ItemRecord
+    base: dict[str, Any] | None
+    pieces: list[tuple[CopiedCues | None, bool, dict[str, Any]]] = field(
+        default_factory=list)
+
+
+def collapse_copies(log: list[AudioLog],
+                    collapsed: Callable[[CopiedCues], bool]) -> None:
+    """Rewrite the audio of every item a collapsed copy wrote to: its
+    audio before, then each piece in order, a copy's pieces only when it
+    stays and its last-item cue only when it is collapsed (item 9o2l)."""
+    for entry in log:
+        if not any(copy is not None and collapsed(copy)
+                   for copy, _alone, _audio in entry.pieces):
+            continue
+        audio = entry.base
+        for copy, alone, piece in entry.pieces:
+            if copy is None or collapsed(copy) == alone:
+                audio = merge_audio(audio, piece)
+        entry.record.audio = audio
+
+
 class CueWalker:
     """Attaches the audio cues of one walk to its items (module doc)."""
 
@@ -386,6 +433,10 @@ class CueWalker:
         # set there, which a cue past a nested decision's routes is
         # replayed on (docs/plan.md Phase 60 item 9o2i).
         self._end_state: dict[int, dict[str, str]] = {}
+        # The audio written onto emitted items once one of them takes a
+        # copy (item 9o2l), by id; ``log`` lists them for the CLI.
+        self._logs: dict[int, AudioLog] = {}
+        self.log: list[AudioLog] = []
 
     def movie_play(self, event: Event) -> tuple[str, str | None] | None:
         """``(channel, file)`` of a `play` or `queue` on a channel that
@@ -619,7 +670,8 @@ class CueWalker:
 
     def route_end(self, last: ItemRecord | None,
                   keep_state: bool = True,
-                  exits: list[ItemRecord] | None = None) -> None:
+                  exits: list[ItemRecord] | None = None,
+                  ) -> CopiedCues | None:
         """A route's block ended; ``last`` is its last item, if any. A
         shared span's end (``keep_state`` False) leaves the routes'
         states as they were. ``exits``: when the route ends with a nested
@@ -627,15 +679,21 @@ class CueWalker:
         routes that goes on (docs/plan.md Phase 60 item 9o2i). Each
         passes the cues waiting, as Ren'Py's flow does, so each takes
         them, with the ambience its route left changed as they change
-        it, in place of ``last`` alone."""
+        it, in place of ``last`` alone; the copy returned names them, for
+        the caller to say which decisions they pass through."""
         if self._lead is None:
-            return
+            return None
         trailing = self._group.render(self._ambience)
+        copy = None
         if exits and last is not None:
+            copy = CopiedCues()
             for record in exits:
-                self._pass_on(record)
+                self._pass_on(record, copy)
+            if trailing:
+                # Kept for a withdrawn decision's routes read in a row.
+                self._write(last, trailing, copy, alone=True)
         elif trailing and last is not None:
-            last.audio = merge_audio(last.audio, trailing)
+            self._write(last, trailing)
         elif trailing:
             for parsed, source, statement in self._group.origins:
                 self._report(parsed, source, statement, EMPTY_ROUTE)
@@ -646,8 +704,9 @@ class CueWalker:
         if last is not None and not exits:
             self._end_state[id(last)] = dict(self._ambience)
         self._group = _Group()
+        return copy
 
-    def _pass_on(self, record: ItemRecord) -> None:
+    def _pass_on(self, record: ItemRecord, copy: CopiedCues) -> None:
         """The waiting cues on ``record``, a nested route's last item:
         its ambience set (as its route left it) changed as they change
         the set, given when it differs or they changed the set."""
@@ -662,8 +721,22 @@ class CueWalker:
             self._group.ambience_set or after != before))
         audio = group.render(after)
         if audio:
-            record.audio = merge_audio(record.audio, audio)
+            self._write(record, audio, copy)
         self._end_state[id(record)] = after
+
+    def _write(self, record: ItemRecord, audio: dict[str, Any],
+               copy: CopiedCues | None = None, alone: bool = False) -> None:
+        """Merge ``audio`` onto an emitted item, logged once the item
+        takes a piece of a copy (``alone``: only if the copy collapses,
+        so not merged now)."""
+        entry = self._logs.get(id(record))
+        if entry is None and copy is not None:
+            entry = self._logs[id(record)] = AudioLog(record, record.audio)
+            self.log.append(entry)
+        if entry is not None:
+            entry.pieces.append((copy, alone, audio))
+        if not alone:
+            record.audio = merge_audio(record.audio, audio)
 
     def snapshot(self) -> dict[str, str]:
         """What plays now: where the walk first read a shared span."""
