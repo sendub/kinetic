@@ -7270,7 +7270,31 @@ truthful: an unchecked box means nothing was accepted.
       and "past a `return`" cases are this shape, each with a test in
       test_never_shown.py, and docs/extracting.md's pure-choice rule
       changed with it.)
-- [ ] No repeated arm line after a nested decision (item 9o2d).
+- [x] No repeated arm line after a nested decision (item 9o2d).
+      (Cause: `close_menu` judged a nested menu on the choice endings
+      known when it closed; a called label's menu whose choices meet
+      only through its `return` looked linear then and became a
+      decision only at `resolve_region`, so the enclosing `if` arm kept
+      no story and `finish_choice` said its line again after the
+      decision. Fix: each menu records its nested menus per choice, and
+      a new `judge_region` at `resolve_region` judges the region's
+      menus inner first from their own events plus the nested menus
+      finally decisions; `finish_menu` turns a choice marker into a
+      line only when that choice's final story is empty. Choices: the
+      cause fixed, not only the warning, which also removes 9 repeats
+      a reader saw at a route's end; the reverse case (a decision at
+      close that ends linear) gets its arm line, none in the corpus.
+      Tests: 2 in test_never_shown.py, both failing at 0cc2bae, one for
+      the `if` with no `else` that is now a decision whose menu's
+      routes go on. Recount, 75 of 79 entries on both sides: never
+      shown 4 -> 0; lines 1,409,336 -> 1,409,323, the 13 lost all a
+      condition arm's line repeating its route's first line at that
+      route's end (checked by script), 70 games identical item for
+      item; decisions 33,715, `continueAt` 24,505 and branch-rule
+      problems 0 unchanged. Leads: the all-`pass` called menu under an
+      `if` with an `else` -> item 9o2f; route ids from `_return` ->
+      item 9o2e. Orchestrator: converter/ 1534 passed,
+      test_validate_content.py 545 passed.)
 - [ ] Converted folders the schema refuses (item 9o2e).
 - [ ] Nested choices in called labels go on (item 9o2f).
 - [ ] Menu prompts in the game's languages (item 9o3).

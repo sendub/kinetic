@@ -843,9 +843,10 @@ def follow_labels(parses: list[tuple[str, FileParse]],
 
         def finish_choice(fork: int, k: int) -> None:
             """A choice with no story event of its own gets its text as a
-            line, enabled at `menu-close` if the menu is a decision."""
+            line, enabled at `menu-close` if the menu is a decision and no
+            menu nested in the choice is one (judge_region)."""
             info = menus[fork]
-            if info["story"][k]:
+            if info["story_n"][k]:
                 return
             record = parsed_of[ops[fork].file].menus[ops[fork].menu]
             marker = choice_marker(record, k)
@@ -856,7 +857,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 # decision that leaves this absent else out passes to.
                 marker.outcome = {"others_join": any(
                     "join" in ends for ends in info["endings"][:k])}
-            info["texts"].append(marker)
+            info["texts"].append((k, marker))
             events.append((parsed_of[ops[fork].file], marker))
 
         def enclosing_join(join: int, ctx: Ctx) -> int:
@@ -934,9 +935,13 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             # The `menu-lead` marker reads it too: the timeline gives no
             # line to a menu that stays linear (item 9o2).
             info["lead_event"].outcome = info["outcome"]
-            if menu_reason(fork, set(), info["endings"]) is None:
-                # A nested decision is content of its enclosing routes.
-                for outer, k, _s in ctx:
+            # A nested decision is content of its enclosing routes: so
+            # far as its choices' endings show now, settled when the
+            # outermost menu open closes (judge_region; item 9o2d).
+            decided = menu_reason(fork, set(), info["endings"]) is None
+            for outer, k, _s in ctx:
+                menus[outer]["inner"][k].append(fork)
+                if decided:
                     menus[outer]["story"][k] = True
             events.append((parsed_of[op.file],
                            Event("menu-close", op.source,
@@ -1117,8 +1122,8 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                            for fk, cls in plan["routes"].items()}
                 eff = {f: effective_endings(f, plans, classes)
                        for f in menus_in}
-                linear = {f for f in menus_in
-                          if bad[f] or menu_reason(f, set(), eff[f])}
+                reasons = judge_region(menus_in, bad, eff)
+                linear = {f for f in menus_in if reasons[f]}
                 gone = [x for x, plan in plans.items()
                         if plan["involved"] & linear]
                 if not gone:
@@ -1140,13 +1145,34 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 for f in plan["joining"]:
                     join_span[f] = plan["key"]
             for f in menus_in:
-                finish_menu(f, menu_reason(f, bad[f], eff[f]), eff[f],
+                finish_menu(f, reasons[f], eff[f],
                             then_of, owned.get(f, []))
                 if f in join_span:
                     menus[f]["outcome"]["join_span"] = join_span[f]
             for plan in sorted(plans.values(), key=lambda p: p["e0"]):
                 if plan["story"]:
                     move_span(plan)
+
+        def judge_region(menus_in: list[int], bad: dict[int, set[int]],
+                         eff: dict[int, list[set[str]]]
+                         ) -> dict[int, str | None]:
+            """Why each menu closed since the outermost one open opened
+            stays linear, or None (menu_reason), in the order they closed,
+            so a nested menu is judged before the menus holding it. A
+            choice's story is its own story events and the menus nested
+            in it judged decisions here: at its close a nested menu was
+            judged on the endings known then, and a rejoin a shared tail
+            takes later can make it a decision after all (item 9o2d), or
+            one judged a decision then can stay linear."""
+            reasons: dict[int, str | None] = {}
+            for f in menus_in:
+                info = menus[f]
+                info["story"] = [
+                    bool(own) or any(g in reasons and reasons[g] is None
+                                     for g in inner)
+                    for own, inner in zip(info["story_n"], info["inner"])]
+                reasons[f] = menu_reason(f, bad[f], eff[f])
+            return reasons
 
         def finish_menu(fork: int, linear: str | None,
                         endings: list[set[str]],
@@ -1184,8 +1210,9 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 parsed_of[ops[fork].file].menus[ops[fork].menu] \
                     .stat_choice = True
             if linear is None:
-                for marker in info["texts"]:
-                    marker.kind = "dialogue"
+                for k, marker in info["texts"]:
+                    if k is None or not info["story"][k]:
+                        marker.kind = "dialogue"
                 if info["route_lead"] is not None:
                     info["route_lead"].kind = "route-lead"
                 for plan in spans:
@@ -1229,7 +1256,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 record = parsed_of[ops[f0].file].menus[ops[f0].menu]
                 marker = choice_marker(record, k0)
                 marker.kind = "dialogue"
-                menus[f0]["texts"].append(marker)
+                menus[f0]["texts"].append((None, marker))
                 marks.append((parsed_of[ops[f0].file], marker))
             marks.append((parsed, Event("shared-mark", ops[x].source,
                                         name=plan["key"])))
@@ -1452,6 +1479,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 "returned": [False] * count,
                                 "story": [False] * count, "texts": [],
                                 "story_n": [0] * count,
+                                "inner": [[] for _ in range(count)],
                                 "ends": [[] for _ in range(count)],
                                 "open_at": len(events), "depth": len(ctx),
                                 "ctx": ctx}

@@ -170,3 +170,82 @@ def test_a_chain_after_a_pure_choice_hangs_off_a_line(tmp_path: Path
     assert decisions[0]["continueAt"] is None
     assert decisions[1]["after"] == NEXT
     check_folder(tmp_path, out, manifest)
+
+
+def arm_calls_talk(other: str) -> str:
+    """An `if` arm calls a label whose menu's choices meet only through
+    its `return`: a `pass`, a `return`, a `pass` (item 9o2d); ``other``
+    is the chain's other arm."""
+    return ('default hour = "day"\n'
+            'init python:\n'
+            '    def tick():\n'
+            '        global hour\n'
+            '        hour = "night"\n'
+            'label start:\n    scene bg\n    "Lead."\n'
+            '    $ tick()\n'
+            '    if hour == "day":\n'
+            '        call talk\n' + other +
+            '    "After."\n    return\n'
+            'label talk:\n'
+            '    menu:\n'
+            '        "Rest":\n            pass\n'
+            '        "Kiss":\n            return 1\n'
+            '        "Wait":\n            pass\n'
+            '    return\n')
+
+
+def test_a_chain_arm_line_before_a_nested_stat_choice_is_said_once(
+        tmp_path: Path) -> None:
+    """An `if` arm calls a label whose menu's choices meet only through
+    its `return` (item 9o2d): the walk judges the menu on how its choices
+    ended at its close, where a later `pass` stops at the `return` an
+    earlier choice read (a shared tail with nothing in it, known only
+    when the outermost menu closes), so the arm had no story of its own
+    and got its line again after the nested decision, in no route. The
+    enclosing routes' story follows the menu's final judgement: the
+    arm's line is said once, before the nested decision."""
+    out, manifest, ledger = extract(tmp_path, arm_calls_talk(
+        '    else:\n        "Evening."\n'))
+    arm = "(hour is day)"
+    assert texts(manifest) == ["Lead.", arm, "Rest", "Kiss", "Wait",
+                               "Evening.", "After."]
+    decisions = shape(manifest)
+    assert decisions[0] == {
+        "after": arm,
+        "routes": [(label, label, label, "continue")
+                   for label in ("Rest", "Kiss", "Wait")],
+        "continuing": "Wait", "continueAt": "After."}
+    assert decisions[1] == {
+        "after": "Lead.",
+        "routes": [("hour is day", arm, "Wait", "continue"),
+                   ("hour is not day", "Evening.", "Evening.", "continue")],
+        "continuing": "hour is not day", "continueAt": "After."}
+    assert menu_reports(ledger) == []
+    check_folder(tmp_path, out, manifest)
+
+
+def test_a_nested_stat_choice_makes_its_chain_a_decision(tmp_path: Path
+                                                        ) -> None:
+    """The same menu under an `if` with no `else`: the menu is a decision
+    once the walk has read every choice, so the arm holding it has a
+    story and the chain is a decision too, both going on to the line
+    after the chain. Before, the chain was judged on the menu as its
+    close found it (no story, so linear) and the menu's routes were
+    endings, the line after them a pure choice's."""
+    out, manifest, ledger = extract(tmp_path, arm_calls_talk(""))
+    arm, absent = "(hour is day)", "(hour is not day)"
+    assert texts(manifest) == ["Lead.", arm, "Rest", "Kiss", "Wait",
+                               absent, "After."]
+    decisions = shape(manifest)
+    assert decisions[0] == {
+        "after": arm,
+        "routes": [(label, label, label, "continue")
+                   for label in ("Rest", "Kiss", "Wait")],
+        "continuing": "Wait", "continueAt": "After."}
+    assert decisions[1] == {
+        "after": "Lead.",
+        "routes": [("hour is day", arm, "Wait", "continue"),
+                   ("hour is not day", absent, absent, "continue")],
+        "continuing": "hour is not day", "continueAt": "After."}
+    assert menu_reports(ledger) == []
+    check_folder(tmp_path, out, manifest)

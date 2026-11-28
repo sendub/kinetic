@@ -225,7 +225,12 @@ game whose story order differs from its file order read out of order.
   choice's block opens with the menu, or jumps straight to a label that
   does) starts with one line, its choice text, translated from the
   language's `strings` block, and the nested decision hangs off that
-  line (Phase 60 item 8c). A menu whose
+  line (Phase 60 item 8c). A route holding a nested decision has
+  that decision as its own content, so its choice text comes once,
+  before the nested decision, never again after it; that holds too
+  for a menu that becomes a decision only once the walk has read every
+  route (a choice falling through to a called label's `return` another
+  choice read first; item 9o2d). A menu whose
   choices all fall through meets right after the menu, so it continues
   there too; one with no item after its join (the story's end) is a
   pure choice, its routes `"ending"`. A menu straight after another

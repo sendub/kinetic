@@ -5201,8 +5201,12 @@ The orchestrator's choices, within those decisions:
     through `return` into the caller's join is a pure choice, its
     routes `"ending"`, so a reader stops after such a route where
     Ren'Py goes on. Its join follows the `return` to the caller, as
-    item 9l's call stack does for the walk. Tests: a synthetic script
-    whose called menu's routes continue into the caller's next line.
+    item 9l's call stack does for the walk. Item 9o2d's shape is one:
+    `if x: call talk` / `else: "line"` / `"After."`, `talk` holding a
+    menu whose choices all `pass` to its `return`, gives routes
+    `"ending"` with no `continueAt`. Tests: a synthetic script whose
+    called menu's routes continue into the caller's next line, that
+    shape among them.
 9o3. Menu prompts in the game's languages (leads from item 9o). A say
     menuitem prompt (`e "Which one?"` in a menu) is translated from the
     game's `translate` blocks as its dialogue is, not looked up in

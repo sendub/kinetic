@@ -335,6 +335,15 @@ something more of an author.
   choice follows.`, and the decision before it goes on into it there
   when its choices lead there, as Ren'Py's do (docs/extracting.md, "The
   walk follows labels").
+- An `if` arm holding a menu's decision no longer has its line said a
+  second time after that decision, at its route's end or in no route
+  (which `kinetic validate` warned of as an item never shown), when
+  the menu becomes a decision only once the walk has read every
+  choice, as when its choices meet only through a called label's
+  `return`: the line comes once, before the decision. Such an `if`
+  with no `else` is now a decision too, and the menu's routes go on to
+  what follows it instead of ending the story (docs/extracting.md,
+  "The walk follows labels").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its
