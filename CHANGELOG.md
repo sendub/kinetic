@@ -366,6 +366,15 @@ something more of an author.
   straight after its menu, instead of ending the story there (a pure
   choice) where Ren'Py goes on (docs/extracting.md, "The walk follows
   labels").
+- A decision whose choices meet at the end of a block now goes on at
+  the statement that block's end leads to, as Ren'Py does, instead of
+  ending the story (a pure choice whose ledger note named an empty
+  place, `reaches the join at ,`): a menu nested at the end of a
+  choice, and a menu in a label called from an `if` the converter does
+  not convert with no `else`, which now continues at the line after
+  the `if`. A menu or chain met there stays a decision, with the line
+  before it that the earlier decision continues at (docs/extracting.md,
+  "The walk follows labels").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

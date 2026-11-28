@@ -216,7 +216,21 @@ game whose story order differs from its file order read out of order.
   walk reads after it: they return there too, and the caller's next
   statement comes after them all. Nor does it go past the end of such a
   block in the caller to where the `if` goes on: the `if`'s other
-  blocks are laid out in between, in the same route. What a choice's
+  blocks are laid out in between, in the same route. The join stays at
+  that block's end, but when the `if` has no other block the walk
+  reads anything in (no `else`, or one whose lines it does not lay
+  out), the join's path goes on from there to where the `if` goes on,
+  which the walk lays out next, as it goes on past an `if` met after
+  the menu (item 9o2h: `if persistent.seen: call talk` then `"After."`
+  continues at `After.`; before, the path stopped at the `if`'s join, a
+  pure choice whose routes were `"ending"`). A join at a block's end
+  (here, or a menu nested at the end of a choice whose enclosing menu's
+  choices meet elsewhere, past a `return`) has no line of its own: it
+  is named by the statement it goes on to, which its routes continue
+  at, and one at a file's end by its file (`the end of
+  game/script.rpy`; item 9o2h: before, only a join item 9o2f follows to
+  the caller was; any other read as no join, a pure choice whose ledger
+  note said `reaches the join at ,`). What a choice's
   path reads is its route, and its `result` is how the path ended: at
   the join `"continue"`, back at the menu (its label, a named menu, a
   label that reaches it with no line between, or content already read
@@ -233,7 +247,11 @@ game whose story order differs from its file order read out of order.
   line before it, which is the decision's `continueAt` (below; Phase 60
   item 9o2b: before it the decision was a pure choice and the menu hung
   off its last route), and so does one that is a join item 9o2f follows
-  to the caller, reached through the `return` as the walk past it was.
+  to the caller, reached through the `return` as the walk past it was,
+  and one past a join at a block's end, reached past that block as past
+  an `if` that shows nothing (item 9o2h: read as straight after the
+  join, a chain there would stay linear, below, where before it was a
+  decision of its own).
   One that stays linear for a reason of its own (a lone conditional
   choice, an arm leading back to its condition, every choice empty)
   gets no line and holds the decision, as a chain straight after the

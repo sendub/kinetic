@@ -7398,9 +7398,45 @@ truthful: an unchecked box means nothing was accepted.
       after a join still gets "Another choice follows." -> item 9o3.
       Orchestrator: converter/ 1578 passed, test_validate_content.py
       545 passed.)
-- [ ] Joins at a block's end (item 9o2h).
+- [x] Joins at a block's end (item 9o2h).
+      (Causes: a menu nested at the end of a choice whose choices meet
+      at that block's end (a `goto` with no source), where the
+      enclosing menu's choices meet elsewhere, took that op's empty
+      source as its join, which the timeline reads as no join: a pure
+      choice, its note "reaches the join at ,"; a file-end join the
+      same. A called menu in an unconverted `if` with no `else`: item
+      9o2f's lift reached the `if` block's end, and its path stopped at
+      the `if`'s join, walked later after the implicit empty `else`.
+      Item 9o2f's wider `join_text` cascaded because a named join's path
+      met the next chain with no item between, so item 9o kept that
+      chain linear and lost its line and decision. Fix in flow.py:
+      `block_end` (a source-less `goto`); `finish_menu` names lifted,
+      block-end and file-end joins by `join_text`; `close_menu` marks a
+      block-end join crossed, so a menu or chain past it keeps item
+      9o2b's line and stays a decision (no cascade); `walked_next` lets
+      `path_end` pass an `if`'s join when the walk's next task reads on
+      from it. Choices: crossed, not "straight after" (keeps the chain a
+      decision); only source-less `goto`s (a `show screen` join keeps
+      its place, as a guard checks); file-end joins named but not
+      marked crossed; an `else` the walk reads nothing in counts as no
+      `else`; the ledger reuses "past a return or an if that shows
+      nothing". Tests: test_block_end_joins.py 12; 8 failed at 47f3bd5
+      (rechecked by the orchestrator with HEAD's flow.py: 8 failed, 4
+      passed), 4 guards. Recount, 75 of 79 entries on both sides: lines
+      1,409,323, decisions 33,715, never shown 0 and rule problems 0
+      unchanged, item sequences identical in every game; notes with an
+      empty join place 397 -> 0; `continueAt` 25,278 -> 25,480; routes
+      `continue` 51,619 -> 52,044, `ending` 18,542 -> 18,117, all 425
+      `ending` -> `continue`, in 17 games; 213 decisions now named stay
+      pure choices because their join path rejoins content already
+      laid out or ends the story. Lead: a menu at the end of a called
+      label inside a route of an enclosing menu in the same label,
+      whose choices meet past the `call`, still joins at the `return`
+      -> item 9o2k. Orchestrator: converter/ 1590 passed,
+      test_validate_content.py 545 passed.)
 - [ ] A cue after a nested menu plays on every route (item 9o2i).
 - [ ] Every join into the caller crosses its return (item 9o2j).
+- [ ] A nested menu in a called label goes on (item 9o2k).
 - [ ] Menu prompts in the game's languages (item 9o3).
 - [ ] Menus kept linear by a rejoin (item 9o4).
 - [ ] More `if` chains become decisions (item 9p).
