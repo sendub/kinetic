@@ -477,6 +477,13 @@ back-quoted.
   `what_color` it has is not carried; the note says so. A name or `kind`
   the converter cannot read (an expression, `*args`) is not taken as
   nameless: the line keeps the variable as its speaker, as before.
+- **An empty name**, `Character("")` (or `name=""`, `_("")`, or a
+  literal `kind=` whose name is empty), and a say statement whose
+  speaker is the string `""`, is no speaker name either (docs/plan.md
+  Phase 60 item 9o2e): the line is narration, with no `speaker` and no
+  `characters` entry, which must name someone, and the ledger notes the
+  empty name. Its `what_color` is not carried, as a nameless
+  speaker's is not.
 - **A speaker with image attributes**, `e happy "..."`, is e's line.
   When e's Character gives a literal `image="tag"` (its own or its
   literal `kind=`'s) and the picture on screen has that tag, the
@@ -749,7 +756,19 @@ relative subpath
 (`media/4e/4e31ed53…882e.jxl`, a 64-hex stem), which the content format's
 file-name rule allows; the player resolves it from the folder root and
 never reads meaning into the name. Item ids no longer name files, so find
-an item's file through the manifest or the ledger. A hand-authored folder
+an item's file through the manifest or the ledger. An item id is its
+picture's name made id-safe (each run of characters other than ASCII
+letters, digits, `_` and `-` one `-`), or `line`, then its place
+(`bg-room-001`, `line-002`); a route id is its choice's caption or
+arm's test made id-safe the same way, then its number (`Left-way-1`).
+An id must start with a letter or digit, so such a name loses a leading
+`_` (a chain on `_return` gives `return-is-1-1`; docs/plan.md Phase 60
+item 9o2e), and is at most 64 characters, so from item 10,000 on,
+whose place takes five digits, a long picture name loses characters
+from its end, as a long caption does from route 1,000 on, never the
+number, so no two routes of a decision share an id. An id that already fitted is as before, so saved places
+in a folder converted earlier still find it. Decision and span
+ids start with `menu-`, `if-` or `shared-` and keep the name as it is. A hand-authored folder
 such as `fixtures/demo` may use any legal layout and stays flat.
 
 Beside `media/`, kinetic-extract writes `manifest.json`, its

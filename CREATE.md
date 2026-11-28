@@ -1849,6 +1849,21 @@ missing or stale translation is a warning (docs/content-format.md,
 printed, so a game with translations, even complete ones, is silent
 when clean; `kinetic report` and `--json` give the coverage.
 
+A converted Ren'Py game whose Characters have colours nearly always
+gets colour warnings, `characters.<name>.nameColor: '#6a3d8f' has a
+contrast ratio of 1.85:1 with the text band (#292929), below 4.5:1, so
+it may be hard to read`: kinetic extract carries each Character's
+`color` and `what_color` as the game gives them, chosen for the game's
+own say box, and the player draws them unchanged on its dark text band.
+So `kinetic validate --strict` exits 3 on such a folder, though nothing
+is wrong with it. Each warning is the game's own choice: leave it, or
+clear it by giving that speaker a lighter colour, or none (the player's
+gold name or light text), in `manifest.json`'s `characters`, then
+regenerating `manifest.js` (Generating manifest.js, below). Converting
+again writes the game's colours back, so make the edit after every
+conversion. A gate that keeps the game's colours can read `--json` and
+stop only on warning kinds other than `character`.
+
 A gate, a script or an agent that must stop on a bad folder, can rely
 on that silence and on the exit status. With `--strict`, warnings of
 any kind, and no problems, exit 3:

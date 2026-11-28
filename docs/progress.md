@@ -7295,7 +7295,40 @@ truthful: an unchecked box means nothing was accepted.
       `if` with an `else` -> item 9o2f; route ids from `_return` ->
       item 9o2e. Orchestrator: converter/ 1534 passed,
       test_validate_content.py 545 passed.)
-- [ ] Converted folders the schema refuses (item 9o2e).
+- [x] Converted folders the schema refuses (item 9o2e).
+      (The recount's rules.py now runs the schema and every
+      manifest-only rule on each walk output twice, raw and with
+      placeholders for the asset pass's fields; only problems in the
+      filled manifest count. At 3bb47e7, 1,084 problems in 13 of 75
+      games: route ids from `_` labels (924) and the `continuingRoute`s
+      naming them (136); item ids over 64 characters past the 10,000th
+      item (21) and route starts naming them (2), a new form; a
+      `Character("")` speaker (1). Fix: `slug(..., lead=True)` drops a
+      leading `_` or `-` for route and item ids; `_next_id` cuts the
+      slug, never the place, to fit 64 characters; route ids use
+      `suffixed_id`, so the 1,000th route on a long caption keeps its
+      number (asked for by the orchestrator, a lead of the item); a
+      Character with an empty name, and a `"" "..."` say statement, are
+      narration. Choices: prefixed decision and span ids keep their `_`
+      (they fit); whitespace-only names are left alone (the schema takes
+      them); an empty name is narration though Ren'Py's stock screen
+      would show an empty name box. CREATE.md's "Validating" explains
+      the contrast warnings the games' own name colours give (832 in
+      the corpus), so `--strict` exits 3 on a sound conversion, and what
+      an agent can do; the converter is unchanged for them. Tests:
+      test_schema_forms.py 21, failing first except the 2 guards and
+      the route-number case, which failed with 999 distinct ids of
+      1,001; the 9n4b guard counts `menu-` bases only, as route ids now
+      call `suffixed_id`. A real extract of the empty-Character game
+      validates with exit 0. Recount, 75 of 79 entries on both sides:
+      schema and rule problems 1,084 in 13 games -> 0; 945 of 1,571,902
+      ids changed, all of them refused before, none that fitted
+      (idcheck.py, and routecut.py over 71,433 route ids for the suffix
+      rule); lines 1,409,323, decisions 33,715 and never shown 0
+      unchanged; 1,068 empty speakers in 13 games now narration.
+      Orchestrator: converter/ 1555 passed, test_validate_content.py
+      545 passed; CREATE.md's cross-reference to "Generating
+      manifest.js" corrected to "below".)
 - [ ] Nested choices in called labels go on (item 9o2f).
 - [ ] Menu prompts in the game's languages (item 9o3).
 - [ ] Menus kept linear by a rejoin (item 9o4).

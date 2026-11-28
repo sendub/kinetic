@@ -234,10 +234,15 @@ _DEFAULT_PROMPT = "What happens next?"
 _SLUG_BAD_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
-def slug(text: str | None, fallback: str) -> str:
+def slug(text: str | None, fallback: str, lead: bool = False) -> str:
     """Id-safe slug of a name: non-[A-Za-z0-9_-] runs become `-` (the
-    item-id scheme of kinetic_extract.timeline, reused for branch ids)."""
+    item-id scheme of kinetic_extract.timeline, reused for branch ids).
+    ``lead``: the slug starts an id (a route's, an item's), which must
+    start with a letter or digit, so a leading `_` goes too (docs/plan.md
+    Phase 60 item 9o2e); a slug after a prefix keeps it, as before."""
     raw = _SLUG_BAD_RE.sub("-", (text or "").strip()).strip("-")
+    if lead:
+        raw = raw.lstrip("_-")
     return raw[:60] if raw else fallback
 
 

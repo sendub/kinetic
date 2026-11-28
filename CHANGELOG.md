@@ -344,6 +344,15 @@ something more of an author.
   with no `else` is now a decision too, and the menu's routes go on to
   what follows it instead of ending the story (docs/extracting.md,
   "The walk follows labels").
+- A converted folder no longer fails `kinetic validate` when a route
+  or item id would start with `_`, as a chain on `_return` made, or an
+  item id past the 10,000th would run over 64 characters, or when the
+  1,000th route on a long caption lost its number and took another
+  route's id: such ids drop the leading `_` or the end of the name,
+  and every other id is as before. A
+  Character with an empty name, `Character("")`, now gives narration
+  instead of the empty speaker name and `characters` entry the schema
+  refused (docs/extracting.md, "Say statements" and "Output layout").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

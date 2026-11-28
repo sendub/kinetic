@@ -534,7 +534,9 @@ def finalize_branches(result: TimelineResult,
                     span["result"] = "ending"
                     span["how"] += lost
         routes = [{
-            "id": f"{slug(label, 'route')}-{k + 1}"[:ID_MAX],
+            # The caption's slug cut, never the number (item 9o2e): an
+            # id of 64 characters or fewer is as it was.
+            "id": suffixed_id(slug(label, 'route', lead=True), k + 1),
             "label": label,
             "start": result.items[start].item["id"],
             "end": result.items[end].item["id"],

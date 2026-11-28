@@ -89,7 +89,7 @@ from . import conditions
 from .audio_cues import AudioFiles, AudioTrack, CueWalker
 from .flow import follow_labels
 from .media import probe_duration_seconds
-from .parser import (_KEYWORD_ARG_RE, Event, FileParse, Report,
+from .parser import (_KEYWORD_ARG_RE, ID_MAX, Event, FileParse, Report,
                      _call_arguments, atl_end_alpha, character_images,
                      nameless_characters, say_key, slug as _slug,
                      string_literal)
@@ -463,7 +463,11 @@ class TimelineResult:
     walk_summary: list[str] = field(default_factory=list)
 
     def _next_id(self, slug: str) -> str:
-        return f"{slug}-{len(self.items) + 1:03d}"
+        """``slug`` then the item's place, within the 64-character id
+        limit: from item 10,000 on the place takes five digits, and the
+        slug loses characters from its end (item 9o2e)."""
+        place = f"-{len(self.items) + 1:03d}"
+        return slug[:ID_MAX - len(place)] + place
 
 
 class _Pending:
@@ -1365,7 +1369,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         on_screen = pend
         item_id = result._next_id(_slug(pend.name or pend.asset_rel,
                                         "scene" if pend.kind == "image"
-                                        else "movie"))
+                                        else "movie", lead=True))
         item: dict[str, Any] = {"id": item_id, "type": pend.kind}
         record = ItemRecord(item=item, source=pend.source,
                             asset=pend.asset_rel, asset_abs=pend.asset_abs,
@@ -1435,15 +1439,24 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         if text is None:
             return
         if speaker is not None and named:
-            # `"Ann" "Hello."`: the speaker's name as written.
-            item["speaker"] = speaker
-        elif speaker is not None and (var := speaker_var(speaker)) \
-                in nameless:
+            # `"Ann" "Hello."`: the speaker's name as written; `"" "Hello."`
+            # names no one, so it is narration (item 9o2e).
+            if speaker:
+                item["speaker"] = speaker
+            else:
+                record.notes.append(
+                    "speaker '' is an empty name: narration, with no name "
+                    "shown")
+        elif speaker is not None and (
+                (var := speaker_var(speaker)) in nameless
+                or characters.get(var) == ""):
             # `Character(None, ...)`: Ren'Py shows the line as narration
-            # (item 9m2), which is never coloured.
+            # (item 9m2), which is never coloured. `Character("")` shows
+            # no name either, and an empty speaker is no name (item 9o2e).
+            why = ("is a nameless Character" if var in nameless
+                   else "has an empty name")
             record.notes.append(
-                f"speaker {speaker!r} is a nameless Character: narration, "
-                "as Ren'Py shows it")
+                f"speaker {speaker!r} {why}: narration, as Ren'Py shows it")
             color = colors[var].text_color if var in colors else None
             if color is not None:
                 record.notes.append(

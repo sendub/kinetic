@@ -339,7 +339,8 @@ def test_decisions_sharing_a_cut_id_each_take_a_suffix_at_once(
     real = cli_module.suffixed_id
 
     def counted(base: str, n: int) -> str:
-        tried.append(n)
+        if base.startswith("menu-"):   # not a route id (item 9o2e)
+            tried.append(n)
         return real(base, n)
 
     monkeypatch.setattr(cli_module, "suffixed_id", counted)
