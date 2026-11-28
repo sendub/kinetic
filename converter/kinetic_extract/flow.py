@@ -58,7 +58,8 @@ story events in that order, each statement once:
   9o) is a decision of its choice lines. Before each menu it opens the
   walk puts a `menu-lead` marker, which the timeline makes the menu's
   line when it follows another decision's join with no item between
-  (item 9o). A menu nested in a
+  (item 9o), or would hang off another decision's last item (items 9o2
+  and 9o2b). A menu nested in a
   choice's path is preceded by that choice's text as a `route-lead`
   marker once it is a decision (item 8c), a line the timeline keeps when
   the route has no item before the menu. A nested menu whose choices meet
@@ -735,8 +736,8 @@ def follow_labels(parses: list[tuple[str, FileParse]],
         awaiting: list[set[int] | None] = [None]
         # Whether the join's path went on through a `return`, or past a
         # block of an `if` on it (item 9l): a menu it then meets before
-        # any item ends it, as before those rules, so that menu stays a
-        # decision.
+        # any item gets a line before it, which the decision continues at
+        # (a `path-end` marker named ``crossed``; item 9o2b).
         crossed = [False]
         Ctx = tuple[tuple[int, int, frozenset[int]], ...]
         # Shared tails (docs/plan.md Phase 60 item 9i), final walk only:
@@ -1456,7 +1457,8 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 "ctx": ctx}
                             if awaiting[0] is not None and crossed[0]:
                                 events.append((parsed_of[op.file],
-                                               Event("path-end", "")))
+                                               Event("path-end", "",
+                                                     name="crossed")))
                             awaiting[0] = None
                             # The line a menu straight after another
                             # decision's join gets (docs/plan.md Phase 60

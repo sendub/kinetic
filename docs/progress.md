@@ -7234,8 +7234,45 @@ truthful: an unchecked box means nothing was accepted.
       no span between), and 9o3 (the line before a following chain).
       Orchestrator: converter/ 1526 passed, test_validate_content.py
       545 passed.)
-- [ ] Items the player never shows (item 9o2b).
-- [ ] A decision giving up its join at a later one (item 9o2c).
+- [x] Items the player never shows (item 9o2b).
+      (Real, not the survey: one cause covers all 813,368 never-shown
+      items, in 31 of 75 walked games. A decision with no item between
+      its close and the next menu or chain became a pure choice, the
+      next decision hung off its last route's last item, so the player
+      offered it from that route only and a reading of any other route
+      stopped there, never showing the rest of the story. The decision
+      went pure when its join path ran through a `return` or an `if`
+      that shows nothing (item 9o2c's shape), or ended and the walk went
+      on elsewhere. A real extract of one affected game at 797601e gave
+      4,745 never-shown items, 0 after. Fix: a crossed `path-end` keeps
+      the waiting decisions waiting as released; the next decision gets
+      item 9o2's line before it whenever the last item ends a span or
+      any decision's region, and a released decision continues there
+      (`lead_kind` join/span/return/region, its notes). Choices: after
+      a pure choice whose join really ended, the earlier decision stays
+      pure and only gets the line, no join invented; this replaces item
+      9l's "pure choice, menu hangs off its last route" rule. Tests:
+      test_never_shown.py 6 cases, all failing at 797601e, each
+      validated `--strict`, routed and walked with `kinetic check`; one
+      shared-tails test updated (its decision now continues at the line
+      before the next candidate's chain). Recount, 75 of 79 entries on
+      both sides, slowest 327 s: never shown 813,368 -> 4; lines
+      1,407,661 -> 1,409,336 (+1,675 lead lines, no other line changed
+      in any game); decisions 33,715 unchanged, with `continueAt`
+      24,032 -> 24,505; branch-rule problems 0 -> 0. Leads -> items
+      9o2d (the 4 left), 9o2e (route ids from `_` labels and empty
+      Character names refused by the schema, and a schema pass in the
+      recount), 9o2f (nested choices in called labels ending where
+      Ren'Py goes on). Orchestrator: converter/ 1532 passed,
+      test_validate_content.py 545 passed.)
+- [x] A decision giving up its join at a later one (item 9o2c).
+      (Done in item 9o2b: its "join past an `if` that shows nothing"
+      and "past a `return`" cases are this shape, each with a test in
+      test_never_shown.py, and docs/extracting.md's pure-choice rule
+      changed with it.)
+- [ ] No repeated arm line after a nested decision (item 9o2d).
+- [ ] Converted folders the schema refuses (item 9o2e).
+- [ ] Nested choices in called labels go on (item 9o2f).
 - [ ] Menu prompts in the game's languages (item 9o3).
 - [ ] Menus kept linear by a rejoin (item 9o4).
 - [ ] More `if` chains become decisions (item 9p).

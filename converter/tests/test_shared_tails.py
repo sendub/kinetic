@@ -530,16 +530,17 @@ def next_candidate(scene_b: str) -> str:
 
 def test_a_chain_in_the_next_computed_call_candidate(tmp_path: Path
                                                      ) -> None:
-    """The join has no item of its own (a pure choice, its span
-    `"ending"`), and the chain opening the next candidate label hangs off
-    a line of its own, not the span's last item."""
+    """The join's path goes on through the candidate's `return` into the
+    next candidate, whose chain hangs off a line of its own, not the
+    span's last item: the decision continues at that line (item 9o2b;
+    before it a pure choice, its span `"ending"`)."""
     out, manifest, _ledger = extract(tmp_path, next_candidate(POINTS_CHAIN))
     assert texts(manifest)[8:] == ["You lose.", "It hurts.", NEXT,
                                    "Strong.", "Weak.", "End."]
     assert spans(manifest) == {"Scene A.": [
-        ("shared-lose", "You lose.", "It hurts.", "ending")]}
+        ("shared-lose", "You lose.", "It hurts.", "continue")]}
     decisions = shape(manifest)
-    assert decisions[1]["continueAt"] is None
+    assert decisions[1]["continueAt"] == NEXT
     assert decisions[2]["after"] == NEXT
     check_folder(tmp_path, out, manifest)
 

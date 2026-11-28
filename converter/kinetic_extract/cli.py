@@ -356,6 +356,19 @@ def decoder_option(text: str) -> Decoder:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+# Why a decision has a line before it (MenuRecord.lead_kind; Phase 60
+# items 9o, 9o2 and 9o2b), in its `branchDetection` note.
+LEAD_REASONS = {
+    "join": "follows another decision's join with no line between",
+    "span": ("opens right after a shared span's last item, which no "
+             "decision hangs off"),
+    "return": ("follows another decision's join, past a return or an if "
+               "that shows nothing, with no line between"),
+    "region": ("opens right after another decision's last item, which no "
+               "decision hangs off"),
+}
+
+
 def build_manifest(result: TimelineResult, width: int, height: int,
                    branches: list[dict[str, Any]] | None = None,
                    story_id: str | None = None,
@@ -633,11 +646,7 @@ def finalize_branches(result: TimelineResult,
                     note += ("; a stat choice (every choice reads nothing "
                              "of its own): its routes are its choice lines")
                 if rec.lead_used:
-                    note += ("; opens right after a shared span's last "
-                             "item, which no decision hangs off"
-                             if rec.lead_after_span else
-                             "; follows another decision's join with no "
-                             "line between")
+                    note += "; " + LEAD_REASONS[rec.lead_kind]
                     note += (": a line before it, "
                              + ("its caption" if rec.lead_phrase is None
                                 else "the converter's words"))

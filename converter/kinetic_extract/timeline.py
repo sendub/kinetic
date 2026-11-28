@@ -128,6 +128,19 @@ BLACK_NOTE = ("no picture before this line: it shows over black, as "
 BLACK_MENU_NOTE = ("no picture before the menu at {}: its decision follows "
                    "a black still, as Ren'Py shows a menu over its empty "
                    "scene")
+# The ledger note of the converter's words before a decision (Phase 60
+# items 9o, 9o2 and 9o2b), by MenuRecord.lead_kind.
+LEAD_NOTES = {
+    "join": ("the converter's words before a menu that follows a "
+             "decision's join with no line between"),
+    "span": ("the converter's words before a decision that would "
+             "otherwise hang off a shared span's last item"),
+    "return": ("the converter's words before a decision that follows a "
+               "decision's join, past a return or an if that shows "
+               "nothing, with no line between"),
+    "region": ("the converter's words before a decision that would "
+               "otherwise hang off another decision's last route"),
+}
 _QUOTED_RE = re.compile(r"\"((?:[^\"\\]|\\.)*)\"")
 # Any quoted string of an image expression, either quote.
 _ANY_QUOTED_RE = re.compile(r"\"((?:[^\"\\]|\\.)*)\"|'((?:[^'\\]|\\.)*)'")
@@ -721,10 +734,13 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     # Each shared span's key -> the decisions whose choices meet at it.
     span_joins: dict[str, list[dict[str, Any]]] = {}
     # The index of each laid-out shared span's last item, which no
-    # decision may hang off (item 9o2).
+    # decision may hang off (item 9o2), and of each decision's last item
+    # (its last route's or span's), which no later decision may hang off
+    # either (item 9o2b).
     span_ends: set[int] = set()
-    # Whether the line menu_lead last gave is one for that.
-    span_lead = False
+    region_ends: set[int] = set()
+    # Why menu_lead gave the line it last gave (MenuRecord.lead_kind).
+    lead_kind = "join"
 
     def check_limit() -> None:
         if max_items is not None and len(result.items) >= max_items:
@@ -1295,28 +1311,36 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         chain's.
 
         A menu or chain that would hang off a shared span's last item
-        (docs/plan.md Phase 60 item 9o2: a span holds no decision) gets
-        the line too, a chain the converter's words: an earlier decision
-        still waiting on its join's path, past an `if` or `return` that
-        shows nothing (item 9l), takes it as its `continueAt`. None for
-        one that stays linear, or opens a route with no item yet, which
-        hangs off the route's choice text (item 8c)."""
-        nonlocal span_lead
+        (docs/plan.md Phase 60 item 9o2: a span holds no decision), or
+        off another decision's last item, no item since it closed (item
+        9o2b: past its region, not in its last route), gets the line too,
+        a chain the converter's words: an earlier decision still waiting
+        on its join's path, past an `if` or `return` that shows nothing
+        (item 9l), takes it as its `continueAt`, as Ren'Py's flow goes on
+        into the menu. None for one that stays linear, or opens a route
+        with no item yet, which hangs off the route's choice text (item
+        8c)."""
+        nonlocal lead_kind
         record = parsed.menus[int(event.name or 0)]
-        span_lead = False
-        if any(len(result.items) <= count and id(cand) not in released
-               for cand, count in awaiting):
+        lead_kind = "join"
+        waiting = [cand for cand, count in awaiting
+                   if len(result.items) <= count]
+        last = len(result.items) - 1
+        if any(id(cand) not in released for cand in waiting):
             if record.condition is not None or record.lead_text is None:
                 return None
             if not (pending is None or pending.consumed or (
                     pending.origin is not None and not pending.unresolved)):
                 return None
-        elif result.items and len(result.items) - 1 in span_ends and (
+        elif result.items and (waiting or last in span_ends
+                               or last in region_ends) and (
                 pending is None or pending.consumed or pending.drops_bare) \
                 and not record.parse_reason \
                 and not (event.outcome or {}).get("linear") \
                 and not route_needs_lead():
-            record.lead_after_span = span_lead = True
+            lead_kind = ("span" if last in span_ends
+                         else "return" if waiting else "region")
+            record.lead_kind = lead_kind
             if record.condition is not None or record.lead_text is None:
                 base = (record.condition.base if record.condition
                         is not None else record.words_base)
@@ -1480,7 +1504,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             if len(result.items) > count:
                 cand["continue_idx"] = count
             elif follows is not None and id(cand) in released:
-                pass   # it gives up there: the menu stays a decision
+                # The menu got no line (it stays linear): the
+                # decision gives up there, a pure choice.
+                pass
             elif follows is not None:
                 follows["reject"] = (
                     f"the menu follows the menu at "
@@ -1493,8 +1519,8 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                      ) -> None:
         """At a linear menu's close, the decisions it held (above) take
         its first item, else wait on with its join's path when the walk
-        lays that out next (the outcome's ``awaits``), giving up at a
-        menu that path meets before any item."""
+        lays that out next (the outcome's ``awaits``), taking the line
+        before a menu that path meets before any item (menu_lead)."""
         for cand, count in ms.get("held", ()):
             if len(result.items) > count:
                 cand["continue_idx"] = count
@@ -1592,6 +1618,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             cand["dropped"] = bool(dropped)
         result.branch_candidates.append(cand)
         ms["cand"] = cand
+        region_ends.add(len(result.items) - 1)
         for span in shared:
             for joined in span_joins.get(span["key"], []):
                 # The CLI drops that join too if it withdraws this one.
@@ -1926,12 +1953,17 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                         menu_stack[-1]["record"].condition, event.arm)
                 if event.phrase is not None and last_line is not None:
                     last_line.converter_phrase = event.phrase
-                    last_line.notes.append(
-                        "the converter's words before a decision that "
-                        "would otherwise hang off a shared span's last item"
-                        if span_lead else
-                        "the converter's words before a menu that follows "
-                        "a decision's join with no line between")
+                    last_line.notes.append(LEAD_NOTES[lead_kind])
+            elif event.kind == "path-end" and event.name == "crossed":
+                # The join's path went on through a `return` or past an
+                # `if` that shows nothing to a menu (item 9l): the
+                # decisions waiting on it wait on as a linear chain's
+                # held ones do, taking the menu's line (item 9o2b).
+                flush_bare()
+                last_line = None
+                for cand, count in awaiting:
+                    if len(result.items) <= count:
+                        released.add(id(cand))
             elif event.kind == "path-end":
                 # The join's path ended before an item of its own.
                 flush_bare()

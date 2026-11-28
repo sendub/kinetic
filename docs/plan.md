@@ -5179,6 +5179,30 @@ The orchestrator's choices, within those decisions:
     routes go on into it; docs/extracting.md's "leaves the decision a
     pure choice" rule changes to match. Tests: a synthetic script of
     that shape validates `--strict` with no never-shown warning.
+9o2d. No repeated arm line after a nested decision (lead from item
+    9o2b: 4 never-shown items in one game family). Inside an `if`
+    chain's route that opens with a line and a nested stat-choice menu
+    whose choices `return` to the caller, the arm's line is emitted
+    again after the nested decision, in no route a reader plays. The
+    flow sets the enclosing choice's story from the menu's final
+    judgement, so the line is emitted once. Tests: a synthetic script
+    of that shape validates `--strict` with no never-shown warning.
+9o2e. Converted folders the schema refuses (leads from item 9o2b). A
+    route id made from a label starting with `_` (a chain on
+    `_return`) fails the id pattern; a Character with an empty display
+    name gives `characters: ''`, refused. Ids drop a leading `_`, an
+    empty name is no speaker name, and the corpus recount runs the full
+    validator (schema included) over every walk output, fixing what
+    else it finds. Tests: a synthetic script per form, validated
+    `--strict`; the recount's schema problems by kind, before and
+    after.
+9o2f. Nested choices in called labels go on (lead from item 9o2b). A
+    stat-choice menu in a label reached by `call` whose join reaches
+    through `return` into the caller's join is a pure choice, its
+    routes `"ending"`, so a reader stops after such a route where
+    Ren'Py goes on. Its join follows the `return` to the caller, as
+    item 9l's call stack does for the walk. Tests: a synthetic script
+    whose called menu's routes continue into the caller's next line.
 9o3. Menu prompts in the game's languages (leads from item 9o). A say
     menuitem prompt (`e "Which one?"` in a menu) is translated from the
     game's `translate` blocks as its dialogue is, not looked up in
@@ -5240,7 +5264,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o2b -> 9o2c -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o2b -> 9o2c -> 9o2d -> 9o2e -> 9o2f -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 
