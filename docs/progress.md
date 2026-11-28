@@ -7474,9 +7474,48 @@ truthful: an unchecked box means nothing was accepted.
       on its routes' items, read in a row, so a cue could play more
       than once -> item 9o2l. Orchestrator: converter/ 1604 passed,
       test_validate_content.py 545 passed.)
-- [ ] Every join into the caller crosses its return (item 9o2j).
+- [x] Every join into the caller crosses its return (item 9o2j).
+      (The wider rule holds: flow.py's `close_menu` marks every item 9l
+      join in the caller (`into_caller`, level > 0) crossed, so a
+      `_return` chain past a called menu whose choices `return` is a
+      decision with item 9o2b's line, which the called menu continues
+      at. The old 606-route regression's cause is gone (a variant,
+      21d7f09 plus the wide rule, reproduced 605 `continue` ->
+      `ending` in G9-G13; all 605 continue now: a called stat choice
+      returning values, then `_return` chains whose arms call labels
+      that show nothing, the first kept linear, which item 9o2g now
+      holds). Alone the wide rule still turned 6 routes `continue` ->
+      `ending` by a cascade: the chain after a new decision stays
+      linear (item 9o's back-to-back rule), and a decision nested in
+      that linear chain's arm linked to its `continueAt`, which a
+      linear menu lacks, so it was a pure choice (a gap at HEAD too).
+      Fix in timeline.py: a nested decision linked to a menu that
+      closes linear is held, as item 9o2g holds one, and continues at
+      the next item laid out. Choices: fix the cascade, not keep the
+      narrow rule; a held nested decision continues at the next block's
+      first item (a linear chain's arm caption, as linear chains
+      already read); the 24 decisions lost to the back-to-back rule are
+      left for item 9p; test_called_menus.py's chain on `_return` test
+      now expects a decision with the line (only the chosen arm runs in
+      Ren'Py). Tests: test_return_chains.py 11; 9 failed at aae3a99
+      (rechecked by the orchestrator with HEAD's flow.py and
+      timeline.py: 9 failed, 2 passed). Recount, 75 of 79 entries on
+      both sides: lines 1,409,323 -> 1,409,643 (324 "Another choice
+      follows." lines added and 4 removed, in 7 games; no game line
+      lost); decisions 33,715 -> 34,001 (310 gained, 24 lost, all in
+      G10-G13 to the back-to-back rule, their lines still read in a
+      row); `continueAt` 25,492 -> 27,967; routes `continue` 52,068 ->
+      57,175, `ending` 18,093 -> 13,558, 4,725 `ending` -> `continue` in
+      40 games and none the other way; never shown 0, rule problems 0,
+      cues unchanged. Leads: back-to-back `_return` chains alternate
+      decision and linear -> item 9p; 95 of the gained decisions are
+      pure choices under computed calls, ending where the linear chain
+      read on, and a held decision's note names the join while its
+      `continueAt` is the next block's item -> item 9o2m. Orchestrator:
+      converter/ 1615 passed, test_validate_content.py 545 passed.)
 - [ ] A nested menu in a called label goes on (item 9o2k).
 - [ ] Copied cues on a withdrawn decision play once (item 9o2l).
+- [ ] A new decision with no join item reads on (item 9o2m).
 - [ ] Menu prompts in the game's languages (item 9o3).
 - [ ] Menus kept linear by a rejoin (item 9o4).
 - [ ] More `if` chains become decisions (item 9p).

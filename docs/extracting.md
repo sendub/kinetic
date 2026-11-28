@@ -246,12 +246,17 @@ game whose story order differs from its file order read out of order.
   `return` or `if` before any item stays a decision itself and gets a
   line before it, which is the decision's `continueAt` (below; Phase 60
   item 9o2b: before it the decision was a pure choice and the menu hung
-  off its last route), and so does one that is a join item 9o2f follows
-  to the caller, reached through the `return` as the walk past it was,
-  and one past a join at a block's end, reached past that block as past
-  an `if` that shows nothing (item 9o2h: read as straight after the
-  join, a chain there would stay linear, below, where before it was a
-  decision of its own).
+  off its last route), and so does one that is a join in the caller,
+  reached through the `return` its choices cross: a join item 9o2f
+  follows to the caller, as the walk past the `return` was, or one where
+  choices that `return` meet past the `call` (item 9o2j: `call talk`
+  then `if _return == 1:`, `talk` a menu whose choices `return 1` and
+  `return 2`, gives the chain that line and makes it a decision the
+  called menu continues at; before, the chain stayed linear, as one
+  straight after the menu, its arms read in a row), and one past a join
+  at a block's end, reached past that block as past an `if` that shows
+  nothing (item 9o2h: read as straight after the join, a chain there
+  would stay linear, below, where before it was a decision of its own).
   One that stays linear for a reason of its own (a lone conditional
   choice, an arm leading back to its condition, every choice empty)
   gets no line and holds the decision, as a chain straight after the
@@ -265,7 +270,11 @@ game whose story order differs from its file order read out of order.
   `with` or `pause`) takes the enclosing `continueAt`, past its route's
   end (item 9o2i: before, such a statement was the nested menu's join,
   whose path met no item of its own, a pure choice whose routes were
-  `"ending"`; the statements are laid out after the nested decision). A
+  `"ending"`; the statements are laid out after the nested decision).
+  When that enclosing menu or chain stays linear, its blocks' lines kept
+  in a row, the nested decision goes on as those lines do: at the next
+  block's first item, or, in the last block, past the enclosing join
+  (item 9o2j: before, a pure choice whose routes were `"ending"`). A
   route with no item of its own before a menu nested in it (the
   choice's block opens with the menu, or jumps straight to a label that
   does) starts with one line, its choice text, translated from the

@@ -208,9 +208,11 @@ def test_a_line_after_the_call_is_the_join(tmp_path: Path) -> None:
 
 def test_a_chain_on_the_value_a_called_menu_returns(tmp_path: Path) -> None:
     """The called menu's choices `return` values the caller's chain reads:
-    they meet at the chain past the `call`, as item 9l found, and that is
-    unchanged: the routes go on, the chain straight after them staying
-    linear, its first line their `continueAt`."""
+    they meet at the chain past the `call`, as item 9l found, reached
+    through the `return` (item 9o2j: before, the chain stayed linear, its
+    arms read in a row, its first line the `continueAt`): the chain is a
+    decision with item 9o2b's line before it, which the routes go on
+    at."""
     out, manifest, _ledger = extract(tmp_path, (
         LEAD + '    call talk\n'
         '    if _return == 1:\n        "One."\n'
@@ -220,11 +222,13 @@ def test_a_chain_on_the_value_a_called_menu_returns(tmp_path: Path) -> None:
         '    menu:\n'
         '        "Rest":\n            return 1\n'
         '        "Wait":\n            return 2\n'))
-    assert texts(manifest) == ["Lead.", "Rest", "Wait", "One.", "Other.",
-                               "After."]
-    assert shape(manifest) == [
-        {"after": "Lead.", "routes": TALK, "continuing": "Wait",
-         "continueAt": "One."}]
+    assert texts(manifest) == ["Lead.", "Rest", "Wait", NEXT, "One.",
+                               "Other.", "After."]
+    decisions = shape(manifest)
+    assert decisions[0] == {"after": "Lead.", "routes": TALK,
+                            "continuing": "Wait", "continueAt": NEXT}
+    assert decisions[1]["after"] == NEXT
+    assert [r[-1] for r in decisions[1]["routes"]] == ["continue"] * 2
     check_folder(tmp_path, out, manifest)
 
 

@@ -383,6 +383,15 @@ something more of an author.
   goes on: they continue where the enclosing decision does
   (docs/extracting.md, "The walk follows labels" and "Reading Ren'Py
   audio").
+- An `if` chain on `_return` after a `call` whose menu's choices each
+  `return` a value is now a decision, with the line "Another choice
+  follows." before it that the called menu's routes continue at, as
+  when the choices fall through to the `return`, instead of a linear
+  chain whose arms the reader read one after another. A menu or chain
+  nested in a block of a menu or chain the converter keeps linear, and
+  meeting where its blocks do, now goes on into the lines that follow
+  it instead of ending the story there (docs/extracting.md, "The walk
+  follows labels").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

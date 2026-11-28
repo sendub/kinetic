@@ -33,7 +33,9 @@ story events in that order, each statement once:
   candidates return each into the next, as they are laid out, the last
   after the call. A menu's choices meet through returns (_menu_join's
   ``ups``): a choice leaving a called label meets the others in the
-  caller, and a join past the call is walked as the caller's next task.
+  caller, and a join past the call is walked as the caller's next task,
+  reached through the `return` (item 9o2j: a menu or chain it meets
+  before any item gets item 9o2b's line, as past any other `return`).
   A join that only returns, nothing shown before the `return`, is where
   the `return` goes on (item 9o2f), so a called label's menu at the end
   of an enclosing route continues where that route's decision does. A
@@ -1009,11 +1011,11 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 info["walk_join"] and not visited[info["join"]])
             if info["outcome"]["awaits"]:
                 awaiting[0] = set()
-                # A join that follows its `return` to the caller (item
-                # 9o2f) is reached through it, as the walk past it was;
-                # one at a block's end (item 9o2h) goes on past that
-                # block, as past an `if` that shows nothing.
-                crossed[0] = info["past_return"] \
+                # A join in the caller (items 9l, 9o2f) is reached
+                # through the `return` its choices cross (item 9o2j); one
+                # at a block's end (item 9o2h) goes on past that block, as
+                # past an `if` that shows nothing.
+                crossed[0] = info["into_caller"] \
                     or block_end(info["join"])
             region.append(fork)
             if not ctx:
@@ -1669,6 +1671,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 "open_at": len(events), "depth": len(ctx),
                                 "ctx": ctx,
                                 "past_return": level > found_at,
+                                "into_caller": level > 0,
                                 "passed": laid}
                             if awaiting[0] is not None and crossed[0]:
                                 events.append((parsed_of[op.file],

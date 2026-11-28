@@ -5262,6 +5262,18 @@ The orchestrator's choices, within those decisions:
     copy. A withdrawn decision's copies collapse to the last route's,
     as before item 9o2i. Tests: a synthetic nested decision withdrawn
     by each rule that can, its sound cued once.
+9o2m. A new decision with no join item reads on (leads from item
+    9o2j). Of the 310 decisions item 9o2j made from chains past a
+    crossed `return`, 95 are pure choices: their join, under a computed
+    call, has no item of its own, so their routes end the story where
+    the chain, linear before, read on into what the walk laid out next.
+    Such a chain stays linear when its join has no item, so the reader
+    reads on as before; no route of a decision already made changes.
+    And a decision item 9o2g or 9o2j holds into a linear menu says in
+    its ledger note where it continues, not only the join it reaches.
+    Tests: a synthetic `_return` chain under a computed call, its lines
+    read on; a held decision's note naming its `continueAt`; a corpus
+    recount of the 95.
 9o3. Menu prompts in the game's languages (leads from item 9o). A say
     menuitem prompt (`e "Which one?"` in a menu) is translated from the
     game's `translate` blocks as its dialogue is, not looked up in
@@ -5290,7 +5302,9 @@ The orchestrator's choices, within those decisions:
     stays unconverted. A chain that converts, met straight after a
     decision's join (a stat choice, then an `if` on what it set), is a
     decision as it is past a crossed `return`, not forced linear (lead
-    from item 9o2g). New phrases translated as in item 6b. Tests: one
+    from item 9o2g), and back-to-back chains no longer alternate
+    decision and linear (24 decisions in one game family lost so after
+    item 9o2j). New phrases translated as in item 6b. Tests: one
     synthetic chain per form.
 9q. Variables shown in text (39,000 lines in 51 games show a literal
     `[name]`). `[var]` in a line or a speaker's name is replaced by the
@@ -5328,7 +5342,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o2b -> 9o2c -> 9o2d -> 9o2e -> 9o2f -> 9o2g -> 9o2h -> 9o2i -> 9o2j -> 9o2k -> 9o2l -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o2b -> 9o2c -> 9o2d -> 9o2e -> 9o2f -> 9o2g -> 9o2h -> 9o2i -> 9o2j -> 9o2k -> 9o2l -> 9o2m -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

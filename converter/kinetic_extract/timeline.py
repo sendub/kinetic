@@ -1586,6 +1586,13 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     break
         if reason is not None:
             record.skip_reason = reason
+            for cand, count in ms.pop("linked", ()):
+                # A decision nested in a route of this menu, meeting where
+                # its choices do (below), goes on as the menu's lines kept
+                # in a row do: held, as a linear menu after a join holds
+                # one (release_held; docs/plan.md Phase 60 item 9o2j).
+                cand.pop("link", None)
+                ms.setdefault("held", []).append((cand, count))
             what = "if chain" if record.condition is not None else "menu"
             parsed.reports.append(Report(
                 record.source, record.statement,
@@ -1664,6 +1671,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 (open_ms for open_ms in reversed(menu_stack)
                  if open_ms["parsed"] is link[0]
                  and open_ms["index"] == link[1]), None)
+            if cand["link"] is not None:
+                cand["link"].setdefault("linked", []).append(
+                    (cand, len(result.items)))
         elif "continue" in results and outcome.get("join"):
             awaiting.append((cand, len(result.items)))
 
