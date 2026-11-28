@@ -7434,9 +7434,49 @@ truthful: an unchecked box means nothing was accepted.
       whose choices meet past the `call`, still joins at the `return`
       -> item 9o2k. Orchestrator: converter/ 1590 passed,
       test_validate_content.py 545 passed.)
-- [ ] A cue after a nested menu plays on every route (item 9o2i).
+- [x] A cue after a nested menu plays on every route (item 9o2i).
+      (Causes, one shape: a nested menu ends its enclosing route and a
+      statement that shows nothing sits between. Its audio cues,
+      held for the next item, were merged at the route's end onto the
+      last nested route's last item only; and written in place (not
+      through a `return`), that statement became the nested join, which
+      `enclosing_join` did not link to the enclosing menu, so the
+      nested decision was a pure choice. Kinds: audio cues (`play`,
+      `stop`, `queue`) both; bare `with` and `pause` the second only
+      (a bare `with` after a menu has nothing to apply to and stays
+      dropped); a `scene`/`show` with no line is a bare picture item
+      every route reaches, unaffected. Fix: flow.py's `enclosing_join`
+      passes statements that show nothing on its way to an enclosing
+      join (never that join itself), lays them out after the
+      `menu-close` and maps them in `skip_to` for `path_end`;
+      timeline.py's `route_exits` records each continuing route's last
+      item (through shared spans and nested decisions) and passes them
+      to audio_cues.py's `route_end`, which puts the cue on each exit
+      with that route's own ambience replayed. Choices: the second
+      cause fixed too (without it no nested route reaches the join);
+      the cue on each continuing nested route's last item, not the join
+      item, which the enclosing decision's other routes reach too;
+      only `"continue"` routes; the first version, which passed a bare
+      `with` enclosing join, turned 912 routes `continue` -> `ending`
+      and a guard test now pins that. test_called_menus.py's 9o2d-arm
+      test now expects the sound on both nested routes (it asserted the
+      old single cue). Tests: test_cues_after_nested_menus.py 14; 10
+      failed at 155c23d (rechecked by the orchestrator with HEAD's
+      flow.py, timeline.py and audio_cues.py: 10 failed, 4 passed).
+      Recount, 75 of 79 entries on both sides: lines 1,409,323,
+      decisions 33,715, never shown 0 and rule problems 0 unchanged,
+      item sequences identical in every game; `continueAt` 25,480 ->
+      25,492; routes `continue` 52,044 -> 52,068, all 24 `ending` ->
+      `continue`, in 9 games; 26 items gained a copied cue (18 music
+      changes, 12 of them stops, 8 sounds, 15 `fadeMs`) in 8 games,
+      none removed. Lead: a nested decision the CLI withdraws after the
+      timeline (an asset-pass drop, the follows rules) keeps the copies
+      on its routes' items, read in a row, so a cue could play more
+      than once -> item 9o2l. Orchestrator: converter/ 1604 passed,
+      test_validate_content.py 545 passed.)
 - [ ] Every join into the caller crosses its return (item 9o2j).
 - [ ] A nested menu in a called label goes on (item 9o2k).
+- [ ] Copied cues on a withdrawn decision play once (item 9o2l).
 - [ ] Menu prompts in the game's languages (item 9o3).
 - [ ] Menus kept linear by a rejoin (item 9o4).
 - [ ] More `if` chains become decisions (item 9p).

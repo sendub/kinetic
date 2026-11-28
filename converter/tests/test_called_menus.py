@@ -146,13 +146,14 @@ def test_a_sound_before_the_return_is_kept(tmp_path: Path) -> None:
 
 def test_a_sound_before_the_return_under_an_if_arm(tmp_path: Path) -> None:
     """The same under item 9o2d's `if` arm: the routes go on to the line
-    after the chain, and the sound is cued once."""
+    after the chain, and the sound ends each of them, which every reader
+    of the arm passes (item 9o2i: before, only the last route's)."""
     out, manifest, ledger = extract(tmp_path, chain_calls(door(tmp_path)))
     arm = "(hour is day)"
     assert shape(manifest)[0] == {"after": arm, "routes": TALK,
                                   "continuing": "Wait",
                                   "continueAt": "After."}
-    assert len(sounds(manifest)) == 1
+    assert sounds(manifest) == ["Rest", "Wait"]
     assert menu_reports(ledger) == []
     check_folder(tmp_path, out, manifest)
 

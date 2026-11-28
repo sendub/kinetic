@@ -33,7 +33,10 @@ each route starts from the state before the menu, and a cue after a
 route's last item stays on that item. After the menu the last route's
 state goes on; when the routes left different ambience sets, the next
 ambience change says so. A shared span laid out after the routes plays on
-from what played where the walk first read it.
+from what played where the walk first read it. A cue after a nested
+decision that ends its enclosing route, no item between, goes on the last
+item of each of its routes that goes on, with that route's ambience
+(docs/plan.md Phase 60 item 9o2i).
 """
 
 from __future__ import annotations
@@ -228,6 +231,9 @@ class _Group:
     sfx: list[dict[str, str]] = field(default_factory=list)
     channels: set[str] = field(default_factory=set)  # named a track here
     origins: list[tuple[FileParse, str, str]] = field(default_factory=list)
+    # Each change to the ambience set, in order: (slot, track), a track
+    # None taking the slot out; replayed on another route's set.
+    changes: list[tuple[str, str | None]] = field(default_factory=list)
 
     def render(self, ambience: dict[str, str]) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -245,7 +251,8 @@ class _Group:
         return replace(self, fades=list(self.fades),
                        sfx=[dict(e) for e in self.sfx],
                        channels=set(self.channels),
-                       origins=list(self.origins))
+                       origins=list(self.origins),
+                       changes=list(self.changes))
 
 
 def merge_audio(earlier: dict[str, Any] | None,
@@ -375,6 +382,10 @@ class CueWalker:
         self._outer: list[tuple[tuple[_Group, dict[str, str]] | None,
                                 list[dict[str, str]]]] = []
         self._ambiguous = False
+        # Each route's or shared span's last item (by id) -> the ambience
+        # set there, which a cue past a nested decision's routes is
+        # replayed on (docs/plan.md Phase 60 item 9o2i).
+        self._end_state: dict[int, dict[str, str]] = {}
 
     def movie_play(self, event: Event) -> tuple[str, str | None] | None:
         """``(channel, file)`` of a `play` or `queue` on a channel that
@@ -440,14 +451,17 @@ class CueWalker:
             group.music, group.music_set = track, True
             self._fade(stmt)
             return
-        if name != "audio" and self._ambience.pop(name, None) is not None:
-            self._ambience_changed(parsed, event, stmt)
+        if name != "audio":
+            group.changes.append((name, None))
+            if self._ambience.pop(name, None) is not None:
+                self._ambience_changed(parsed, event, stmt)
         if loop:
             slot = name
             if name == "audio":
                 self._audio_loops += 1
                 slot = f"audio {self._audio_loops}"
             self._ambience[slot] = track
+            group.changes.append((slot, track))
             self._ambience_changed(parsed, event, stmt)
             return
         shot = {"track": track} if name == "audio" else {
@@ -470,6 +484,7 @@ class CueWalker:
         group.sfx = [e for e in group.sfx if e.get("channel") != name]
         if name in ("audio", "voice"):
             return
+        group.changes.append((name, None))
         if self._ambience.pop(name, None) is not None:
             group.origins.append((parsed, event.source, stmt.statement))
             self._ambience_changed(parsed, event, stmt)
@@ -603,14 +618,23 @@ class CueWalker:
             self._ambience = dict(self._lead[1])
 
     def route_end(self, last: ItemRecord | None,
-                  keep_state: bool = True) -> None:
+                  keep_state: bool = True,
+                  exits: list[ItemRecord] | None = None) -> None:
         """A route's block ended; ``last`` is its last item, if any. A
         shared span's end (``keep_state`` False) leaves the routes'
-        states as they were."""
+        states as they were. ``exits``: when the route ends with a nested
+        decision, no item since it closed, the last item of each of its
+        routes that goes on (docs/plan.md Phase 60 item 9o2i). Each
+        passes the cues waiting, as Ren'Py's flow does, so each takes
+        them, with the ambience its route left changed as they change
+        it, in place of ``last`` alone."""
         if self._lead is None:
             return
         trailing = self._group.render(self._ambience)
-        if trailing and last is not None:
+        if exits and last is not None:
+            for record in exits:
+                self._pass_on(record)
+        elif trailing and last is not None:
             last.audio = merge_audio(last.audio, trailing)
         elif trailing:
             for parsed, source, statement in self._group.origins:
@@ -619,7 +643,27 @@ class CueWalker:
             self._report_voice(VOICE_NO_LINE)
         if keep_state:
             self._route_states.append(dict(self._ambience))
+        if last is not None and not exits:
+            self._end_state[id(last)] = dict(self._ambience)
         self._group = _Group()
+
+    def _pass_on(self, record: ItemRecord) -> None:
+        """The waiting cues on ``record``, a nested route's last item:
+        its ambience set (as its route left it) changed as they change
+        the set, given when it differs or they changed the set."""
+        before = self._end_state.get(id(record), self._ambience)
+        after = dict(before)
+        for slot, track in self._group.changes:
+            if track is None:
+                after.pop(slot, None)
+            else:
+                after[slot] = track
+        group = replace(self._group, ambience_set=(
+            self._group.ambience_set or after != before))
+        audio = group.render(after)
+        if audio:
+            record.audio = merge_audio(record.audio, audio)
+        self._end_state[id(record)] = after
 
     def snapshot(self) -> dict[str, str]:
         """What plays now: where the walk first read a shared span."""

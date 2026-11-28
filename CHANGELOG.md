@@ -375,6 +375,14 @@ something more of an author.
   the `if`. A menu or chain met there stays a decision, with the line
   before it that the earlier decision continues at (docs/extracting.md,
   "The walk follows labels").
+- A sound or music cue after a menu nested in a route, at the end of
+  that route, now plays on every nested route that goes on, each with
+  the ambience its route left, instead of only on the last nested
+  route's last line. Such a cue, a bare `with` or a `pause` there no
+  longer ends the nested menu's routes (a pure choice) where Ren'Py
+  goes on: they continue where the enclosing decision does
+  (docs/extracting.md, "The walk follows labels" and "Reading Ren'Py
+  audio").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

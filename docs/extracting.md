@@ -261,8 +261,12 @@ game whose story order differs from its file order read out of order.
   Ren'Py goes on into the linear menu); a menu
   nested in a route whose choices meet where the enclosing menu's do
   (a jump there, or falling through at the end of the enclosing
-  choice's block) takes the enclosing `continueAt`, past its route's
-  end. A route with no item of its own before a menu nested in it (the
+  choice's block, past statements that show nothing: a sound, a bare
+  `with` or `pause`) takes the enclosing `continueAt`, past its route's
+  end (item 9o2i: before, such a statement was the nested menu's join,
+  whose path met no item of its own, a pure choice whose routes were
+  `"ending"`; the statements are laid out after the nested decision). A
+  route with no item of its own before a menu nested in it (the
   choice's block opens with the menu, or jumps straight to a label that
   does) starts with one line, its choice text, translated from the
   language's `strings` block, and the nested decision hangs off that
@@ -1544,7 +1548,16 @@ menu reaches the first item of every route; each route starts from the
 state before the menu; a cue after a route's last item stays on that
 item. After the menu the last route's state goes on, and when the
 routes left different ambience sets, the next ambience change is
-reported.
+reported. A cue after a nested decision that ends its enclosing route,
+no line between (`menu:` in a choice, then `play sound "door.ogg"` at
+the choice block's end, or before the `return` of a label the choice
+calls), is passed by each of the nested decision's routes that goes on:
+it goes on the last item of each (its shared span's, for a route that
+goes on to one), with the ambience set that route left, changed as the
+cue changes it, and not on a route that ends the story or goes back to
+its menu (item 9o2i). Before, it waited for the next item and went on
+the enclosing route's last item, the nested decision's last route's,
+so a reader who chose another nested route never heard it.
 
 Not converted, each reported with its statement in the ledger `report`
 and the summary:

@@ -69,8 +69,9 @@ story events in that order, each statement once:
   choice's path is preceded by that choice's text as a `route-lead`
   marker once it is a decision (item 8c), a line the timeline keeps when
   the route has no item before the menu. A nested menu whose choices meet
-  at the end of the enclosing choice's block meets where the enclosing
-  menu's choices do.
+  at the end of the enclosing choice's block, past statements that show
+  nothing (a sound, a bare `with`; item 9o2i), meets where the enclosing
+  menu's choices do, those statements laid out after its `menu-close`.
 - An `if` chain the parser reads as a fork (docs/plan.md Phase 60 item 6)
   is laid out as such a menu, its arms the choices: an arm with nothing
   of its own gets its label in parentheses as its line
@@ -738,6 +739,9 @@ def follow_labels(parses: list[tuple[str, FileParse]],
         # 9o2f) -> the join in the caller, the caller's ``floor`` and the
         # call the op is in.
         via: dict[int, tuple[int, int, _Cont]] = {}
+        # Each op that shows nothing a menu's join passed on its way to
+        # an enclosing menu's join (item 9o2i) -> that join.
+        skip_to: dict[int, int] = {}
         # From a decision's `menu-close` until its join's path shows a
         # story event, opens a menu or ends (a `path-end` marker): the
         # joins of the `if` forks met on the join's path since, else None.
@@ -803,7 +807,9 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             once, nothing shown between, reaches the join (item 9l: a
             computed call's candidate, which goes on into the next). A
             stop at a `return` a menu's join passed in the caller's
-            direction (item 9o2f) is a stop at that join."""
+            direction (item 9o2f) is a stop at that join, and so is one
+            at a statement showing nothing that a menu's join passed on
+            to an enclosing menu's join (item 9o2i)."""
             if not final:
                 return
             pending = awaiting[0]
@@ -824,12 +830,19 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 n, floor, _cont = via[n]
                 returned = True
             steps = 0
-            while kind == "stop" and n < exit_ and ops[n].kind == "goto" \
-                    and n not in stops and steps < _LEAD_IN_MAX:
-                # A block's end another path already passed: where it
-                # goes is where this path ends (a menu at the end of a
-                # choice's block meets the enclosing menu's join).
-                n, steps = ops[n].to, steps + 1
+            while kind == "stop" and n < exit_ and steps < _LEAD_IN_MAX:
+                if ops[n].kind == "goto" and n not in stops:
+                    # A block's end another path already passed: where it
+                    # goes is where this path ends (a menu at the end of
+                    # a choice's block meets the enclosing menu's join).
+                    n = ops[n].to
+                elif n in skip_to:
+                    # A statement showing nothing that a menu's join
+                    # passed on to an enclosing menu's join (item 9o2i).
+                    n = skip_to[n]
+                else:
+                    break
+                steps += 1
             record: dict[str, Any] = {"n": n, "kind": kind, "ctx": ctx,
                                       "floor": floor, "got": {}}
             ends_log.append(record)
@@ -881,19 +894,39 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             info["texts"].append((k, marker))
             events.append((parsed_of[ops[fork].file], marker))
 
-        def enclosing_join(join: int, ctx: Ctx) -> int:
+        def enclosing_join(join: int, ctx: Ctx) -> tuple[int, list[int]]:
             """A menu whose choices meet at the end of an enclosing
             choice's block (its `goto`, nothing between) meets where that
             enclosing menu's choices do (Phase 60 item 8c): its routes
-            continue there, as a jump there would."""
-            m, steps = join, 0
-            while 0 <= m < exit_ and ops[m].kind == "goto" \
-                    and steps < _LEAD_IN_MAX:
-                m, steps = ops[m].to, steps + 1
+            continue there, as a jump there would. So does one whose
+            choices meet at statements that show nothing (a sound, a bare
+            `with` or `pause`) before that end (item 9o2i): with that
+            join, the ops passed on the way, laid out after the
+            `menu-close` as item 9o2f lays out those before a `return`."""
+            joins = {menu_joins.get(f) for f, _k, _s in ctx}
+            m, steps, way = join, 0, []
+            while 0 <= m < exit_ and steps < _LEAD_IN_MAX:
+                op = ops[m]
+                if op.kind == "goto":
+                    m = op.to
+                elif m in skip_to:
+                    # Passed already, by the join of a menu enclosing
+                    # this one: on to where that join goes.
+                    m = skip_to[m]
+                    break
+                elif op.kind == "emit" and op.event is not None \
+                        and op.event.kind not in _STORY_KINDS \
+                        and not visited[m] and m not in joins:
+                    # Not past an enclosing menu's join itself.
+                    way.append(m)
+                    m += 1
+                else:
+                    break
+                steps += 1
             if m != join and any(menu_joins.get(f) == m
                                  for f, _k, _s in ctx):
-                return m
-            return join
+                return m, way
+            return join, []
 
         def route_lead(ctx: Ctx) -> Event | None:
             """Before a menu nested in a choice's path, that choice's text
@@ -1574,12 +1607,18 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 break
                             passed += [(m, ups[level]) for m in way]
                             join, level = ups[level].task[0], level + 1
-                        join = enclosing_join(join, ctx)
+                        join, skipped = enclosing_join(join, ctx)
                         laid = [ops[m] for m, _c in passed
                                 if not visited[m] and ops[m].event is not None]
+                        laid += [ops[m] for m in skipped]
                         for m, cont in passed:
                             visited[m] = 1
                             via[m] = (join, ups[level - 1].task[4], cont)
+                        for m in skipped:
+                            # A path stopping at one meets the others at
+                            # the join (path_end).
+                            visited[m] = 1
+                            skip_to[m] = join
                         # A join past the call the menu is in (item 9l):
                         # walked as the caller's next task would be.
                         up = ups[level - 1] if level else None
