@@ -836,6 +836,8 @@ FRENCH = {
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "pas toujours proposé",
     "converter.menu.next": "Un autre choix suit.",
+    "converter.menu.follows": "Votre choix précédent décide de la suite.",
+    "converter.menu.prompt": "Que se passe-t-il ensuite ?",
 }
 
 

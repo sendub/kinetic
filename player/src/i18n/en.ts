@@ -516,4 +516,8 @@ export const EN = {
   "converter.condition.sometimes": "not always offered",
   /** Converter words: a line of the story just before a choice that comes straight after another choice, with no line of the game's own between them. */
   "converter.menu.next": "Another choice follows.",
+  /** Converter words: a line of the story just before content the reader's earlier choice decides, which comes straight after another choice with no line of the game's own between them; usually no choice is shown, the story goes on with what that choice led to. */
+  "converter.menu.follows": "Your earlier choice decides what follows.",
+  /** Converter words: the question above a choice converted from a game menu that asks no question of its own. */
+  "converter.menu.prompt": "What happens next?",
 } as const satisfies Record<string, Message>;

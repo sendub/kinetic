@@ -220,10 +220,14 @@ def test_guard_a_chain_past_a_lifted_return_stays_a_pure_choice(
         '        "Stay":\n            "You stay."\n'
         '            $ go = False\n'
         '    return\n'))
+    # The chain follows the called menu's decision: the line before it
+    # says so (Phase 60 item 9o3).
     assert texts(manifest) == ["Lead.", "Hub.", "You walk.", "You go.",
-                               "You stay.", NEXT, "Yes.", "No.",
-                               "You rest.", "After."]
+                               "You stay.",
+                               conditions.Words("en").say("menu.follows"),
+                               "Yes.", "No.", "You rest.", "After."]
     assert [r[-1] for r in shape(manifest)[1]["routes"]] == ["ending"] * 2
+    assert manifest["branches"][1]["follows"] == manifest["branches"][0]["id"]
     check_folder(tmp_path, out, manifest)
 
 

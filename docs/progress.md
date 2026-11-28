@@ -7636,7 +7636,62 @@ truthful: an unchecked box means nothing was accepted.
       decision getting a join item; item 9o2k's 3 "follows the menu"
       chains are item 9p's. Orchestrator: converter/ 1642 passed,
       test_validate_content.py 545 passed.)
-- [ ] Menu prompts in the game's languages (item 9o3).
+- [x] Menu prompts in the game's languages (item 9o3).
+      (Causes: the converter computed Ren'Py's identifier for a say
+      menuitem (ending `nointeract`, checked against Ren'Py 8.3's
+      `parse_menu` and `Say.get_code`) but `language_files` looked
+      every caption up in `strings` and `read_project` matched dialogue
+      blocks to items only; the default prompt was English and skipped
+      in language files; `menu_lead` gave every chain "Another choice
+      follows.", a following chain included, and a linear menu
+      straight after a join still got it. Fix: two phrases,
+      `converter.menu.follows` "Your earlier choice decides what
+      follows." and `converter.menu.prompt` "What happens next?", in
+      en.ts and all 38 PO files (spot-checked by the orchestrator in
+      de, fr, ja and ru); conditions.py `default_prompt`, `word_menu`
+      filling a captionless menu's prompt; translations.py maps
+      say-menuitem sources to their menus, translating the prompt from
+      its dialogue block (stale `from` and the over-limit warning as
+      for dialogue) and writing the default prompt in each tag's
+      words; timeline.py's `followed_for` gives a following chain the
+      follows phrase, and a captionless linear menu straight after a
+      join that lays out a line of its own gets no line, its waiting
+      decision held into its first item. Choices: a following chain
+      gets a phrase, not no line (rule 26 needs a line between the
+      decisions); a linear menu's own caption stays (the game's text);
+      a linear menu that lays out nothing keeps "Another choice
+      follows." (the first recount without that lost 100 lines and
+      made 5 pure choices); a following chain the CLI demotes keeps
+      the follows phrase (still true over "Which fits your story so
+      far?"); a language the catalogue lacks gets the English prompt,
+      as the condition phrases do; `strings` is no fallback for a say
+      menuitem, as in Ren'Py. Tests: test_menu_prompts.py 12, all
+      failing at c95b7f7 (rechecked by the orchestrator in an archive
+      of HEAD with the new words file: 12 failed, the guards on the
+      German file's untranslated default prompt); expectations changed
+      in test_called_menus, test_reading_on and test_shared_tails (a
+      chain following a decision now has the follows phrase),
+      test_renpy_translations (the demo's coverage de 38 -> 40 and
+      zh-Hans 8 -> 10 of 57, its two captionless prompts now
+      translated) and test_conditions (the French fixture's two keys).
+      Recount, 75 of 79 entries on both sides: lines 1,409,683 ->
+      1,409,605 (78 "Another choice follows." gone before linear menus
+      straight after a join, in 21 games, their decisions continuing at
+      the menu's first line; 9 became the follows phrase; 2,382 stay);
+      decisions, `continueAt`, routes, pure choices, never shown 0 and
+      rule problems 0 unchanged. Languages: 23 games have 182 language
+      files; 7,128 default prompts now written in each (38,997 entries
+      per language, none before); one game's 223 say-menuitem prompts
+      now translate from dialogue blocks (54 in its Italian file, where
+      8 came from `strings` before). Leads: a say-menuitem prompt's
+      lead line is narration, not the character's line, and `kinetic
+      report` does not name a default prompt's English fallback -> item
+      9o3b; a withdrawn decision's lead line stays before lines read in
+      a row -> item 9o3c. Orchestrator: converter/ 1654 passed,
+      test_validate_content.py and test_translations.py 587 passed, npm
+      test 1981 passed, npm run check clean.)
+- [ ] A say-menuitem prompt keeps its speaker (item 9o3b).
+- [ ] A withdrawn decision drops its lead line (item 9o3c).
 - [ ] Menus kept linear by a rejoin (item 9o4).
 - [ ] More `if` chains become decisions (item 9p).
 - [ ] Variables shown in text (item 9q).

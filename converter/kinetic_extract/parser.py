@@ -227,10 +227,6 @@ PROMPT_MAX = 199       # prompt "shorter than 200 characters"
 LABEL_MAX = 119        # route label "shorter than 120 characters"
 ID_MAX = 64            # docs/content-schema.json $defs/id pattern
 
-_DEFAULT_PROMPT = "What happens next?"
-
-
-
 _SLUG_BAD_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
@@ -641,6 +637,11 @@ class MenuRecord:
     # say menuitem (`e "Which?"`, a say statement of its own).
     caption_strings: bool = True
     caption_source: str = ""
+    # A say menuitem's translation per language tag, from the game's
+    # dialogue blocks as a say statement's (docs/plan.md Phase 60 item
+    # 9o3): ``(text, the English it was made from)``.
+    prompt_translations: dict[str, tuple[str, str]] = field(
+        default_factory=dict)
     # The base-indent lines passed over (`set`, `with`, `$`, `pass`, a
     # caption among the choices), ``(source, text)`` each.
     passed: list[tuple[str, str]] = field(default_factory=list)
@@ -1703,8 +1704,11 @@ def _handle_menu(raw_lines: list[str], i: int, relname: str,
         source=source, statement=menu_line,
         decision_id=f"menu-{slug(cur_label, Path(relname).stem)}"
                     f"-{menu_lineno}"[:ID_MAX],
-        prompt=(caption if caption is not None else _DEFAULT_PROMPT)
-               [:PROMPT_MAX],
+        # A menu with no caption: the converter's words, in the base
+        # language once conditions.word_menu knows it (docs/plan.md Phase
+        # 60 item 9o3).
+        prompt=(caption[:PROMPT_MAX] if caption is not None
+                else conditions.default_prompt(conditions.ENGLISH)),
         prompt_defaulted=caption is None,
         choices=[label for label, _lineno in choices],
         choice_sources=[f"{relname}:{lineno}" for _label, lineno in choices],

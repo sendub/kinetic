@@ -1200,3 +1200,13 @@ msgstr "항상 제공되지는 않음"
 msgctxt "converter.menu.next"
 msgid "Another choice follows."
 msgstr "또 다른 선택이 이어집니다."
+
+#. Converter words: a line of the story just before content the reader's earlier choice decides, which comes straight after another choice with no line of the game's own between them; usually no choice is shown, the story goes on with what that choice led to.
+msgctxt "converter.menu.follows"
+msgid "Your earlier choice decides what follows."
+msgstr "앞선 선택에 따라 다음 내용이 정해집니다."
+
+#. Converter words: the question above a choice converted from a game menu that asks no question of its own.
+msgctxt "converter.menu.prompt"
+msgid "What happens next?"
+msgstr "다음에는 어떻게 될까요?"

@@ -247,12 +247,16 @@ def test_a_chain_after_a_called_stat_choice_keeps_its_line(tmp_path: Path
         '        "Rest":\n            $ flag = True\n'
         '        "Wait":\n            $ flag = False\n'
         '    return\n'))
-    assert texts(manifest) == ["Lead.", "Rest", "Wait", NEXT, "One.",
+    # The chain follows the called menu's decision: the line before it
+    # says so (Phase 60 item 9o3).
+    follows = conditions.Words("en").say("menu.follows")
+    assert texts(manifest) == ["Lead.", "Rest", "Wait", follows, "One.",
                                "Other.", "After."]
     decisions = shape(manifest)
     assert decisions[0] == {"after": "Lead.", "routes": TALK,
-                            "continuing": "Wait", "continueAt": NEXT}
-    assert decisions[1]["after"] == NEXT
+                            "continuing": "Wait", "continueAt": follows}
+    assert decisions[1]["after"] == follows
+    assert manifest["branches"][1]["follows"] == manifest["branches"][0]["id"]
     assert [r[-1] for r in decisions[1]["routes"]] == ["continue"] * 2
     assert menu_reports(ledger) == []
     check_folder(tmp_path, out, manifest)

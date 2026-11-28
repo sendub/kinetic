@@ -5286,6 +5286,24 @@ The orchestrator's choices, within those decisions:
     linear straight after a join (item 9o2g's lead) gets no line that
     says a choice follows. Tests: a
     game with a language file shows both prompts translated.
+9o3b. A say-menuitem prompt keeps its speaker (leads from item 9o3). A
+    menu whose say menuitem (`e "Which one?"`) is its prompt writes that
+    prompt's lead line, where one is laid out, as narration, while
+    Ren'Py shows it as that character's line; it keeps the speaker, as
+    the line would outside a menu. And `kinetic report` names, per
+    language, the default prompts that fell back to English because
+    the catalogue lacks the language, as it names condition phrases.
+    Tests: a synthetic say-menuitem menu whose lead line has the
+    speaker; a report on a game in a language with no catalogue.
+9o3c. A withdrawn decision drops its lead line (lead from item 9o3).
+    When the CLI withdraws a decision after the timeline (an asset-pass
+    drop, the follows rules), the converter's line before it ("Another
+    choice follows." or "Your earlier choice decides what follows.")
+    stays before lines now read in a row, saying a choice follows where
+    none does. That line goes with the decision, and an earlier
+    decision that continued at it continues at the next item. Tests: a
+    synthetic decision withdrawn by each rule, its lead line gone and
+    the earlier decision's `continueAt` moved; validated `--strict`.
 9o4. Menus kept linear because a choice rejoins content read elsewhere
     (lead from item 9o: 2,409 menus in the corpus, 35,499 lines kept in
     a row and 6,607 lost). Find why those lines are lost and keep them,
@@ -5344,7 +5362,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o2b -> 9o2c -> 9o2d -> 9o2e -> 9o2f -> 9o2g -> 9o2h -> 9o2i -> 9o2j -> 9o2k -> 9o2l -> 9o2m -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o2b -> 9o2c -> 9o2d -> 9o2e -> 9o2f -> 9o2g -> 9o2h -> 9o2i -> 9o2j -> 9o2k -> 9o2l -> 9o2m -> 9o3 -> 9o3b -> 9o3c -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

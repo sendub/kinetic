@@ -1184,6 +1184,17 @@ SOMETIMES = ("sometimes",)
 # The line before a menu that follows another decision's join with no
 # line between, when the menu has no caption.
 NEXT_MENU = "menu.next"
+# That line before a chain that follows an earlier decision (kind
+# ``follows``), whose route the player takes by the pick there, showing
+# no choice (docs/plan.md Phase 60 item 9o3).
+FOLLOWS_MENU = "menu.follows"
+# The prompt of a menu with no caption (item 9o3).
+DEFAULT_PROMPT = "menu.prompt"
+
+
+def default_prompt(tag: str) -> str:
+    """The prompt of a menu with no caption in ``tag``'s words."""
+    return fit(Words(tag).say(DEFAULT_PROMPT), PROMPT_MAX)
 
 
 def _test_phrase(test: Test) -> tuple[Any, ...]:
@@ -1264,7 +1275,8 @@ def word_menu(record: Any, variables: dict[str, list[Assignment]],
     choice's route label, "Kiss her (love 3 or more)", in the ``base``
     language with the ``names`` file's words, and the line it gets when
     it follows another decision's join with no line between (its
-    caption, else the converter's words). The choices whose test is not
+    caption, else the converter's words), and a menu with no caption
+    its prompt in those words (item 9o3). The choices whose test is not
     worded, ``(index, why)``."""
     record.worded = True
     record.words_base, record.words_names = base, names
@@ -1285,6 +1297,7 @@ def word_menu(record: Any, variables: dict[str, list[Assignment]],
             choice_label(record, k, base, text)[0] or text
             for k, text in enumerate(record.choices)]
     if record.prompt_defaulted:
+        record.prompt = default_prompt(base)
         record.lead_text = Words(base).say(NEXT_MENU)
         record.lead_phrase = NEXT_MENU
     else:

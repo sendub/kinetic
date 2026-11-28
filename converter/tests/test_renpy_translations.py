@@ -643,8 +643,11 @@ def validator_coverage(out: Path) -> dict[str, tuple[int, int, int, int]]:
 
 
 def test_demo_output_validates_with_coverage(demo: dict) -> None:
+    # Each language's count holds the demo's two menus with no caption,
+    # whose prompt is the converter's words in that language (docs/
+    # plan.md Phase 60 item 9o3).
     assert validator_coverage(demo["out"]) == {
-        "de": (38, 57, 0, 0), "zh-Hans": (8, 57, 0, 0)}
+        "de": (40, 57, 0, 0), "zh-Hans": (10, 57, 0, 0)}
 
 
 def test_demo_report(demo: dict) -> None:
@@ -659,8 +662,8 @@ def test_demo_report(demo: dict) -> None:
             "pass or empty 1, unmatched 1; identifier and comment: agree "
             "23, disagree 0, no comment 0") in printed
     assert ("    strings used 8 of 8; several lines joined 1, duplicates 0, "
-            "same as the base text 0; coverage de: 38 of 57 strings "
-            "(66.6%), 0 stale, 0 unchecked; ignored: style blocks 1, "
+            "same as the base text 0; coverage de: 40 of 57 strings "
+            "(70.1%), 0 stale, 0 unchecked; ignored: style blocks 1, "
             "python blocks 1, replacement files 1") in printed
     assert ("    unmatched: game/tl/de/script.rpy:77 (inside_deadbeef)"
             in printed)
@@ -668,7 +671,7 @@ def test_demo_report(demo: dict) -> None:
     assert ledger["skipped"] == ["klingon (unknown name)"]
     de = ledger["languages"]["de"]
     assert (de["name"], de["blocks"], de["matched"], de["done"],
-            de["total"]) == ("de", 25, 22, 38, 57)
+            de["total"]) == ("de", 25, 22, 40, 57)
 
 
 def test_demo_without_translations_is_the_english_golden(

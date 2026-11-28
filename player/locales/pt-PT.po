@@ -1270,3 +1270,13 @@ msgstr "nem sempre disponível"
 msgctxt "converter.menu.next"
 msgid "Another choice follows."
 msgstr "Segue-se outra escolha."
+
+#. Converter words: a line of the story just before content the reader's earlier choice decides, which comes straight after another choice with no line of the game's own between them; usually no choice is shown, the story goes on with what that choice led to.
+msgctxt "converter.menu.follows"
+msgid "Your earlier choice decides what follows."
+msgstr "A sua escolha anterior decide o que se segue."
+
+#. Converter words: the question above a choice converted from a game menu that asks no question of its own.
+msgctxt "converter.menu.prompt"
+msgid "What happens next?"
+msgstr "O que acontece a seguir?"

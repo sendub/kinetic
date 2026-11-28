@@ -263,7 +263,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "لا يُعرض دائمًا",
-    "converter.menu.next": "يليه اختيار آخر."
+    "converter.menu.next": "يليه اختيار آخر.",
+    "converter.menu.follows": "اختيارك السابق يحدد ما يلي.",
+    "converter.menu.prompt": "ماذا يحدث بعد ذلك؟"
   },
   "bg": {
     "page.title": "Kinetic",
@@ -504,7 +506,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "не винаги се предлага",
-    "converter.menu.next": "Следва друг избор."
+    "converter.menu.next": "Следва друг избор.",
+    "converter.menu.follows": "Предишният ви избор решава какво следва.",
+    "converter.menu.prompt": "Какво ще се случи после?"
   },
   "ca": {
     "page.title": "Kinetic",
@@ -750,7 +754,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "no sempre s’ofereix",
-    "converter.menu.next": "Ve una altra elecció."
+    "converter.menu.next": "Ve una altra elecció.",
+    "converter.menu.follows": "La vostra elecció anterior decideix el que ve després.",
+    "converter.menu.prompt": "Què passa ara?"
   },
   "cs": {
     "page.title": "Kinetic",
@@ -1001,7 +1007,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "není vždy k dispozici",
-    "converter.menu.next": "Následuje další volba."
+    "converter.menu.next": "Následuje další volba.",
+    "converter.menu.follows": "Vaše dřívější volba rozhoduje o tom, co následuje.",
+    "converter.menu.prompt": "Co se stane dál?"
   },
   "da": {
     "page.title": "Kinetic",
@@ -1242,7 +1250,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "tilbydes ikke altid",
-    "converter.menu.next": "Der følger endnu et valg."
+    "converter.menu.next": "Der følger endnu et valg.",
+    "converter.menu.follows": "Dit tidligere valg afgør, hvad der følger.",
+    "converter.menu.prompt": "Hvad sker der nu?"
   },
   "de": {
     "page.title": "Kinetic",
@@ -1483,7 +1493,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "nicht immer angeboten",
-    "converter.menu.next": "Es folgt eine weitere Wahl."
+    "converter.menu.next": "Es folgt eine weitere Wahl.",
+    "converter.menu.follows": "Deine frühere Wahl entscheidet, was folgt.",
+    "converter.menu.prompt": "Wie geht es weiter?"
   },
   "el": {
     "page.title": "Kinetic",
@@ -1724,7 +1736,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "δεν προσφέρεται πάντα",
-    "converter.menu.next": "Ακολουθεί άλλη επιλογή."
+    "converter.menu.next": "Ακολουθεί άλλη επιλογή.",
+    "converter.menu.follows": "Η προηγούμενη επιλογή σας καθορίζει τι ακολουθεί.",
+    "converter.menu.prompt": "Τι συμβαίνει μετά;"
   },
   "es": {
     "page.title": "Kinetic",
@@ -1970,7 +1984,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "no siempre se ofrece",
-    "converter.menu.next": "Sigue otra elección."
+    "converter.menu.next": "Sigue otra elección.",
+    "converter.menu.follows": "Tu elección anterior decide lo que sigue.",
+    "converter.menu.prompt": "¿Qué pasa después?"
   },
   "es-419": {
     "page.title": "Kinetic",
@@ -2216,7 +2232,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "no siempre se ofrece",
-    "converter.menu.next": "Sigue otra elección."
+    "converter.menu.next": "Sigue otra elección.",
+    "converter.menu.follows": "Tu elección anterior decide lo que sigue.",
+    "converter.menu.prompt": "¿Qué pasa después?"
   },
   "fa": {
     "page.title": "Kinetic",
@@ -2457,7 +2475,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "همیشه ارائه نمی‌شود",
-    "converter.menu.next": "انتخاب دیگری در پیش است."
+    "converter.menu.next": "انتخاب دیگری در پیش است.",
+    "converter.menu.follows": "انتخاب قبلی شما تعیین می‌کند چه در پیش است.",
+    "converter.menu.prompt": "بعد چه می‌شود؟"
   },
   "fi": {
     "page.title": "Kinetic",
@@ -2698,7 +2718,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "ei aina tarjolla",
-    "converter.menu.next": "Seuraavaksi tulee toinen valinta."
+    "converter.menu.next": "Seuraavaksi tulee toinen valinta.",
+    "converter.menu.follows": "Aiempi valintasi ratkaisee, mitä seuraa.",
+    "converter.menu.prompt": "Mitä seuraavaksi tapahtuu?"
   },
   "fr": {
     "page.title": "Kinetic",
@@ -2944,7 +2966,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "pas toujours proposé",
-    "converter.menu.next": "Un autre choix suit."
+    "converter.menu.next": "Un autre choix suit.",
+    "converter.menu.follows": "Votre choix précédent décide de la suite.",
+    "converter.menu.prompt": "Que se passe-t-il ensuite ?"
   },
   "he": {
     "page.title": "Kinetic",
@@ -3190,7 +3214,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "לא תמיד זמין",
-    "converter.menu.next": "בהמשך בחירה נוספת."
+    "converter.menu.next": "בהמשך בחירה נוספת.",
+    "converter.menu.follows": "הבחירה הקודמת שלך קובעת מה יבוא.",
+    "converter.menu.prompt": "מה קורה עכשיו?"
   },
   "hi": {
     "page.title": "Kinetic",
@@ -3431,7 +3457,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "हमेशा उपलब्ध नहीं",
-    "converter.menu.next": "आगे एक और विकल्प है।"
+    "converter.menu.next": "आगे एक और विकल्प है।",
+    "converter.menu.follows": "आपका पिछला चुनाव तय करता है कि आगे क्या होगा।",
+    "converter.menu.prompt": "आगे क्या होता है?"
   },
   "hr": {
     "page.title": "Kinetic",
@@ -3677,7 +3705,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "ne nudi se uvijek",
-    "converter.menu.next": "Slijedi još jedan izbor."
+    "converter.menu.next": "Slijedi još jedan izbor.",
+    "converter.menu.follows": "Vaš raniji izbor određuje što slijedi.",
+    "converter.menu.prompt": "Što se događa dalje?"
   },
   "hu": {
     "page.title": "Kinetic",
@@ -3918,7 +3948,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "nem mindig választható",
-    "converter.menu.next": "Újabb választás következik."
+    "converter.menu.next": "Újabb választás következik.",
+    "converter.menu.follows": "Korábbi választása dönti el, mi következik.",
+    "converter.menu.prompt": "Mi történik ezután?"
   },
   "id": {
     "page.title": "Kinetic",
@@ -4154,7 +4186,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "tidak selalu ditawarkan",
-    "converter.menu.next": "Pilihan lain menyusul."
+    "converter.menu.next": "Pilihan lain menyusul.",
+    "converter.menu.follows": "Pilihan Anda sebelumnya menentukan apa yang terjadi selanjutnya.",
+    "converter.menu.prompt": "Apa yang terjadi selanjutnya?"
   },
   "it": {
     "page.title": "Kinetic",
@@ -4400,7 +4434,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "non sempre disponibile",
-    "converter.menu.next": "Segue un’altra scelta."
+    "converter.menu.next": "Segue un’altra scelta.",
+    "converter.menu.follows": "La tua scelta precedente decide ciò che segue.",
+    "converter.menu.prompt": "Che cosa succede ora?"
   },
   "ja": {
     "page.title": "Kinetic",
@@ -4636,7 +4672,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "（{label}）",
     "converter.condition.when": "{choice}（{condition}）",
     "converter.condition.sometimes": "いつも選べるとは限らない",
-    "converter.menu.next": "続いて、もう一つの選択があります。"
+    "converter.menu.next": "続いて、もう一つの選択があります。",
+    "converter.menu.follows": "この先の展開は、以前の選択で決まります。",
+    "converter.menu.prompt": "次はどうなりますか？"
   },
   "ko": {
     "page.title": "Kinetic",
@@ -4872,7 +4910,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "항상 제공되지는 않음",
-    "converter.menu.next": "또 다른 선택이 이어집니다."
+    "converter.menu.next": "또 다른 선택이 이어집니다.",
+    "converter.menu.follows": "앞선 선택에 따라 다음 내용이 정해집니다.",
+    "converter.menu.prompt": "다음에는 어떻게 될까요?"
   },
   "ms": {
     "page.title": "Kinetic",
@@ -5108,7 +5148,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "tidak sentiasa ditawarkan",
-    "converter.menu.next": "Satu lagi pilihan menyusul."
+    "converter.menu.next": "Satu lagi pilihan menyusul.",
+    "converter.menu.follows": "Pilihan anda sebelum ini menentukan apa yang menyusul.",
+    "converter.menu.prompt": "Apa yang berlaku seterusnya?"
   },
   "nb": {
     "page.title": "Kinetic",
@@ -5349,7 +5391,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "tilbys ikke alltid",
-    "converter.menu.next": "Enda et valg følger."
+    "converter.menu.next": "Enda et valg følger.",
+    "converter.menu.follows": "Det tidligere valget ditt avgjør hva som følger.",
+    "converter.menu.prompt": "Hva skjer nå?"
   },
   "nl": {
     "page.title": "Kinetic",
@@ -5590,7 +5634,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "niet altijd beschikbaar",
-    "converter.menu.next": "Er volgt nog een keuze."
+    "converter.menu.next": "Er volgt nog een keuze.",
+    "converter.menu.follows": "Je eerdere keuze bepaalt wat er volgt.",
+    "converter.menu.prompt": "Wat gebeurt er nu?"
   },
   "pl": {
     "page.title": "Kinetic",
@@ -5841,7 +5887,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "nie zawsze do wyboru",
-    "converter.menu.next": "Następuje kolejny wybór."
+    "converter.menu.next": "Następuje kolejny wybór.",
+    "converter.menu.follows": "Wcześniejszy wybór decyduje o tym, co nastąpi.",
+    "converter.menu.prompt": "Co dalej?"
   },
   "pt-BR": {
     "page.title": "Kinetic",
@@ -6087,7 +6135,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "nem sempre disponível",
-    "converter.menu.next": "A seguir, outra escolha."
+    "converter.menu.next": "A seguir, outra escolha.",
+    "converter.menu.follows": "Sua escolha anterior decide o que vem a seguir.",
+    "converter.menu.prompt": "O que acontece agora?"
   },
   "pt-PT": {
     "page.title": "Kinetic",
@@ -6333,7 +6383,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "nem sempre disponível",
-    "converter.menu.next": "Segue-se outra escolha."
+    "converter.menu.next": "Segue-se outra escolha.",
+    "converter.menu.follows": "A sua escolha anterior decide o que se segue.",
+    "converter.menu.prompt": "O que acontece a seguir?"
   },
   "ro": {
     "page.title": "Kinetic",
@@ -6579,7 +6631,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "nu este mereu disponibilă",
-    "converter.menu.next": "Urmează o altă alegere."
+    "converter.menu.next": "Urmează o altă alegere.",
+    "converter.menu.follows": "Alegerea ta de mai devreme decide ce urmează.",
+    "converter.menu.prompt": "Ce se întâmplă mai departe?"
   },
   "ru": {
     "page.title": "Kinetic",
@@ -6830,7 +6884,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "предлагается не всегда",
-    "converter.menu.next": "Далее ещё один выбор."
+    "converter.menu.next": "Далее ещё один выбор.",
+    "converter.menu.follows": "От вашего прежнего выбора зависит продолжение.",
+    "converter.menu.prompt": "Что будет дальше?"
   },
   "sk": {
     "page.title": "Kinetic",
@@ -7081,7 +7137,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "nie je vždy k dispozícii",
-    "converter.menu.next": "Nasleduje ďalšia voľba."
+    "converter.menu.next": "Nasleduje ďalšia voľba.",
+    "converter.menu.follows": "Vaša skoršia voľba rozhoduje o tom, čo nasleduje.",
+    "converter.menu.prompt": "Čo sa stane ďalej?"
   },
   "sv": {
     "page.title": "Kinetic",
@@ -7322,7 +7380,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "erbjuds inte alltid",
-    "converter.menu.next": "Ännu ett val följer."
+    "converter.menu.next": "Ännu ett val följer.",
+    "converter.menu.follows": "Ditt tidigare val avgör vad som följer.",
+    "converter.menu.prompt": "Vad händer nu?"
   },
   "sw": {
     "page.title": "Kinetic",
@@ -7563,7 +7623,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "haitolewi kila mara",
-    "converter.menu.next": "Chaguo lingine linafuata."
+    "converter.menu.next": "Chaguo lingine linafuata.",
+    "converter.menu.follows": "Chaguo lako la awali linaamua kinachofuata.",
+    "converter.menu.prompt": "Nini kitatokea baadaye?"
   },
   "th": {
     "page.title": "Kinetic",
@@ -7799,7 +7861,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "ไม่ได้มีให้เลือกเสมอ",
-    "converter.menu.next": "ต่อไปมีตัวเลือกอีกครั้ง"
+    "converter.menu.next": "ต่อไปมีตัวเลือกอีกครั้ง",
+    "converter.menu.follows": "ตัวเลือกก่อนหน้าของคุณจะกำหนดสิ่งที่ตามมา",
+    "converter.menu.prompt": "จะเกิดอะไรขึ้นต่อไป"
   },
   "tr": {
     "page.title": "Kinetic",
@@ -8040,7 +8104,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "her zaman sunulmaz",
-    "converter.menu.next": "Ardından başka bir seçim geliyor."
+    "converter.menu.next": "Ardından başka bir seçim geliyor.",
+    "converter.menu.follows": "Önceki seçiminiz bundan sonrasını belirliyor.",
+    "converter.menu.prompt": "Şimdi ne olacak?"
   },
   "uk": {
     "page.title": "Kinetic",
@@ -8291,7 +8357,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "пропонується не завжди",
-    "converter.menu.next": "Далі ще один вибір."
+    "converter.menu.next": "Далі ще один вибір.",
+    "converter.menu.follows": "Ваш попередній вибір визначає, що буде далі.",
+    "converter.menu.prompt": "Що станеться далі?"
   },
   "ur": {
     "page.title": "Kinetic",
@@ -8532,7 +8600,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "ہمیشہ پیش نہیں کیا جاتا",
-    "converter.menu.next": "آگے ایک اور انتخاب ہے۔"
+    "converter.menu.next": "آگے ایک اور انتخاب ہے۔",
+    "converter.menu.follows": "آپ کا پچھلا انتخاب طے کرتا ہے کہ آگے کیا ہوگا۔",
+    "converter.menu.prompt": "آگے کیا ہوتا ہے؟"
   },
   "vi": {
     "page.title": "Kinetic",
@@ -8768,7 +8838,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "({label})",
     "converter.condition.when": "{choice} ({condition})",
     "converter.condition.sometimes": "không phải lúc nào cũng có",
-    "converter.menu.next": "Tiếp theo là một lựa chọn khác."
+    "converter.menu.next": "Tiếp theo là một lựa chọn khác.",
+    "converter.menu.follows": "Lựa chọn trước đó của bạn quyết định điều tiếp theo.",
+    "converter.menu.prompt": "Chuyện gì xảy ra tiếp theo?"
   },
   "zh-Hans": {
     "page.title": "Kinetic",
@@ -9004,7 +9076,9 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "（{label}）",
     "converter.condition.when": "{choice}（{condition}）",
     "converter.condition.sometimes": "并非总会出现",
-    "converter.menu.next": "接下来还有一个选择。"
+    "converter.menu.next": "接下来还有一个选择。",
+    "converter.menu.follows": "你之前的选择决定接下来的内容。",
+    "converter.menu.prompt": "接下来会发生什么？"
   },
   "zh-Hant": {
     "page.title": "Kinetic",
@@ -9240,6 +9314,8 @@ export const LOCALES: Readonly<Record<string, Catalogue>> = {
     "converter.condition.aside": "（{label}）",
     "converter.condition.when": "{choice}（{condition}）",
     "converter.condition.sometimes": "並非總會出現",
-    "converter.menu.next": "接下來還有一個選擇。"
+    "converter.menu.next": "接下來還有一個選擇。",
+    "converter.menu.follows": "你之前的選擇決定接下來的內容。",
+    "converter.menu.prompt": "接下來會發生什麼？"
   }
 };

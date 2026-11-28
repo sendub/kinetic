@@ -1307,7 +1307,9 @@ def _walk_project(project: Path, args: argparse.Namespace
         sources.setdefault("rpaFailed", []).extend(asset_archives.failed)
     translations = (read_project(game_dir, result.items, args.language_map,
                                  args.base_language or DEFAULT_LANGUAGE,
-                                 args.files)
+                                 args.files,
+                                 [record for _rel, parsed in parses
+                                  for record in parsed.menus])
                     if args.translations else None)
     return _Episode(project, game_dir, parses, sources, result,
                     translations)

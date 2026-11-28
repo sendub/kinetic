@@ -186,7 +186,9 @@ print it.
   `converter/condition-words.json`, the converter's own words (the
   `converter.*` messages: the prompt and route labels `kinetic extract`
   writes for a decision made from an `if` chain, docs/extracting.md,
-  "Conditions") in English and every language that has them, which
+  "Conditions", the prompt of a menu with no caption and the line before
+  a decision that follows another's join) in English and every
+  language that has them, which
   `kinetic_extract/conditions.py` reads and the wheel carries. All four
   are committed; `npm
   test` (`scripts/i18n.test.mjs`) fails while any is stale, and the

@@ -167,8 +167,12 @@ game whose story order differs from its file order read out of order.
   with arguments or not (`"x" (badge=1):`), with a test or not (`"x" if
   cond:`); the first caption (a string on its own line, or a head's
   `menu "x":`) or say menuitem (`e "Which one?"`) before the choices is
-  the prompt; a later caption, `set`, `with`, a `$` line and `pass` are
-  passed over (the `branchDetection` note lists them). A conditional
+  the prompt, and a menu with neither gets the converter's words, `What
+  happens next?`, in the base language (each language file its own
+  language's words, as the condition phrases are: Conditions, below;
+  item 9o3: before, English everywhere); a later caption, `set`,
+  `with`, a `$` line and `pass` are passed over (the `branchDetection`
+  note lists them). A conditional
   choice is a route like any other, labelled with its condition in
   words, as a chain's routes are (Conditions, below): `Kiss her (love 3
   or more)`, `Greet (met is set)`, `Ask (If you chose: Wave)`; a test on
@@ -331,12 +335,21 @@ game whose story order differs from its file order read out of order.
   pure choice, its routes `"ending"`. A menu straight after another
   decision's join, no item between (item 9o), gets one line before it,
   which is the earlier decision's `continueAt` and the menu's `after`:
-  its caption (translated from the `strings` block), else the
-  converter's words, `Another choice follows.` (in each language file
-  that language's words; its ledger note says so). A menu or `if`
+  its caption (translated from the `strings` block, a say menuitem from
+  its dialogue block), else the converter's words, `Another choice
+  follows.` (in each language file that language's words; its ledger
+  note says so). A menu with no caption that stays linear there offers
+  no choice, so it gets no line: the decision goes on at its first line,
+  as its lines are read in a row (item 9o3: before, `Another choice
+  follows.` before lines read in a row); one that lays out no line of
+  its own (each choice goes to content read elsewhere) keeps the line,
+  which the decision goes on at. A menu or `if`
   chain that would hang off another decision's last item, no item since
   that decision closed, gets that line too, a chain the converter's
-  words, and hangs off it: a shared span's last item (Phase 60 item
+  words, and hangs off it (a chain that follows an earlier decision,
+  whose route the player takes by the pick there with no choice shown,
+  `Your earlier choice decides what follows.` instead; item 9o3): a
+  shared span's last item (Phase 60 item
   9o2: a span holds no decision), or the end of its last route (item
   9o2b: hanging inside that route, the decision would be offered from
   that route only, and a reading from the opening would stop there,
@@ -2693,8 +2706,13 @@ What is read, per language:
   hidden label, a local `.label`, a named `menu` and an explicit
   `id` clause count as in Ren'Py; say statements inside `if`, `while`,
   `menu` and `init` blocks count, those in `python`, `screen` and
-  similar blocks do not. A block's say statements give the item's text,
-  read with the converter's own string reading, so text tags and
+  similar blocks do not. A menu's say menuitem (`e "Which one?"` in the
+  menu block) is a say statement of its own, its code ending
+  `nointeract`: its block translates the decision's prompt (and the
+  line before the menu, when it has one), not the `strings` block
+  (docs/plan.md Phase 60 item 9o3). A block's say statements give the
+  item's text, read with the converter's own string reading, so text
+  tags and
   `[interpolation]` stay as the manifest has them; a block with several
   (a translator's split) joins them with a space, an `extend` line
   continuing the line before as written. A block of `pass` (or without a
@@ -2740,8 +2758,10 @@ What is read, per language:
   a stale one, wherever each sits. Anything less certain stays unmatched.
 - **String blocks**, `translate <language> strings:`, `old`/`new`
   pairs: a menu's choices become its route labels, its caption the
-  decision's prompt (a prompt the converter supplied, "What happens
-  next?", has none), the lines the converter makes of choice text (an
+  decision's prompt (a say menuitem's prompt comes from its dialogue
+  block, above, and a prompt the converter supplied, "What happens
+  next?", is the language's own words; item 9o3), the lines the
+  converter makes of choice text (an
   empty choice, a one-choice menu, a route opening with a nested menu)
   and the choices named inside condition labels theirs, the speakers'
   names (the manifest's `speaker`, the

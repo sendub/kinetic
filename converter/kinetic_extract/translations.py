@@ -797,14 +797,19 @@ class _Part:
 def read_project(game_dir: Path, records: list[Any],
                  overrides: dict[str, str] | None = None,
                  base: str = "en",
-                 files_glob: str | None = None) -> ProjectTranslations:
+                 files_glob: str | None = None,
+                 menus: list[Any] = ()) -> ProjectTranslations:
     """Read `game_dir`'s tl/ and give each walked item record
     (`records`, kinetic_extract.timeline.ItemRecord, matched by the
     sources of its ``text_parts``) its translations,
     ``record.translations[tag]``, and for one made from English that has
-    changed since, ``record.translation_bases[tag]``, that English. The
-    identifiers come from the scripts the walk read with ``files_glob``
-    (its ``--files``)."""
+    changed since, ``record.translation_bases[tag]``, that English; and
+    each menu record of `menus` (parser.MenuRecord) whose caption is a
+    say menuitem (`e "Which?"`, a say statement Ren'Py translates in a
+    dialogue block, not in `strings`) its prompt's,
+    ``record.prompt_translations[tag]`` (docs/plan.md Phase 60 item 9o3).
+    The identifiers come from the scripts the walk read with
+    ``files_glob`` (its ``--files``)."""
     project = ProjectTranslations()
     read = read_tl(game_dir)
     if not read:
@@ -842,6 +847,10 @@ def read_project(game_dir: Path, records: list[Any],
     for r in records:
         for k, (source, _text) in enumerate(getattr(r, "text_parts", [])):
             parts_at.setdefault(source, (r, k))
+    # A say menuitem's source -> the menu record whose prompt it is.
+    prompt_at = {say_key(m.caption_source): m for m in menus
+                 if not m.prompt_defaulted and not m.caption_strings
+                 and m.caption_source}
     for tag, lang in languages.items():
         stats = LanguageStats(lang.name, tag, sorted(lang.folders),
                               string_pairs=lang.string_pairs,
@@ -889,12 +898,14 @@ def read_project(game_dir: Path, records: list[Any],
                     stats.unmatched_examples.append(
                         f"{block.source} ({block.identifier})")
                 continue
-            if _take(block, group, None, parts_at, found, stats):
+            if _take(block, group, None, parts_at, found, stats, tag,
+                     prompt_at):
                 stats.matched += 1
                 if by_identifier is None:
                     stats.by_comment += 1
         for block, group, old_english in stale:
-            if _take(block, group, old_english, parts_at, found, stats):
+            if _take(block, group, old_english, parts_at, found, stats, tag,
+                     prompt_at):
                 stats.kept_stale += 1
         project.strings_used[tag] = _take_strings(records, lang.strings,
                                                   found)
@@ -918,17 +929,28 @@ def _at_comment(block: Block, by_loc: dict[tuple[str, int], list[Group]],
 
 def _take(block: Block, group: Group, old_english: str | None,
           parts_at: dict[str, tuple[Any, int]],
-          found: dict[int, dict[int, _Part]], stats: LanguageStats) -> bool:
+          found: dict[int, dict[int, _Part]], stats: LanguageStats,
+          tag: str = "", prompt_at: dict[str, Any] | None = None) -> bool:
     """Give `block`'s translation to the item part made from `group`'s
     say statement (made from `old_english`, when not None, instead of
-    the part's English now); False, counted, when there is none."""
+    the part's English now), and to the prompt of the menu whose say
+    menuitem it is (`prompt_at`, in language `tag`); False, counted, when
+    there is neither."""
     source = group.say_source()
+    text = join_texts(block.texts, block.whos)
+    menu = (prompt_at or {}).get(source) if source is not None else None
+    prompted = False
+    if menu is not None and text.strip() \
+            and tag not in menu.prompt_translations:
+        menu.prompt_translations[tag] = (
+            text, menu.prompt if old_english is None else old_english)
+        prompted = True
     at = parts_at.get(source) if source is not None else None
     if at is None or not at[0].item.get("text", "").strip():
-        stats.not_converted += 1
-        return False
+        if not prompted:
+            stats.not_converted += 1
+        return prompted
     record, k = at
-    text = join_texts(block.texts, block.whos)
     if not text.strip():
         stats.no_line += 1
         return False
@@ -1127,7 +1149,25 @@ def language_files(manifest: dict[str, Any], records: list[Any],
                 decisions[branch["id"]] = entry
                 done += 1 + len(entry["routes"])
                 continue
-            if not record.prompt_defaulted:
+            if record.prompt_defaulted:
+                # The converter's words (Phase 60 item 9o3), in the tag's.
+                entry["prompt"] = _entry(conditions.default_prompt(tag),
+                                         branch["prompt"])
+            elif not getattr(record, "caption_strings", True):
+                # A say menuitem, translated as a say statement is.
+                new, made_from = getattr(
+                    record, "prompt_translations", {}).get(
+                        tag, (None, branch["prompt"]))
+                if new is not None and len(new) > PROMPT_MAX:
+                    s.over_limit += 1
+                    warnings.append(
+                        f"translations: {tag}: the prompt {new[:40]!r} has "
+                        f"{len(new)} characters, over the limit of "
+                        f"{PROMPT_MAX}: skipped")
+                elif new is not None:
+                    entry["prompt"] = _entry(new, made_from)
+                    stale += made_from != branch["prompt"]
+            else:
                 new = lookup(branch["prompt"], PROMPT_MAX, "prompt")
                 if new is not None:
                     entry["prompt"] = _entry(new, branch["prompt"])

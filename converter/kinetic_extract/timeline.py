@@ -732,6 +732,12 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     # The menus met past a `return` only item 9o2j crosses that stay
     # linear, their join with no item of its own (menu_lead; item 9o2m).
     reading_on: set[int] = set()
+    # The menus kept linear straight after a decision's join that got no
+    # line of the converter's words there (menu_lead; item 9o3): each
+    # holds the decision, as a chain there does.
+    leadless: set[int] = set()
+    # The `menu-lead` markers whose menu lays out a line (below).
+    shows_line: set[int] = set()
     # The item the last say statement's text went to, which an `extend`
     # line continues; None at a menu's boundaries (a route's line never
     # continues the lead-in's) and before the first line.
@@ -1360,6 +1366,18 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             if not (pending is None or pending.consumed or (
                     pending.origin is not None and not pending.unresolved)):
                 return None
+            if record.lead_phrase is not None and (
+                    record.parse_reason
+                    or (event.outcome or {}).get("linear")) \
+                    and id(event) in shows_line:
+                # A menu with no caption that stays linear offers no
+                # choice: no line saying one follows (docs/plan.md Phase
+                # 60 item 9o3). It holds the decision (resolve_awaiting),
+                # which goes on at its first line; one that lays out no
+                # line of its own keeps the line, which the decision goes
+                # on at, as before.
+                leadless.add(id(record))
+                return None
         elif result.items and (waiting or last in span_ends
                                or last in region_ends) and (
                 pending is None or pending.consumed or pending.drops_bare) \
@@ -1372,9 +1390,15 @@ def build_timeline(parses: list[tuple[str, FileParse]],
             if record.condition is not None or record.lead_text is None:
                 base = (record.condition.base if record.condition
                         is not None else record.words_base)
+                # A chain following an earlier decision shows no choice
+                # while the pick there is known: its line says that pick
+                # decides what follows (item 9o3).
+                phrase = (conditions.FOLLOWS_MENU
+                          if followed_for(record) is not None
+                          else conditions.NEXT_MENU)
                 record.lead_text = conditions.Words(
-                    base or conditions.ENGLISH).say(conditions.NEXT_MENU)
-                record.lead_phrase = conditions.NEXT_MENU
+                    base or conditions.ENGLISH).say(phrase)
+                record.lead_phrase = phrase
         else:
             return None
         record.lead_used = True
@@ -1547,6 +1571,11 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 cand["continue_idx"] = count
             elif follows is not None and id(cand) in released \
                     and id(follows["record"]) not in reading_on:
+                follows.setdefault("held", []).append(
+                    (cand, count, "follows"))
+            elif follows is not None and id(follows["record"]) in leadless:
+                # A menu kept linear for a reason of its own, with no line
+                # (menu_lead; item 9o3): the decision goes on into it.
                 follows.setdefault("held", []).append(
                     (cand, count, "follows"))
             elif follows is not None:
@@ -1726,23 +1755,31 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         elif "continue" in results and outcome.get("join"):
             awaiting.append((cand, len(result.items)))
 
-    def follows_menu(ms: dict[str, Any]) -> None:
-        """A chain on what one menu's choices set follows that menu's
-        decision (Phase 60 item 6) when the menu became one before the
-        chain opened: it is closed, a candidate, not enclosing the chain.
-        Then the absent `else` such a decision passes is left out; else
-        the chain is an ordinary decision, every arm a route."""
-        cond = ms["record"].condition
+    def followed_for(record: Any) -> dict[str, Any] | None:
+        """The candidate a chain on what one menu's choices set follows
+        (Phase 60 item 6): that menu's decision, when it became one
+        before the chain opened (closed, a candidate, not enclosing the
+        chain); else None."""
+        cond = record.condition
         if cond is None or cond.kind != "follows" or cond.follow is None:
-            return
+            return None
         followed = next((c for c in reversed(result.branch_candidates)
                          if c["record"] is cond.follow), None)
         if followed is None or any(open_ms["record"] is cond.follow
                                    for open_ms in menu_stack):
+            return None
+        return followed
+
+    def follows_menu(ms: dict[str, Any]) -> None:
+        """A chain following a decision (followed_for) leaves out the
+        absent `else` such a decision passes; else the chain is an
+        ordinary decision, every arm a route."""
+        followed = followed_for(ms["record"])
+        if followed is None:
             return
         ms["follows"] = followed
-        ms["drop"] = {k for k, drop in enumerate(cond.drop_when_following)
-                      if drop}
+        ms["drop"] = {k for k, drop in enumerate(
+            ms["record"].condition.drop_when_following) if drop}
 
     def end_route(ms: dict[str, Any]) -> None:
         """Close the route block (or shared span) before the boundary
@@ -1763,6 +1800,23 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                                   exits=[result.items[i] for i in exits])
             if copy is not None:
                 copy.through = through
+
+    # Each `menu-lead` marker whose menu lays out a line of its own
+    # between its `menu-open` and `menu-close` (a linear menu's lines read
+    # in a row), by the marker's id: a decision a linear menu there holds
+    # goes on at that line (menu_lead; item 9o3).
+    open_leads: list[int | None] = []
+    lead_id = None
+    for _parsed, event in walk.events:
+        if event.kind == "menu-lead":
+            lead_id = id(event)
+        elif event.kind == "menu-open":
+            open_leads.append(lead_id)
+            lead_id = None
+        elif event.kind == "menu-close" and open_leads:
+            open_leads.pop()
+        elif event.kind == "dialogue":
+            shows_line.update(k for k in open_leads if k is not None)
 
     try:
         for parsed, event in walk.events:

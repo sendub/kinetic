@@ -388,6 +388,9 @@ def test_a_shared_label_holding_a_menu_stays_linear(tmp_path: Path) -> None:
 # the next decision.
 
 NEXT = conditions.Words("en").say("menu.next")
+# The line before a chain following an earlier decision (Phase 60 item
+# 9o3): the player takes its route by the pick there, showing no choice.
+FOLLOWS = conditions.Words("en").say("menu.follows")
 
 
 def after_tail(decision: str) -> str:
@@ -436,14 +439,15 @@ def test_a_chain_after_a_shared_tail_hangs_off_a_line(tmp_path: Path
     out, manifest, ledger = extract(tmp_path, after_tail(BRAVE_CHAIN))
     assert texts(manifest) == [
         "Lead.", "Brave now.", "Meek now.", "Then.", "You swing.",
-        "You run.", "You talk.", "You lose.", "It hurts.", NEXT, "Brave.",
-        "Timid.", "After."]
+        "You run.", "You talk.", "You lose.", "It hurts.", FOLLOWS,
+        "Brave.", "Timid.", "After."]
     assert spans(manifest) == {"Then.": [
         ("shared-lose", "You lose.", "It hurts.", "continue")]}
     decisions = shape(manifest)
     assert decisions[1] == {"after": "Then.", "routes": TAIL_ROUTES,
-                            "continuing": "Talk", "continueAt": NEXT}
-    assert decisions[2]["after"] == NEXT
+                            "continuing": "Talk", "continueAt": FOLLOWS}
+    assert decisions[2]["after"] == FOLLOWS
+    assert manifest["branches"][2]["follows"] == manifest["branches"][0]["id"]
     assert [r[1] for r in decisions[2]["routes"]] == ["Brave.", "Timid."]
     assert decisions[2]["continueAt"] == "After."
     note = next(n["note"] for n in detection(ledger)
@@ -451,7 +455,7 @@ def test_a_chain_after_a_shared_tail_hangs_off_a_line(tmp_path: Path
     assert ("opens right after a shared span's last item, which no "
             "decision hangs off: a line before it, the converter's words"
             in note), note
-    line = next(i for i in manifest["items"] if i.get("text") == NEXT)
+    line = next(i for i in manifest["items"] if i.get("text") == FOLLOWS)
     assert ("the converter's words before a decision that would otherwise "
             "hang off a shared span's last item"
             in ledger["items"][line["id"]]["notes"])
@@ -462,9 +466,10 @@ def test_the_line_before_a_chain_in_a_language_file(tmp_path: Path
                                                     ) -> None:
     out, manifest, _ledger = extract(tmp_path, after_tail(BRAVE_CHAIN), tl={
         "de": 'translate de strings:\n    old "Fight"\n    new "Kampf"\n'})
-    line = next(i for i in manifest["items"] if i.get("text") == NEXT)
+    line = next(i for i in manifest["items"] if i.get("text") == FOLLOWS)
     de = json.loads((out / "lang" / "de.json").read_text("utf-8"))
-    assert de["items"][line["id"]]["text"] == "Es folgt eine weitere Wahl."
+    assert de["items"][line["id"]]["text"] == \
+        "Deine frühere Wahl entscheidet, was folgt."
 
 
 @pytest.mark.parametrize("caption", ["Where now?", None])

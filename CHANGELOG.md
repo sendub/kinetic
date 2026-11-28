@@ -312,9 +312,12 @@ something more of an author.
   cannot word it; a menu whose choices only set variables (a stat
   choice) is a decision of its choice lines; a menu straight after
   another decision gets a line before it, its caption or `Another
-  choice follows.`; choices in single quotes or with arguments, a say
-  menuitem (`e "Which one?"`, the prompt), and `set`, `with`, `$`,
-  `pass` or a later caption among the choices no longer keep a menu
+  choice follows.` (none for a menu with no caption the converter keeps
+  linear, which offers no choice, when it shows lines of its own);
+  choices in single quotes or with arguments, a say menuitem (`e
+  "Which one?"`, the prompt, translated from the game's dialogue block
+  for it as a say statement is), and `set`, `with`, `$`, `pass` or a
+  later caption among the choices no longer keep a menu
   linear, nor does a `label` in a choice block. A menu that still stays
   linear keeps every choice's lines in a row, reported, where they
   were lost. The new words are in every interface language
@@ -332,9 +335,11 @@ something more of an author.
   that decision's last route, where the player offered it from that
   route only and a reading stopped, never showing the rest of the
   story: it gets a line of its own before it, its caption or `Another
-  choice follows.`, and the decision before it goes on into it there
-  when its choices lead there, as Ren'Py's do (docs/extracting.md, "The
-  walk follows labels").
+  choice follows.` (before an `if` chain on what an earlier menu's
+  choice set, whose route the player takes without showing a choice,
+  `Your earlier choice decides what follows.`), and the decision before
+  it goes on into it there when its choices lead there, as Ren'Py's do
+  (docs/extracting.md, "The walk follows labels").
 - An `if` arm holding a menu's decision no longer has its line said a
   second time after that decision, at its route's end or in no route
   (which `kinetic validate` warned of as an item never shown), when
@@ -414,6 +419,11 @@ something more of an author.
   to continue at while the story goes on after it, so the reader reads
   on instead of reaching an end (docs/extracting.md, "The walk follows
   labels").
+- A converted menu with no question of its own now has its prompt,
+  `What happens next?`, in the game's base language, and in each
+  language file in that language's words, as the condition phrases
+  are, instead of in English everywhere (docs/extracting.md, "The walk
+  follows labels" and "Translations").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its
