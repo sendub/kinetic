@@ -220,7 +220,17 @@ game whose story order differs from its file order read out of order.
   is in a label the choice calls): it meets where the enclosing menu
   does, past the `call` (item 9o2k: before, the enclosing menu had
   already taken the call's continuation, so the join stayed at the
-  `return`, a pure choice whose routes were `"ending"`). Any decision
+  `return`, a pure choice whose routes were `"ending"`). Another choice
+  of the enclosing menu stopping at that `return`, which the nested
+  menu's join passed, meets the others there too, so the enclosing menu
+  is a decision where before it stayed linear, that choice rejoining
+  content read elsewhere; but when its own join has no item of its own
+  while the walk lays out more of the story after it (the join's path
+  stops at content read before, the `jump` back to a hub label a
+  free-roam loop calls the scene from), it stays linear for that
+  rejoin, as before, its lines read in a row and a decision nested in it
+  going on as they do, below (item 9o2m: a pure choice, its routes
+  ending the story where the lines in a row read on). Any decision
   whose join's path reaches an enclosing menu's join before an item of
   its own (past a `call` of a label that shows nothing and a `return`
   that goes on there, or by a `jump` there, in a called label or not)
@@ -271,7 +281,15 @@ game whose story order differs from its file order read out of order.
   then `if _return == 1:`, `talk` a menu whose choices `return 1` and
   `return 2`, gives the chain that line and makes it a decision the
   called menu continues at; before, the chain stayed linear, as one
-  straight after the menu, its arms read in a row), and one past a join
+  straight after the menu, its arms read in a row; it still does, with
+  no line, holding the called menu, which goes on into its arms, when
+  its own join has no item of its own while the walk lays out more of
+  the story after it, as when the chain is the last candidate of a
+  `call expression` whose `return` goes back to a hub label already
+  read: item 9o2m, where before a pure choice's routes ended the story
+  there; a menu there keeps its line unless a visual still waits to
+  show, and a chain at the story's end, or past a join item 9o2f
+  follows, stays a decision), and one past a join
   at a block's end, reached past that block as past an `if` that shows
   nothing (item 9o2h: read as straight after the join, a chain there
   would stay linear, below, where before it was a decision of its own).
@@ -292,7 +310,12 @@ game whose story order differs from its file order read out of order.
   When that enclosing menu or chain stays linear, its blocks' lines kept
   in a row, the nested decision goes on as those lines do: at the next
   block's first item, or, in the last block, past the enclosing join
-  (item 9o2j: before, a pure choice whose routes were `"ending"`). A
+  (item 9o2j: before, a pure choice whose routes were `"ending"`); when
+  nothing is laid out there next because that join is where a decision
+  enclosing the linear menu meets, with nothing shown between, it takes
+  that decision's `continueAt`, as the lines in a row go on there, and
+  so does a decision such a menu holds past a `return` (item 9o2m:
+  before, a pure choice). A
   route with no item of its own before a menu nested in it (the
   choice's block opens with the menu, or jumps straight to a label that
   does) starts with one line, its choice text, translated from the
@@ -357,7 +380,14 @@ game whose story order differs from its file order read out of order.
   `continuingRoute` and `continueAt` or that it is a pure choice. A
   route whose path left a called label by its `return` says so
   (`reaches the join at game/script.rpy:12 through a return to its
-  caller`).
+  caller`). A decision a menu or chain kept linear holds (above) also
+  says where it continues, as its join names the statement its routes
+  reach: `its join leads into the if chain at game/script.rpy:9, which
+  stays linear, so it continues at line-008 (game/script.rpy:10) as
+  that if chain's lines read in a row`, or, for one nested in a block of
+  such a menu, `its choices meet where those of the menu at
+  game/script.rpy:20 do, which stays linear, so it continues at ...`
+  (item 9o2m).
 
   **Shared tails** (Phase 60 item 9i): content that two or more choices
   of one menu go on to before the join (a failure scene two choices

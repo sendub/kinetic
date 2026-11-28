@@ -729,6 +729,9 @@ def build_timeline(parses: list[tuple[str, FileParse]],
     awaiting: list[tuple[dict[str, Any], int]] = []
     # Those a linear `if` chain held and let wait on (item 9l).
     released: set[int] = set()
+    # The menus met past a `return` only item 9o2j crosses that stay
+    # linear, their join with no item of its own (menu_lead; item 9o2m).
+    reading_on: set[int] = set()
     # The item the last say statement's text went to, which an `extend`
     # line continues; None at a menu's boundaries (a route's line never
     # continues the lead-in's) and before the first line.
@@ -1340,6 +1343,17 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         waiting = [cand for cand, count in awaiting
                    if len(result.items) <= count]
         last = len(result.items) - 1
+        if waiting and (event.outcome or {}).get("reads_on") and (
+                record.condition is not None or record.lead_text is None
+                or not (pending is None or pending.consumed or (
+                    pending.origin is not None
+                    and not pending.unresolved))):
+            # Met past a `return` only item 9o2j crosses, its own join
+            # with no item while the story goes on after it (docs/plan.md
+            # Phase 60 item 9o2m): no line, as without that rule, and it
+            # stays linear (resolve_awaiting).
+            reading_on.add(id(record))
+            return None
         if any(id(cand) not in released for cand in waiting):
             if record.condition is not None or record.lead_text is None:
                 return None
@@ -1525,18 +1539,27 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         or its join's. So does a menu or chain that stays linear past a
         `return` or an `if` that shows nothing, which got no line there
         (menu_lead; item 9o2g): the decision goes on into it, as Ren'Py
-        does."""
+        does. One met past a `return` only item 9o2j crosses, whose own
+        join has no item (menu_lead; item 9o2m), stays linear and holds
+        it, as a chain straight after the join does."""
         for cand, count in awaiting:
             if len(result.items) > count:
                 cand["continue_idx"] = count
-            elif follows is not None and id(cand) in released:
-                follows.setdefault("held", []).append((cand, count))
+            elif follows is not None and id(cand) in released \
+                    and id(follows["record"]) not in reading_on:
+                follows.setdefault("held", []).append(
+                    (cand, count, "follows"))
             elif follows is not None:
                 follows["reject"] = (
                     f"the menu follows the menu at "
-                    f"{cand['record'].source} with no line between")
-                if follows["record"].condition is not None:
-                    follows.setdefault("held", []).append((cand, count))
+                    f"{cand['record'].source} with no line between" + (
+                        ", past a return, and its own join has no item "
+                        "of its own" if id(follows["record"]) in reading_on
+                        else ""))
+                if follows["record"].condition is not None \
+                        or id(follows["record"]) in reading_on:
+                    follows.setdefault("held", []).append(
+                        (cand, count, "follows"))
         awaiting.clear()
 
     def release_held(ms: dict[str, Any], outcome: dict[str, Any] | None
@@ -1544,13 +1567,32 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         """At a linear menu's close, the decisions it held (above) take
         its first item, else wait on with its join's path when the walk
         lays that out next (the outcome's ``awaits``), taking the line
-        before a menu that path meets before any item (menu_lead)."""
-        for cand, count in ms.get("held", ()):
+        before a menu that path meets before any item (menu_lead), else
+        go on where the enclosing menu does whose choices meet where this
+        one's lines do (the outcome's ``link``; docs/plan.md Phase 60 item
+        9o2m: before, a pure choice). Each says which menu held it and how
+        (``held_by``, for its ledger note), as its join names another
+        statement than where it continues."""
+        for cand, count, kind in ms.get("held", ()):
+            cand["held_by"] = (ms["record"], kind)
             if len(result.items) > count:
                 cand["continue_idx"] = count
             elif (outcome or {}).get("awaits"):
                 awaiting.append((cand, count))
                 released.add(id(cand))
+            elif (up := open_menu((outcome or {}).get("link"))) is not None \
+                    and up is not ms:
+                cand["link"] = up
+                up.setdefault("linked", []).append((cand, count))
+
+    def open_menu(link: tuple[FileParse, int] | None
+                  ) -> dict[str, Any] | None:
+        """The open menu region a walk outcome's ``link`` names, if any."""
+        if link is None:
+            return None
+        return next((open_ms for open_ms in reversed(menu_stack)
+                     if open_ms["parsed"] is link[0]
+                     and open_ms["index"] == link[1]), None)
 
     def close_menu(parsed: FileParse, ms: dict[str, Any],
                    outcome: dict[str, Any] | None) -> None:
@@ -1597,7 +1639,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 # in a row do: held, as a linear menu after a join holds
                 # one (release_held; docs/plan.md Phase 60 item 9o2j).
                 cand.pop("link", None)
-                ms.setdefault("held", []).append((cand, count))
+                ms.setdefault("held", []).append((cand, count, "nested"))
             what = "if chain" if record.condition is not None else "menu"
             parsed.reports.append(Report(
                 record.source, record.statement,
@@ -1677,10 +1719,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
         elif link is not None:
             # The choices meet where an enclosing menu's do: its
             # `continueAt`, past the enclosing route's end, is theirs.
-            cand["link"] = next(
-                (open_ms for open_ms in reversed(menu_stack)
-                 if open_ms["parsed"] is link[0]
-                 and open_ms["index"] == link[1]), None)
+            cand["link"] = open_menu(link)
             if cand["link"] is not None:
                 cand["link"].setdefault("linked", []).append(
                     (cand, len(result.items)))
@@ -2030,11 +2069,7 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                 # whose choices meet there does (close_menu).
                 flush_bare()
                 last_line = None
-                link = (event.outcome or {}).get("link")
-                outer = None if link is None else next(
-                    (open_ms for open_ms in reversed(menu_stack)
-                     if open_ms["parsed"] is link[0]
-                     and open_ms["index"] == link[1]), None)
+                outer = open_menu((event.outcome or {}).get("link"))
                 if outer is not None:
                     for cand, count in awaiting:
                         if len(result.items) <= count:

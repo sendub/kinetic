@@ -478,6 +478,30 @@ def collapse_withdrawn_cues(result: TimelineResult) -> None:
             id(cand) in withdrawn for cand in copy.through))
 
 
+def held_note(cand: dict[str, Any], decision: dict[str, Any],
+              decision_of: dict[int, Any], source_of: dict[str, str]
+              ) -> str:
+    """Where a decision held by a menu or `if` chain kept linear goes on
+    (docs/plan.md Phase 60 item 9o2m): its routes name the join they
+    reach, its `continueAt` is an item past that menu's start (its first
+    item, the next block's or one past its join), so the note says
+    which and where; empty for any other decision."""
+    held = cand.get("held_by")
+    if held is None or id(held[0]) in decision_of:
+        return ""
+    rec, kind = held
+    what = "if chain" if rec.condition is not None else "menu"
+    at = source_of[decision["continueAt"]]
+    if kind == "nested":
+        return (f"; its choices meet where those of the {what} at "
+                f"{rec.source} do, which stays linear, so it continues at "
+                f"{decision['continueAt']} ({at}) as that {what}'s lines "
+                "read in a row")
+    return (f"; its join leads into the {what} at {rec.source}, which "
+            f"stays linear, so it continues at {decision['continueAt']} "
+            f"({at}) as that {what}'s lines read in a row")
+
+
 def finalize_branches(result: TimelineResult,
                       parses: list[tuple[str, object]],
                       reports: list[Report],
@@ -503,7 +527,8 @@ def finalize_branches(result: TimelineResult,
     # The span ids in `span_ids`, which a new span id avoids.
     span_made: set[str] = set()
     branches: list[dict[str, Any]] = []
-    decision_of: dict[int, tuple[dict[str, Any], list[str]]] = {}
+    decision_of: dict[int, tuple[dict[str, Any], list[str],
+                                 dict[str, Any]]] = {}
     # A shared span's key -> its decision and id; each route's `then`
     # key, set once every decision is made (a nested decision is made
     # before the one whose span it names).
@@ -623,7 +648,7 @@ def finalize_branches(result: TimelineResult,
         branches.append(decision)
         # The decision the candidate became, for its translations.
         cand["branch"] = branches[-1]
-        decision_of[id(rec)] = (decision, how)
+        decision_of[id(rec)] = (decision, how, cand)
         span_notes[id(decision)] = [
             f"shared span {made['id']} ({span['how']}; the content at "
             f"{span['source']}, laid out once)"
@@ -634,11 +659,13 @@ def finalize_branches(result: TimelineResult,
         if key in span_ids:
             route["then"] = span_ids[key][1]
     notes: list[dict[str, str]] = []
+    source_of = {record.item["id"]: record.source for record in result.items
+                 if not record.skipped}
     for _rel, parsed in parses:
         for rec in getattr(parsed, "menus", []):
             made = decision_of.get(id(rec))
             if made is not None:
-                decision, how = made
+                decision, how, cand = made
                 # The decision's routes, not the menu's choices or the
                 # chain's arms: an absent `else` left out when following
                 # is no route (Phase 60 item 9b).
@@ -657,6 +684,8 @@ def finalize_branches(result: TimelineResult,
                 if "continuingRoute" in decision:
                     note += (f"; continuingRoute {decision['continuingRoute']}"
                              f", continueAt {decision['continueAt']}")
+                    note += held_note(cand, decision, decision_of,
+                                      source_of)
                 else:
                     note += "; a pure choice (no join item to continue at)"
                 if rec.prompt_defaulted:

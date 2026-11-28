@@ -760,6 +760,17 @@ def follow_labels(parses: list[tuple[str, FileParse]],
         # any item gets a line before it, which the decision continues at
         # (a `path-end` marker named ``crossed``; item 9o2b).
         crossed = [False]
+        # The same as before item 9o2j: a join in the caller crossed its
+        # `return` only where item 9o2f followed it there
+        # (``past_return``), so a menu met past one only the wider rule
+        # crosses was linear (a chain straight after the join) or a
+        # decision with no line before it (read_on).
+        crossed_before = [False]
+        # Each `return` a menu's join passed on its way to an enclosing
+        # menu's join that took the call's continuation (item 9o2k), past
+        # where the join stayed before: a path stopping there meets at
+        # that join, where before it rejoined content read elsewhere.
+        took_via: set[int] = set()
         Ctx = tuple[tuple[int, int, frozenset[int]], ...]
         # Shared tails (docs/plan.md Phase 60 item 9i), final walk only:
         # every path end (``n``, ``kind``, ``ctx``, ``floor`` and ``got``,
@@ -820,11 +831,14 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             if not final:
                 return
             pending, at = awaiting[0], n
+            lifted = None
             if kind == "stop" and n in via \
                     and any(c is via[n][2] for c in rets):
                 # A `return` a menu's join follows (item 9o2f), in the
                 # same call: the path goes on there, in the caller, as
                 # through the return.
+                if n in took_via:
+                    lifted = n
                 n, floor, _cont = via[n]
                 returned = True
             steps = 0
@@ -845,7 +859,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                     and (at in pending or walked_next(at)):
                 # The join of an `if` the join's path is inside, past
                 # its block's end (item 9o2h), as one met on the way.
-                crossed[0] = True
+                crossed[0] = crossed_before[0] = True
             elif pending is not None:
                 awaiting[0] = None
                 # A join's path reaching an enclosing menu's join before
@@ -872,27 +886,46 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 if kind == "exit" and rets and info["join_returns"]:
                     got = "join"
                 elif kind == "stop":
-                    if n == info["join"]:
-                        got = "join"
-                    elif (way := way_to_menu(n, fork)) is not None:
-                        got = "menu"
+                    got = stop_got(n, depth, ctx, stops)
+                    if got is None:
+                        continue   # a fork inside the choice goes on there
+                    if got == "menu":
+                        way = way_to_menu(n, fork)
                         if way and info["lead"][k] is None:
                             info["lead"][k] = way
-                    elif (n in stops and n not in frame_stops) or any(
-                            n == menus[inner]["join"]
-                            or way_to_menu(n, inner) is not None
-                            for inner, _k, _s in ctx[depth + 1:]):
-                        continue   # a fork inside the choice goes on there
-                    else:
-                        got = "rejoin"
                 record["got"][depth] = got
                 if got == "join" and returned:
                     info["returned"][k] = True
+                if got == "join" and lifted is not None \
+                        and ops[lifted].source \
+                        and stop_got(lifted, depth, ctx, stops) == "rejoin":
+                    # It met the others only through a `return` an
+                    # enclosing join took past (item 9o2k): before, it
+                    # rejoined content read there (read_on).
+                    info["lifted"].setdefault(k, ops[lifted].source)
                 info["ends"][k].append(len(ends_log) - 1)
                 info["endings"][k].add(got)
                 if got in ("rejoin", "unfollowed") \
                         and info["where"][k] is None:
                     info["where"][k] = ops[n].source if n < exit_ else ""
+
+        def stop_got(n: int, depth: int, ctx: Ctx,
+                     stops: frozenset[int]) -> str | None:
+            """How a path stopping at op ``n`` ends the choice of the menu
+            at ``ctx[depth]`` (path_end): at its join, back at the menu,
+            a rejoin of content read elsewhere, or None where a fork
+            inside the choice goes on there."""
+            fork, _k, frame_stops = ctx[depth]
+            if n == menus[fork]["join"]:
+                return "join"
+            if way_to_menu(n, fork) is not None:
+                return "menu"
+            if (n in stops and n not in frame_stops) or any(
+                    n == menus[inner]["join"]
+                    or way_to_menu(n, inner) is not None
+                    for inner, _k2, _s in ctx[depth + 1:]):
+                return None
+            return "rejoin"
 
         def finish_choice(fork: int, k: int) -> None:
             """A choice with no story event of its own gets its text as a
@@ -1033,6 +1066,8 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 # at a block's end (item 9o2h) goes on past that block, as
                 # past an `if` that shows nothing.
                 crossed[0] = info["into_caller"] \
+                    or block_end(info["join"])
+                crossed_before[0] = info["past_return"] \
                     or block_end(info["join"])
             region.append(fork)
             if not ctx:
@@ -1233,6 +1268,75 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             for plan in sorted(plans.values(), key=lambda p: p["e0"]):
                 if plan["story"]:
                     move_span(plan)
+
+        def read_on(laid: list[tuple[FileParse, Event]]) -> None:
+            """A menu or chain that items 9o2j and 9o2k made a decision,
+            linear before, whose join's path ended before an item of its
+            own while the walk lays out more of the story after it, stays
+            as it was (docs/plan.md Phase 60 item 9o2m): a pure choice
+            there would end the story where its lines, read in a row, let
+            the reader read on. One met past a `return` only item 9o2j
+            crosses keeps no line before it when it would have none
+            without that rule (``reads_on``, for the timeline: a chain, or
+            a menu with a visual still to show); one a choice of which
+            meets the others only through a `return` an enclosing menu's
+            join took past (item 9o2k), where before it rejoined content
+            read elsewhere, stays linear for that rejoin. Its join has no
+            item when the first event past its `menu-close` that the
+            timeline judges a waiting decision's join by ends that wait
+            (a route's or menu's boundary, the join's path ending with no
+            enclosing join to go on to) rather than showing an item or
+            opening a menu."""
+            later = [False] * (len(laid) + 1)
+            for i in range(len(laid) - 1, -1, -1):
+                later[i] = later[i + 1] or laid[i][1].kind in _STORY_KINDS
+            for fork, info in menus.items():
+                if not (info.get("new_cross") or info["lifted"]) \
+                        or info.get("close_at") is None:
+                    continue
+                got = info["outcome"]
+                at = joinless_at(laid, info["close_at"] + 1)
+                if at is None or not later[at] or got.get("linear") \
+                        or got.get("link") or not got.get("join") \
+                        or "continue" not in (got.get("results") or ()) \
+                        or got.get("shared") or got.get("then") \
+                        or got.get("join_span") is not None:
+                    continue
+                if info["lifted"]:
+                    k, where = min(info["lifted"].items())
+                    record = parsed_of[ops[fork].file].menus[ops[fork].menu]
+                    got["linear"] = (
+                        f"choice {k + 1} ({record.choices[k]}) rejoins "
+                        f"content read at {where}, and the choices' join "
+                        "has no item of its own")
+                    # As judged linear (finish_menu): no choice text or
+                    # route line of its own.
+                    record.stat_choice = False
+                    for _k, marker in info["texts"]:
+                        marker.kind = "choice-text"
+                    if info["route_lead"] is not None:
+                        info["route_lead"].kind = "choice-text"
+                elif info["new_cross"]:
+                    got["reads_on"] = True
+
+        def joinless_at(laid: list[tuple[FileParse, Event]], i: int
+                        ) -> int | None:
+            """Where the decision closed just before event ``i`` gets no
+            join item in the timeline (read_on), else None: an item, a
+            menu opening or a line before one, or a join's path going on
+            past a `return` or to an enclosing join, comes first."""
+            for at in range(i, len(laid)):
+                event = laid[at][1]
+                if event.kind in _STORY_KINDS or event.kind in (
+                        "interact", "route-lead", "menu-lead", "menu-open"):
+                    return None
+                if event.kind == "path-end":
+                    return None if event.name == "crossed" or (
+                        event.outcome or {}).get("link") else at
+                if event.kind in ("choice-open", "menu-close",
+                                  "shared-open"):
+                    return at
+            return len(laid)
 
         def judge_region(menus_in: list[int], bad: dict[int, set[int]],
                          eff: dict[int, list[set[str]]]
@@ -1651,6 +1755,12 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 # took the call's continuation (item
                                 # 9o2k): the choices meet at that join.
                                 passed += [(m, ups[level]) for m in way]
+                                if not any(c is ups[level] for c in ready) \
+                                        or pending_below(ups[level]):
+                                    # Before item 9o2k the join stayed at
+                                    # ``way``'s first op, and its path read
+                                    # the rest (read_on).
+                                    took_via.update(way[1:])
                                 join = taken[0]
                                 level = next(k for k, c in enumerate(ups)
                                              if c is taken[1]) + 1
@@ -1724,11 +1834,16 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 "ctx": ctx,
                                 "past_return": level > found_at,
                                 "into_caller": level > 0,
+                                "lifted": {},
                                 "passed": laid}
                             if awaiting[0] is not None and crossed[0]:
                                 events.append((parsed_of[op.file],
                                                Event("path-end", "",
                                                      name="crossed")))
+                            # Met past a `return` only item 9o2j crosses.
+                            menus[n]["new_cross"] = (
+                                awaiting[0] is not None and crossed[0]
+                                and not crossed_before[0])
                             awaiting[0] = None
                             # The line a menu straight after another
                             # decision's join gets (docs/plan.md Phase 60
@@ -1791,12 +1906,14 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                         if rets and not rets[-1].done \
                                 and next_cont() is rets[-1]:
                             ended = ""
-                            crossed[0] = True
+                            crossed[0] = crossed_before[0] = True
                         break
                 if ended:
                     path_end(ended, n, stops, ctx, floor, returned, rets)
         if region:
             resolve_region()
+        if final:
+            read_on(events)
         if moves:
             lay_out_spans(events, moves)
         return out

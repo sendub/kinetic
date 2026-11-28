@@ -364,8 +364,9 @@ something more of an author.
   conditional choice, an arm that leads back to its condition), now
   goes on into that menu's lines, as it already did into a chain
   straight after its menu, instead of ending the story there (a pure
-  choice) where Ren'Py goes on (docs/extracting.md, "The walk follows
-  labels").
+  choice) where Ren'Py goes on; its ledger note names the item it
+  continues at and the menu or chain that holds it, besides the join
+  its routes reach (docs/extracting.md, "The walk follows labels").
 - A decision whose choices meet at the end of a block now goes on at
   the statement that block's end leads to, as Ren'Py does, instead of
   ending the story (a pure choice whose ledger note named an empty
@@ -390,11 +391,16 @@ something more of an author.
   `return` a value is now a decision, with the line "Another choice
   follows." before it that the called menu's routes continue at, as
   when the choices fall through to the `return`, instead of a linear
-  chain whose arms the reader read one after another. A menu or chain
-  nested in a block of a menu or chain the converter keeps linear, and
-  meeting where its blocks do, now goes on into the lines that follow
-  it instead of ending the story there (docs/extracting.md, "The walk
-  follows labels").
+  chain whose arms the reader read one after another, except where the
+  chain's own join has nothing to continue at while the story goes on
+  after it (the last candidate of a `call expression` returning to a
+  hub label already read): there it stays linear, so the reader reads
+  on, where as a decision its routes would end the story. A menu or
+  chain nested in a block of a menu or chain the converter keeps
+  linear, and meeting where its blocks do, now goes on into the lines
+  that follow it, or, where those lines meet an enclosing decision's
+  other routes, where that decision goes on, instead of ending the
+  story there (docs/extracting.md, "The walk follows labels").
 - A menu nested in a choice of a called label's menu, at the end of
   that choice or of the label, now goes on after the `call` where the
   enclosing menu's choices meet, as Ren'Py's `return` does, instead of
@@ -402,8 +408,12 @@ something more of an author.
   other choice `return`s or jumps away. So does any nested decision
   whose choices meet at a place that leads, with nothing shown on the
   way, to where the enclosing menu's choices meet (a `jump` there, or a
-  `call` of a label that shows nothing and then a `return`)
-  (docs/extracting.md, "The walk follows labels").
+  `call` of a label that shows nothing and then a `return`). An
+  enclosing menu another choice of which meets the others only through
+  that `return` stays linear, as before, where its own join has nothing
+  to continue at while the story goes on after it, so the reader reads
+  on instead of reaching an end (docs/extracting.md, "The walk follows
+  labels").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

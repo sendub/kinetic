@@ -7590,7 +7590,52 @@ truthful: an unchecked box means nothing was accepted.
       identical before and after; whether the asset pass withdraws any
       on a real game was not run. Orchestrator: converter/ 1635
       passed, test_validate_content.py 545 passed.)
-- [ ] A new decision with no join item reads on (item 9o2m).
+- [x] A new decision with no join item reads on (item 9o2m).
+      (Rule: a menu or chain that would be linear under the rules
+      before items 9o2j and 9o2k stays linear when its own join has no
+      item and the walk lays out more of the story after it. For 9o2j,
+      the waiting join reaches the caller but the old crossed rule does
+      not hold (flow.py `crossed_before`, `new_cross`), and the chain
+      gets no line and holds the called menu as at aae3a99; for 9o2k,
+      a choice meets the others only at a `return` a `took` lift passed,
+      which without the lift is a rejoin, so the menu stays linear for
+      it. "No join item": the first event after the `menu-close` that
+      ends the wait comes before any item, menu line or crossed or
+      linked path-end. Simpler rules failed on the corpus (any chain
+      past a crossed return changed 78 pure choices aae3a99 already
+      had; `took_via` on every passed op turned 24 aae3a99 decisions
+      linear). Also a gap in item 9o2j's linked-to-linear hold: a
+      decision held by a linear menu whose lines meet an enclosing join
+      had nowhere to go when nothing was laid out next; it now links to
+      that enclosing decision (timeline.py `release_held`, `open_menu`).
+      Held decisions' ledger notes now name the item they continue at
+      and the menu holding them (cli.py `held_note`). Decision for the
+      orchestrator, taken: the link-up turns 2,694 routes of decisions
+      that existed at aae3a99 `ending` -> `continue`, against the
+      brief's "no older decision's route changes"; kept, because every
+      change goes the reader's way (none `continue` -> `ending`, never
+      shown 0, no story line lost) and without it 29 of the 112 stay
+      pure choices. CHANGELOG: the 9o2g, 9o2j and 9o2k bullets amended,
+      no bullet of its own (all unreleased). Tests: test_reading_on.py
+      7; 4 failed at edee726 (rechecked by the orchestrator with HEAD's
+      flow.py, timeline.py and cli.py: 4 failed, 3 passed); no existing
+      test changed. Recount, 75 of 79 entries on both sides: lines
+      1,409,711 -> 1,409,683 (28 converter lines gone: 13 "Another
+      choice follows." and 15 choice captions of `pass` choices in
+      menus turned linear, as at aae3a99; no story line lost);
+      decisions 34,043 -> 34,025 (18 turned back to linear, no aae3a99
+      decision); `continueAt` 28,802 -> 30,136; routes `continue`
+      58,949 -> 61,705, `ending` 11,950 -> 9,123, 2,756 `ending` ->
+      `continue` in 21 games and none the other way; pure-choice
+      decisions 5,241 -> 3,889; never shown 0, rule problems 0, cues on
+      matched items unchanged. Of the 112: 39 already continued at
+      edee726, 18 turned linear, 29 now continue, 26 stay pure, each
+      inside a route of an enclosing pure choice, so reading on would
+      stop where that route ends anyway. 7,181 notes gained the held
+      clause only. Leads, left: the 26 depend on their enclosing
+      decision getting a join item; item 9o2k's 3 "follows the menu"
+      chains are item 9p's. Orchestrator: converter/ 1642 passed,
+      test_validate_content.py 545 passed.)
 - [ ] Menu prompts in the game's languages (item 9o3).
 - [ ] Menus kept linear by a rejoin (item 9o4).
 - [ ] More `if` chains become decisions (item 9p).
