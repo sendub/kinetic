@@ -211,7 +211,25 @@ game whose story order differs from its file order read out of order.
   goes on where it does. Before, the join was the `return` itself,
   whose path reached the end of the enclosing route with no item of its
   own: a pure choice whose routes were `"ending"`, where Ren'Py goes
-  on. The join stays at the `return` when the call sits in a block of an
+  on. So does a menu nested in a choice of a called label's menu whose
+  choices meet past the `call` (one reads on to the label's `return`,
+  another `return`s or jumps to a label that does), its own choices
+  meeting at a `return` of that label with nothing shown between (the
+  menu ends the choice's block and the block falls through to the
+  `return`, or it is the label's last menu, past the nested one, or it
+  is in a label the choice calls): it meets where the enclosing menu
+  does, past the `call` (item 9o2k: before, the enclosing menu had
+  already taken the call's continuation, so the join stayed at the
+  `return`, a pure choice whose routes were `"ending"`). Any decision
+  whose join's path reaches an enclosing menu's join before an item of
+  its own (past a `call` of a label that shows nothing and a `return`
+  that goes on there, or by a `jump` there, in a called label or not)
+  takes that menu's `continueAt` too (item 9o2k: before, a pure
+  choice). Neither applies when the walk lays out
+  more of the enclosing route after the decision (what follows an `if`
+  it does not convert, say): going on past it would leave that never
+  shown, so the decision stays as it was. The join
+  stays at the `return` when the call sits in a block of an
   `if` the walk does not convert (Forks, above) whose other blocks the
   walk reads after it: they return there too, and the caller's next
   statement comes after them all. Nor does it go past the end of such a

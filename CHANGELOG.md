@@ -392,6 +392,15 @@ something more of an author.
   meeting where its blocks do, now goes on into the lines that follow
   it instead of ending the story there (docs/extracting.md, "The walk
   follows labels").
+- A menu nested in a choice of a called label's menu, at the end of
+  that choice or of the label, now goes on after the `call` where the
+  enclosing menu's choices meet, as Ren'Py's `return` does, instead of
+  ending the story there (a pure choice) when the enclosing menu's
+  other choice `return`s or jumps away. So does any nested decision
+  whose choices meet at a place that leads, with nothing shown on the
+  way, to where the enclosing menu's choices meet (a `jump` there, or a
+  `call` of a label that shows nothing and then a `return`)
+  (docs/extracting.md, "The walk follows labels").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

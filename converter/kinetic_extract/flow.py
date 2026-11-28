@@ -744,6 +744,11 @@ def follow_labels(parses: list[tuple[str, FileParse]],
         # Each op that shows nothing a menu's join passed on its way to
         # an enclosing menu's join (item 9o2i) -> that join.
         skip_to: dict[int, int] = {}
+        # Each call continuation a menu's join took (it lies past the
+        # `return` that goes on there) -> that join and the continuation
+        # it lies in, so a menu nested in one of its choices whose join
+        # returns there meets it too (item 9o2k).
+        took: dict[_Cont, tuple[int, _Cont]] = {}
         # From a decision's `menu-close` until its join's path shows a
         # story event, opens a menu or ends (a `path-end` marker): the
         # joins of the `if` forks met on the join's path since, else None.
@@ -814,16 +819,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
             to an enclosing menu's join (item 9o2i)."""
             if not final:
                 return
-            pending = awaiting[0]
-            if pending is not None and kind == "stop" and not visited[n] \
-                    and (n in pending or walked_next(n)):
-                # The join of an `if` the join's path is inside, past
-                # its block's end (item 9o2h), as one met on the way.
-                crossed[0] = True
-            elif pending is not None:
-                awaiting[0] = None
-                events.append((parsed_of[ops[min(n, exit_ - 1)].file],
-                               Event("path-end", "")))
+            pending, at = awaiting[0], n
             if kind == "stop" and n in via \
                     and any(c is via[n][2] for c in rets):
                 # A `return` a menu's join follows (item 9o2f), in the
@@ -845,6 +841,27 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                 else:
                     break
                 steps += 1
+            if pending is not None and kind == "stop" and not visited[at] \
+                    and (at in pending or walked_next(at)):
+                # The join of an `if` the join's path is inside, past
+                # its block's end (item 9o2h), as one met on the way.
+                crossed[0] = True
+            elif pending is not None:
+                awaiting[0] = None
+                # A join's path reaching an enclosing menu's join before
+                # any item (past a call of a label that shows nothing and
+                # a `return` that goes on there, say) goes on where that
+                # menu's routes do (item 9o2k): named for the timeline.
+                outer = next((f for f, _k, _s in reversed(ctx)
+                              if kind == "stop" and menus[f]["join"] == n),
+                             None)
+                if outer is not None and not route_ends_next(ctx, []):
+                    outer = None
+                events.append((parsed_of[ops[min(at, exit_ - 1)].file],
+                               Event("path-end", "", outcome=None
+                                     if outer is None else {"link": (
+                                         parsed_of[ops[outer].file],
+                                         ops[outer].menu)})))
             record: dict[str, Any] = {"n": n, "kind": kind, "ctx": ctx,
                                       "floor": floor, "got": {}}
             ends_log.append(record)
@@ -1465,6 +1482,25 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                     return mark[1]
             return None
 
+        def route_ends_next(ctx: Ctx, passing: list[_Cont]) -> bool:
+            """Whether the walk's next task, past the call continuations
+            already taken or in ``passing``, opens the next choice of the
+            menu the path is in or closes it: nothing more of the route
+            it is in comes before (no block of an `if` the walk does not
+            convert, say), so the route may go on where that menu's, or
+            an enclosing one's, routes do (item 9o2k)."""
+            if not ctx:
+                return False
+            fork = ctx[-1][0]
+            for task in reversed(tasks):
+                mark = task[5]
+                if mark is not None and mark[0] == "ret" and (
+                        mark[1].done or any(mark[1] is c for c in passing)):
+                    continue
+                return mark is not None and mark[0] in ("open", "close") \
+                    and mark[1] == fork
+            return False
+
         for entry in entries:
             tasks: list[tuple[Any, ...]] = [(*entry, (), 0, None, None, ())]
             while tasks:
@@ -1604,6 +1640,21 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                                 level = next(k for k, c in enumerate(ups)
                                              if c is cont) + 1
                                 break
+                            taken = took.get(ups[level])
+                            if taken is not None and any(
+                                    menu_joins.get(f) == taken[0]
+                                    for f, _k, _s in ctx) and any(
+                                    c is taken[1] for c in ups[level:]) \
+                                    and route_ends_next(ctx, ups[:level]):
+                                # The `return` goes on where an enclosing
+                                # menu's join, walked after its choices,
+                                # took the call's continuation (item
+                                # 9o2k): the choices meet at that join.
+                                passed += [(m, ups[level]) for m in way]
+                                join = taken[0]
+                                level = next(k for k, c in enumerate(ups)
+                                             if c is taken[1]) + 1
+                                break
                             if not any(c is ups[level] for c in ready) \
                                     or pending_below(ups[level]):
                                 break
@@ -1646,6 +1697,7 @@ def follow_labels(parses: list[tuple[str, FileParse]],
                         if has_join and up is not None:
                             for c in ups[:level]:
                                 c.done = True
+                                took[c] = (join, up)
                         if final:
                             link = None
                             if has_join and join in jstops:

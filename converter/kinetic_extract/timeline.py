@@ -2010,9 +2010,23 @@ def build_timeline(parses: list[tuple[str, FileParse]],
                     if len(result.items) <= count:
                         released.add(id(cand))
             elif event.kind == "path-end":
-                # The join's path ended before an item of its own.
+                # The join's path ended before an item of its own: at an
+                # enclosing menu's join, the decisions waiting on it go
+                # on where that menu's routes do (item 9o2k), as one
+                # whose choices meet there does (close_menu).
                 flush_bare()
                 last_line = None
+                link = (event.outcome or {}).get("link")
+                outer = None if link is None else next(
+                    (open_ms for open_ms in reversed(menu_stack)
+                     if open_ms["parsed"] is link[0]
+                     and open_ms["index"] == link[1]), None)
+                if outer is not None:
+                    for cand, count in awaiting:
+                        if len(result.items) <= count:
+                            cand["link"] = outer
+                            outer.setdefault("linked", []).append(
+                                (cand, count))
                 resolve_awaiting()
             elif event.kind == "menu-open":
                 # The lead-in ends here: a trailing visual becomes the

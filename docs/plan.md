@@ -5273,7 +5273,8 @@ The orchestrator's choices, within those decisions:
     its ledger note where it continues, not only the join it reaches.
     Tests: a synthetic `_return` chain under a computed call, its lines
     read on; a held decision's note naming its `continueAt`; a corpus
-    recount of the 95.
+    recount of the 95, and of the 17 such pure choices item 9o2k made
+    (9 inside a continuing route, where the reader read on before).
 9o3. Menu prompts in the game's languages (leads from item 9o). A say
     menuitem prompt (`e "Which one?"` in a menu) is translated from the
     game's `translate` blocks as its dialogue is, not looked up in
@@ -5304,7 +5305,8 @@ The orchestrator's choices, within those decisions:
     decision as it is past a crossed `return`, not forced linear (lead
     from item 9o2g), and back-to-back chains no longer alternate
     decision and linear (24 decisions in one game family lost so after
-    item 9o2j). New phrases translated as in item 6b. Tests: one
+    item 9o2j, and 3 chains straight after a join that continues
+    since item 9o2k). New phrases translated as in item 6b. Tests: one
     synthetic chain per form.
 9q. Variables shown in text (39,000 lines in 51 games show a literal
     `[name]`). `[var]` in a line or a speaker's name is replaced by the

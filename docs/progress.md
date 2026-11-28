@@ -7513,7 +7513,49 @@ truthful: an unchecked box means nothing was accepted.
       read on, and a held decision's note names the join while its
       `continueAt` is the next block's item -> item 9o2m. Orchestrator:
       converter/ 1615 passed, test_validate_content.py 545 passed.)
-- [ ] A nested menu in a called label goes on (item 9o2k).
+- [x] A nested menu in a called label goes on (item 9o2k).
+      (Causes: the enclosing menu's join came from `_menu_join`'s
+      level-1 chain past the `call`, whose continuation the menu had
+      already taken, so item 9o2f's lift (which needs `taken_next`)
+      never followed the nested menu's `return` and nothing went into
+      `via`: a pure choice. More generally any decision whose join's
+      path reached an enclosing menu's join before an item of its own
+      (a call of a label that shows nothing before the `return`, a
+      `jump` to the enclosing join, even with no call) got a plain
+      `path-end`. Fix in flow.py: `took` records each continuation a
+      menu's join takes; the lift meets at that join when an enclosing
+      menu has it, the continuation is among the menu's `ups` and
+      `route_ends_next` holds (the walk's next task is the innermost
+      enclosing menu's mark, so no more of the route is laid out
+      next); `path_end` resolves `via`, gotos and `skip_to` first and
+      gives a path stopping at an enclosing join a link outcome, which
+      timeline.py uses to link the waiting decisions to that menu (its
+      `continueAt`, or held if it stays linear). Choices: the general
+      rule as well (with the item's shape alone 43 menus kept linear
+      for a rejoin became decisions, some pure choices in continuing
+      routes); `route_ends_next` (without it 2,153 items were never
+      shown in G10-G13, an unconverted `if`'s blocks laid out in the
+      route; a guard pins it); 4 decisions withdrawn, accepted (one
+      chain now linear for a rejoin, read on where it was a pure
+      choice; three chains straight after a join that now continues,
+      item 9o's rule); 17 new pure choices among the 46 new decisions
+      accepted, their join having no item, left for item 9o2m. Tests:
+      test_nested_called_menus.py 13; 9 failed at 463115d (rechecked by
+      the orchestrator with HEAD's flow.py and timeline.py: 9 failed, 4
+      passed); no existing test changed. Recount, 75 of 79 entries on
+      both sides: lines 1,409,643 -> 1,409,711 (74 items added in 5
+      games; 6 converter-written lines gone with the 4 withdrawn
+      decisions, 3 condition captions and 3 "Another choice follows.",
+      no story line lost); decisions 34,001 -> 34,043 (46 linear ->
+      decision, 4 decision -> linear); `continueAt` 27,967 -> 28,802;
+      routes `continue` 57,175 -> 58,949, `ending` 13,558 -> 11,950,
+      1,684 `ending` -> `continue` in 31 games and none the other way;
+      never shown 0, rule problems 0, empty join places 0, cues
+      unchanged. Leads: the 17 new pure choices, 9 of them inside a
+      continuing route where the reader read on before -> item 9o2m;
+      item 9o's rule withdrawing a chain after a join that now
+      continues -> item 9p. Orchestrator: converter/ 1628 passed,
+      test_validate_content.py 545 passed.)
 - [ ] Copied cues on a withdrawn decision play once (item 9o2l).
 - [ ] A new decision with no join item reads on (item 9o2m).
 - [ ] Menu prompts in the game's languages (item 9o3).
