@@ -5207,6 +5207,32 @@ The orchestrator's choices, within those decisions:
     `"ending"` with no `continueAt`. Tests: a synthetic script whose
     called menu's routes continue into the caller's next line, that
     shape among them.
+9o2g. A chain after a join holds its decision (leads from item 9o2f). A
+    linear chain (a `_return` chain, or another chain kept linear) met
+    straight after a decision's join gets no line and stays linear
+    ("the menu follows the menu ... with no line between"), and one
+    met past a crossed `return` makes the waiting decision a pure
+    choice, while a menu there holds the decision and gives item 9o2b's
+    line. Both cases are treated alike: the chain keeps the decision
+    open past its line, or the decision continues into it. Tests:
+    synthetic scripts of both shapes validate `--strict`, with the
+    routes continuing; a corpus recount of the routes changed.
+9o2h. Joins at a block's end (leads from item 9o2f). An item 9l
+    level-0 join that is a block's end (a goto with no source) reads as
+    no join in the timeline, so the decision becomes a pure choice and
+    its ledger note says "reaches the join at " with an empty place; a
+    called menu inside an `if` the walk does not convert, with no
+    `else`, followed by a line, has its join's path end at that `if`'s
+    join, walked later, so its routes end. Both join where Ren'Py goes
+    on, named by the statement there. Tests: a synthetic script per
+    shape, its routes continuing and no empty place in a note.
+9o2i. A cue after a nested menu plays on every route (lead from item
+    9o2f). A sound or transition between a nested menu's close and its
+    enclosing route's end cues only the last route's last item, so a
+    reader who chose another route never hears it. It is laid out where
+    every route reaches it (the join, or each route's end). Tests: a
+    synthetic script whose nested menu is followed by a sound, each
+    route's walk meeting the cue.
 9o3. Menu prompts in the game's languages (leads from item 9o). A say
     menuitem prompt (`e "Which one?"` in a menu) is translated from the
     game's `translate` blocks as its dialogue is, not looked up in
@@ -5268,7 +5294,7 @@ The orchestrator's choices, within those decisions:
     v1.15.0, `main` fast-forwarded, the wheel attached to the GitHub
     release, the Pages demo republished.
 
-Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o2b -> 9o2c -> 9o2d -> 9o2e -> 9o2f -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
+Sequencing: 1 -> 2 -> 2b -> 3 -> 4 -> 4b -> 5 -> 6 -> 6c -> 6b -> 7 -> 8 -> 8b -> 8c -> 9 -> 9b -> 9c -> 9d -> 9e -> 9f -> 9g -> 9h -> 9i -> 9i2 -> 9k -> 9l -> 9m -> 9m2 -> 9n -> 9n2 -> 9n3 -> 9n4 -> 9n4b -> 9n5 -> 9n6 -> 9o -> 9o2 -> 9o2b -> 9o2c -> 9o2d -> 9o2e -> 9o2f -> 9o2g -> 9o2h -> 9o2i -> 9o3 -> 9o4 -> 9p -> 9q -> 9r -> 9j -> 10, serial.
 Item 6 needs items 4 (the fork layout) and 5 (`follows`); item 8 needs
 item 7. Items 1, 2 and 3 stand alone.
 

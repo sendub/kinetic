@@ -200,9 +200,25 @@ game whose story order differs from its file order read out of order.
   menu at the end of a called label, whose choices meet at its
   `return`, joins at the caller's line after the `call`; and a choice
   that returns early beside one reading the label's last lines meets it
-  back in the caller. What a choice's path
-  reads is its route, and its `result` is how the path ended: at the
-  join `"continue"`, back at the menu (its label, a named menu, a
+  back in the caller. A join that only returns (nothing shown between
+  it and the `return`: a sound or transition there is still laid out,
+  after the decision) is where that `return` goes on, through as many
+  calls as return at once (item 9o2f): so the menu of a label called at
+  the end of an `if` arm or a menu choice (`if x: call talk` / `else:
+  "line"`, `talk` a stat choice whose choices `pass` to its `return`)
+  continues where the enclosing decision does, its routes
+  `"continue"`, and a menu in a label called from one of its choices
+  goes on where it does. Before, the join was the `return` itself,
+  whose path reached the end of the enclosing route with no item of its
+  own: a pure choice whose routes were `"ending"`, where Ren'Py goes
+  on. The join stays at the `return` when the call sits in a block of an
+  `if` the walk does not convert (Forks, above) whose other blocks the
+  walk reads after it: they return there too, and the caller's next
+  statement comes after them all. Nor does it go past the end of such a
+  block in the caller to where the `if` goes on: the `if`'s other
+  blocks are laid out in between, in the same route. What a choice's
+  path reads is its route, and its `result` is how the path ended: at
+  the join `"continue"`, back at the menu (its label, a named menu, a
   label that reaches it with no line between, or content already read
   from which straight-line code reaches it: the question before a
   refusal, re-read but not laid out again) `"return"`, at the story's
@@ -217,7 +233,9 @@ game whose story order differs from its file order read out of order.
   line before it, which is the decision's `continueAt` (below; Phase 60
   item 9o2b: before it the decision was a pure choice and the menu hung
   off its last route; one that stays linear gets no line, and the
-  decision is a pure choice); a menu
+  decision is a pure choice), and so does one that is a join item
+  9o2f follows to the caller, reached through the `return` as the walk
+  past it was; a menu
   nested in a route whose choices meet where the enclosing menu's do
   (a jump there, or falling through at the end of the enclosing
   choice's block) takes the enclosing `continueAt`, past its route's

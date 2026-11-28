@@ -353,6 +353,12 @@ something more of an author.
   Character with an empty name, `Character("")`, now gives narration
   instead of the empty speaker name and `characters` entry the schema
   refused (docs/extracting.md, "Say statements" and "Output layout").
+- A menu in a called label whose choices meet at its `return`, nothing
+  shown between, now goes on where that `return` does, in the caller:
+  called at the end of an `if` arm or a menu choice, its routes no
+  longer end the story (a pure choice) where Ren'Py goes on, but
+  continue where the enclosing decision does (docs/extracting.md, "The
+  walk follows labels").
 - **Upgrading:** a folder you keep as converted needs nothing; its
   player reads `follows`, `frameSeconds`, `holdLastFrame` and
   `lastFrame` once upgraded. Converting a Ren'Py game again with this release gains its

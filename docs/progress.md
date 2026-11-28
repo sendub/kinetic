@@ -7329,7 +7329,50 @@ truthful: an unchecked box means nothing was accepted.
       Orchestrator: converter/ 1555 passed, test_validate_content.py
       545 passed; CREATE.md's cross-reference to "Generating
       manifest.js" corrected to "below".)
-- [ ] Nested choices in called labels go on (item 9o2f).
+- [x] Nested choices in called labels go on (item 9o2f).
+      (Cause: `_menu_join` stopped a called menu's join at the label's
+      `return` even with nothing shown before it, so when the caller's
+      next statement was the end of an enclosing route (an `if` arm or
+      a menu choice holding the `call`) the join's path reached the
+      enclosing decision's join with no item of its own: a pure choice,
+      routes `"ending"`. Fix in flow.py: a join that only returns is
+      lifted to where the `return` goes on, through as many calls as
+      return at once, when the walk takes that continuation next and no
+      other block of an `if` the walk does not convert is pending in
+      the caller's frame; otherwise the join stays as before. The ops
+      passed are marked read and their events (a sound, a transition)
+      laid out after the `menu-close`, in their old order; a lifted
+      block-end join is named by the statement it goes on to
+      (`join_text`). Choices: lift only under those two conditions
+      (without them the corpus lost rejoins and gained 152 never-shown
+      items); item 9o2b's crossed line and `join_text` apply to lifted
+      joins only (applied to all item 9l joins they turned 606 routes
+      `continue` -> `ending` and lost a decision). Tests:
+      test_called_menus.py 14, each checked with validate `--strict`,
+      routes and `check --steps all`; 7 failed at fcb6583 (rechecked by
+      the orchestrator with HEAD's flow.py: 7 failed, 7 passed), 7
+      guards, two proved by removing their check. Recount, 75 of 79
+      entries on both sides: lines 1,409,323, decisions 33,715, never
+      shown 0 and rule problems 0 unchanged, item sequences identical
+      in every game; `continueAt` 24,505 -> 24,858; routes `continue`
+      50,062 -> 50,746, `ending` 20,099 -> 19,415, all in 11 games, none
+      the other way. Pure-choice `"ending"` routes left in called
+      labels: 14,545 -> 13,812; of 4,513 instrumented, about 70% sit
+      under a computed call (`call expression`, screen action
+      candidates), whose next step Ren'Py computes when the game runs,
+      and the rest meet a menu or chain kept linear, jump back to
+      content already laid out, or end at an unconverted `if`'s join;
+      none is this item's shape and the computed ones stay as they
+      are. Leads: a chain met past a crossed `return` and one straight
+      after a join treated alike -> item 9o2g; a level-0 block-end join
+      read as no join (its ledger note naming an empty place), and a
+      called menu in an unconverted `if` with no `else` -> item 9o2h; a
+      sound after a nested menu's close cueing only the last route ->
+      item 9o2i. Orchestrator: converter/ 1569 passed,
+      test_validate_content.py 545 passed.)
+- [ ] A chain after a join holds its decision (item 9o2g).
+- [ ] Joins at a block's end (item 9o2h).
+- [ ] A cue after a nested menu plays on every route (item 9o2i).
 - [ ] Menu prompts in the game's languages (item 9o3).
 - [ ] Menus kept linear by a rejoin (item 9o4).
 - [ ] More `if` chains become decisions (item 9p).
